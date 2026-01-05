@@ -10,7 +10,7 @@ from db import (
     Session,
     Set,
     Exercise,
-    Feedback,   # 👈 add this
+    Feedback,
 )
 
 from progression import recommend_weights_and_reps
@@ -47,6 +47,41 @@ EXERCISE_DEFAULT_SETS = {
     "Incline DB Curl": 1,
     # triceps finisher
     "Overhead Cable Extension": 1,
+}
+
+# ----------------- FEEDBACK SCALES -----------------
+
+SORENESS_OPTIONS = [
+    "Never got sore",
+    "Healed a while ago",
+    "Healed just on time",
+    "I'm still sore",
+]
+SORENESS_SCALE = {
+    "Never got sore": 1,
+    "Healed a while ago": 2,
+    "Healed just on time": 3,
+    "I'm still sore": 4,
+}
+
+PUMP_OPTIONS = ["Low pump", "Moderate pump", "Amazing pump"]
+PUMP_SCALE = {
+    "Low pump": 1,
+    "Moderate pump": 2,
+    "Amazing pump": 3,
+}
+
+WORKLOAD_OPTIONS = [
+    "Easy",
+    "Pretty good",
+    "Pushed my limits",
+    "Too much",
+]
+WORKLOAD_SCALE = {
+    "Easy": 1,
+    "Pretty good": 2,
+    "Pushed my limits": 3,
+    "Too much": 4,
 }
 
 
@@ -238,7 +273,7 @@ def main():
 
             st.subheader(ex_name)
 
-            # recommended baseline table
+            # recommended baseline table (now uses feedback + deload logic)
             rec_rows = recommend_weights_and_reps(db, we)
             df = pd.DataFrame(rec_rows)
 
@@ -304,32 +339,52 @@ def main():
                 with st.expander("Feedback for this muscle group"):
                     st.write("How did this exercise feel?")
 
-                    st.radio(
+                    # Check whether feedback is already saved for this session+exercise
+                    existing_fb = (
+                        db.query(Feedback)
+                        .filter(
+                            Feedback.session_id == session.id,
+                            Feedback.workout_exercise_id == we.id,
+                        )
+                        .order_by(Feedback.created_at.desc())
+                        .first()
+                    )
+                    if existing_fb:
+                        st.caption("Feedback already saved for this session.")
+
+                    s_choice = st.radio(
                         "Soreness AFTER last time:",
-                        [
-                            "Never got sore",
-                            "Healed a while ago",
-                            "Healed just on time",
-                            "I'm still sore",
-                        ],
+                        SORENESS_OPTIONS,
                         key=feedback_key_prefix + "_soreness",
                     )
 
-                    st.radio(
+                    p_choice = st.radio(
                         "Pump TODAY:",
-                        ["Low pump", "Moderate pump", "Amazing pump"],
+                        PUMP_OPTIONS,
                         key=feedback_key_prefix + "_pump",
                     )
 
-                    st.radio(
+                    w_choice = st.radio(
                         "Workload TODAY:",
-                        ["Easy", "Pretty good", "Pushed my limits", "Too much"],
+                        WORKLOAD_OPTIONS,
                         key=feedback_key_prefix + "_workload",
                     )
+
+                    # Save feedback once (if not already saved)
+                    if (not existing_fb) and s_choice and p_choice and w_choice:
+                        fb = Feedback(
+                            session_id=session.id,
+                            workout_exercise_id=we.id,
+                            soreness=SORENESS_SCALE[s_choice],
+                            pump=PUMP_SCALE[p_choice],
+                            workload=WORKLOAD_SCALE[w_choice],
+                        )
+                        db.add(fb)
+                        db.commit()
+                        st.success("Feedback saved ✅")
 
             st.markdown("---")
 
 
 if __name__ == "__main__":
     main()
-
