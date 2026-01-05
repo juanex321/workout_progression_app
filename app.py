@@ -9,10 +9,11 @@ from db import (
     WorkoutExercise,
     Session,
     Set,
-    Exercise,  # make sure Exercise is exported from db.py
+    Exercise,
 )
 
-# ----------------- EXERCISE ROTATION CONFIG -----------------
+from progression import recommend_weights_and_reps
+
 
 LEG_ROTATION = [
     "Leg Extension",                # leg session 1
@@ -68,76 +69,6 @@ def get_session_exercises(session_index: int):
     # Always finish with laterals
     exercises = [leg_ex] + upper_block + [LATERAL_RAISES]
     return exercises
-
-
-# ---------- progression logic (very simple first pass) ----------
-
-def get_last_session_sets(db, workout_exercise_id, max_sessions_back=3):
-    q = (
-        db.query(Set)
-        .join(Session, Set.session_id == Session.id)
-        .filter(Set.workout_exercise_id == workout_exercise_id)
-        .order_by(Session.date.desc(), Set.set_number.asc())
-    )
-    sets = q.all()
-    if not sets:
-        return None, None
-
-    # group by session_id
-    sessions = {}
-    for s in sets:
-        sessions.setdefault(s.session_id, []).append(s)
-
-    # take most recent session
-    last_sid = list(sessions.keys())[0]
-    return last_sid, sessions[last_sid]
-
-
-def recommend_weights_and_reps(db, we: WorkoutExercise):
-    """
-    Return a list of dicts: [{set_number, weight, reps, done}, ...]
-    Very dumb rule:
-      - If we have a previous session and *all* sets hit >= target_reps,
-        add +5 units of weight.
-      - Else keep previous weight.
-      - If no history, use 50 as base weight.
-
-    'done' is the Logged checkbox; it starts False so you tick it as you
-    complete sets.
-    """
-    base_weight = 50.0
-
-    last_session_id, last_sets = get_last_session_sets(db, we.id)
-    result = []
-    if not last_sets:
-        for i in range(1, int(we.target_sets) + 1):  # type: ignore
-            result.append(
-                {
-                    "set_number": i,
-                    "weight": base_weight,
-                    "reps": we.target_reps,
-                    "done": False,  # start unchecked
-                }
-            )
-        return result
-
-    all_hit_target = all(s.reps >= we.target_reps for s in last_sets)
-    last_weight = last_sets[0].weight  # assume same weight per set
-    next_weight = last_weight + 5 if all_hit_target else last_weight
-
-    for i in range(1, int(we.target_sets) + 1):  # type: ignore
-        result.append(
-            {
-                "set_number": i,
-                "weight": next_weight,
-                "reps": we.target_reps,
-                "done": False,
-            }
-        )
-    return result
-
-
-# ---------- helpers ----------
 
 def get_or_create_today_session(db, workout_id):
     today = date.today()
@@ -369,3 +300,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
