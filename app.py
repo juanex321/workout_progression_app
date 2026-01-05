@@ -10,6 +10,7 @@ from db import (
     Session,
     Set,
     Exercise,
+    Feedback,   # 👈 add this
 )
 
 from progression import recommend_weights_and_reps
@@ -331,3 +332,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
