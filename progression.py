@@ -5,22 +5,35 @@ from db import Set, Session, WorkoutExercise
 
 # ----------------- EXERCISE META (type, muscle, rep ranges) -----------------
 
-EXERCISE_META: Dict[str, Dict[str, Any]] = {
+# ---- existing exercises (leave as-is unless shown here) ----
+
+EXERCISE_META = {
     # Legs
     "Leg Extension": {
         "type": "isolation",
         "muscle": "quads",
         "rep_range": (10, 15),
+        "finisher": False,
     },
     "Leg Curl": {
         "type": "isolation",
         "muscle": "hamstrings",
         "rep_range": (10, 15),
+        "finisher": False,
     },
     "Hip Thrust + Glute Lunges": {
         "type": "compound_like",
         "muscle": "glutes",
         "rep_range": (8, 12),
+        "finisher": False,
+    },
+
+    # --- NEW FINISHER ---
+    "Sissy Squat": {
+        "type": "isolation",
+        "muscle": "quads",
+        "rep_range": (12, 20),
+        "finisher": True,
     },
 
     # Push
@@ -28,16 +41,27 @@ EXERCISE_META: Dict[str, Dict[str, Any]] = {
         "type": "compound_like",
         "muscle": "chest",
         "rep_range": (8, 12),
+        "finisher": False,
     },
     "Single-arm Chest Fly": {
         "type": "isolation",
         "muscle": "chest",
         "rep_range": (10, 15),
+        "finisher": True,   # This one already behaves like a finisher
     },
     "Cable Tricep Pushdown": {
         "type": "isolation",
         "muscle": "triceps",
         "rep_range": (10, 15),
+        "finisher": False,
+    },
+
+    # --- NEW FINISHER ---
+    "Overhead Cable Extension": {
+        "type": "isolation",
+        "muscle": "triceps",
+        "rep_range": (12, 18),
+        "finisher": True,
     },
 
     # Pull
@@ -45,26 +69,47 @@ EXERCISE_META: Dict[str, Dict[str, Any]] = {
         "type": "compound_like",
         "muscle": "lats",
         "rep_range": (8, 12),
+        "finisher": False,
     },
     "Cable Row": {
         "type": "compound_like",
         "muscle": "mid_back",
         "rep_range": (8, 12),
+        "finisher": False,
     },
+
+    # --- NEW FINISHER ---
+    "Straight-arm Pulldown": {
+        "type": "isolation",
+        "muscle": "lats",
+        "rep_range": (12, 18),
+        "finisher": True,
+    },
+
+    # Biceps
     "Cable Curl": {
         "type": "isolation",
         "muscle": "biceps",
         "rep_range": (10, 15),
+        "finisher": False,
     },
 
-    # Delts
+    # --- NEW FINISHER ---
+    "Incline DB Curl": {
+        "type": "isolation",
+        "muscle": "biceps",
+        "rep_range": (12, 20),
+        "finisher": True,
+    },
+
+    # Delts (no dedicated finisher)
     "Dumbbell Lateral Raise": {
         "type": "isolation",
         "muscle": "delts",
-        "rep_range": (12, 20),  # delts usually like higher reps
+        "rep_range": (12, 20),
+        "finisher": False,
     },
 }
-
 
 # ---------- helpers used by progression ----------
 
@@ -117,10 +162,11 @@ def recommend_weights_and_reps(db, we: WorkoutExercise) -> list[dict]:
     if meta is not None:
         rep_low, rep_high = meta["rep_range"]
         is_isolation = (meta["type"] == "isolation")
+            is_finisher = meta.get("finisher", False)
     else:
-        # fallback defaults if this exercise isn't defined in EXERCISE_META
         rep_low, rep_high = 8, 12
         is_isolation = True
+        is_finisher = False
 
     # slightly different starting weights
     base_weight = 50.0 if is_isolation else 70.0
@@ -150,17 +196,32 @@ def recommend_weights_and_reps(db, we: WorkoutExercise) -> list[dict]:
         # If even your best set is well below the bottom of the rep range,
         # you're likely too beat up at this weight => drop to ~55% and reset reps.
         if max_reps <= rep_low - 2:
-            weight = round(last_weight * 0.55, 1)
-            target_reps = rep_low
+        
+            if is_finisher:
+                # finishers deload gently — keep weight, but stop chasing reps
+                weight = last_weight
+                target_reps = rep_low
+        
+            else:
+                # main lifts deload with real load reduction
+                weight = round(last_weight * 0.55, 1)
+                target_reps = rep_low
 
         else:
             # ---- normal progression ----
 
             # Case 1: all sets at or above top of range
-            # => increase weight slightly, reset reps closer to the bottom
             if min_reps >= rep_high:
-                weight = round(last_weight * 1.05, 1)  # ~5% bump
-                target_reps = max(rep_low, rep_low + 1)
+            
+                if is_finisher:
+                    # finishers: VERY conservative load bumps
+                    weight = round(last_weight * 1.025, 1)   # ~2–3%
+                    target_reps = rep_low
+            
+                else:
+                    # main lifts: normal 5% bump
+                    weight = round(last_weight * 1.05, 1)
+                    target_reps = max(rep_low, rep_low + 1)
 
             # Case 2: average within the range
             # => keep weight, push reps up gradually until top of range
