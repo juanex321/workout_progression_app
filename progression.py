@@ -1,31 +1,40 @@
-from typing import List, Dict, Tuple, Optional
+# progression.py
 
-from db import Set, Session, WorkoutExercise
+from typing import List, Tuple
+from sqlalchemy.orm import Session as OrmSession
 
-# ---------- basic config ----------
+from db import Set, Session, Feedback, WorkoutExercise
 
+# ------- constants / config -------
+
+DEFAULT_BASE_WEIGHT = 50.0
 DEFAULT_TARGET_SETS = 4
-DEFAULT_TARGET_REPS = 10
-WEIGHT_STEP = 5.0  # lb/kg step when we bump load
 
-# Explicit finisher list (by name, case-insensitive)
+MIN_SETS = 1
+MAX_SETS_MAIN = 10          # upper cap for normal exercises
+MAX_SETS_FINISHER = 3       # upper cap for 1-set finishers
+
+# names of finisher-style movements that should stay low-volume
 FINISHER_NAMES = {
-    "single-arm chest fly",
-    "sissy squat",
-    "straight-arm pulldown",
-    "incline db curl",
-    "incline dumbbell curl",
-    "overhead cable extension",
+    "Single-arm Chest Fly",
+    "Sissy Squat",
+    "Straight-arm Pulldown",
+    "Incline DB Curl",
+    "Overhead Cable Extension",
 }
 
+# thresholds for interpreting feedback
+SORENESS_HIGH = 3      # 3–4 = pretty sore / still sore
+WORKLOAD_HIGH = 3      # 3–4 = pushed / too much
 
-# ---------- helpers for history ----------
 
+# ------- helpers -------
 
-def get_last_session_sets(db, workout_exercise_id: int) -> Tuple[Optional[int], Optional[List[Set]]]:
+def get_last_session_sets(
+    db: OrmSession, workout_exercise_id: int
+) -> Tuple[int | None, List[Set] | None]:
     """
-    Return (session_id, list_of_sets) for the most recent session of this
-    workout_exercise_id, or (None, None) if there is no history.
+    Return (session_id, [Set, ...]) for the most recent session of this exercise.
     """
     q = (
         db.query(Set)
@@ -37,158 +46,141 @@ def get_last_session_sets(db, workout_exercise_id: int) -> Tuple[Optional[int], 
     if not sets:
         return None, None
 
-    # group by session_id
-    sessions = {}
+    sessions: dict[int, list[Set]] = {}
     for s in sets:
         sessions.setdefault(s.session_id, []).append(s)
 
-    # take most recent session
     last_sid = list(sessions.keys())[0]
     return last_sid, sessions[last_sid]
 
 
-# ---------- classification ----------
+def get_recent_feedback(
+    db: OrmSession, workout_exercise_id: int, limit: int = 3
+) -> List[Feedback]:
+    return (
+        db.query(Feedback)
+        .filter(Feedback.workout_exercise_id == workout_exercise_id)
+        .order_by(Feedback.created_at.desc())
+        .limit(limit)
+        .all()
+    )
 
 
-def _is_finisher(ex_name: str) -> bool:
-    return ex_name.lower().strip() in FINISHER_NAMES
+def is_finisher(we: WorkoutExercise) -> bool:
+    name = (we.exercise.name or "").strip()
+    return name in FINISHER_NAMES
 
 
-def _classify_exercise(ex_name: str) -> str:
+def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     """
-    Return "compound", "isolation" or "finisher" based on the name.
-    This is heuristic but good enough for our current list.
+    Look at the last few feedback entries and gently move target_sets up or down.
+
+    * If soreness, pump and workload have been LOW → +1 set (up to cap).
+    * If soreness or workload have been HIGH      → -1 set (down to 1).
     """
-    n = ex_name.lower()
+    target_sets = we.target_sets or DEFAULT_TARGET_SETS
 
-    if _is_finisher(ex_name):
-        return "finisher"
+    fb_list = get_recent_feedback(db, we.id, limit=3)
+    if not fb_list:
+        return target_sets
 
-    compound_keywords = [
-        "squat",
-        "deadlift",
-        "hip thrust",
-        "bench",
-        "press",
-        "row",
-        "pulldown",
-        "pull-down",
-        "pull down",
-        "lunge",
-    ]
+    avg_s = sum(f.soreness or 0 for f in fb_list) / len(fb_list)
+    avg_p = sum(f.pump or 0 for f in fb_list) / len(fb_list)
+    avg_w = sum(f.workload or 0 for f in fb_list) / len(fb_list)
 
-    if any(k in n for k in compound_keywords):
-        return "compound"
+    max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
+    changed = False
 
-    # everything else defaults to isolation
-    return "isolation"
+    # “Under-stimulated” → add a set.
+    if (
+        avg_s <= 2
+        and avg_p <= 2
+        and avg_w <= 2
+        and target_sets < max_sets
+    ):
+        target_sets += 1
+        changed = True
+
+    # “Beaten up / too much” → remove a set.
+    elif (
+        (avg_s >= SORENESS_HIGH or avg_w >= WORKLOAD_HIGH)
+        and target_sets > MIN_SETS
+    ):
+        target_sets -= 1
+        changed = True
+
+    if changed:
+        we.target_sets = int(target_sets)
+        db.add(we)
+        db.commit()
+
+    return int(target_sets)
 
 
-def _rep_range_for_ex(we: WorkoutExercise) -> Tuple[int, int]:
-    name = we.exercise.name if getattr(we, "exercise", None) else ""
-    typ = _classify_exercise(name)
-
-    if typ == "compound":
-        return 8, 12
-    elif typ == "finisher":
-        return 12, 20
-    else:  # isolation
-        return 10, 15
-
-
-def _base_sets_for_ex(we: WorkoutExercise, last_sets: Optional[List[Set]]) -> int:
+def should_deload(db: OrmSession, we: WorkoutExercise) -> bool:
     """
-    How many sets should we show as the starting template for this session?
-    - For finishers: 1 set
-    - Otherwise: max(target_sets, sets actually done last time, DEFAULT_TARGET_SETS)
+    Simple auto-deload rule:
+
+    If in the last 3 feedback entries for this exercise:
+      - at least 2 have workload = 4 ("Too much"), OR
+      - workload >=3 AND soreness >=4 in at least 2 entries,
+
+    then the NEXT session is treated as a deload (drop load ~55%).
     """
-    name = we.exercise.name if getattr(we, "exercise", None) else ""
-    if _is_finisher(name):
-        return max(1, len(last_sets) if last_sets else 1)
+    fb_list = get_recent_feedback(db, we.id, limit=3)
+    if len(fb_list) < 3:
+        return False
 
-    target_sets = int(we.target_sets) if we.target_sets is not None else DEFAULT_TARGET_SETS
-    last_n = len(last_sets) if last_sets else 0
-    return max(target_sets, last_n, DEFAULT_TARGET_SETS)
+    high_work = sum(1 for f in fb_list if (f.workload or 0) >= 4)
+    high_sore = sum(1 for f in fb_list if (f.soreness or 0) >= 4)
+
+    if high_work >= 2:
+        return True
+    if high_work >= 1 and high_sore >= 2:
+        return True
+    return False
 
 
-# ---------- main progression function ----------
+# ------- main API -------
 
-
-def recommend_weights_and_reps(db, we: WorkoutExercise) -> List[Dict]:
+def recommend_weights_and_reps(
+    db: OrmSession, we: WorkoutExercise
+) -> list[dict]:
     """
-    Core progression logic.
+    Main entry used by app.py.
 
-    Strategy:
-      - classify exercise as compound / isolation / finisher
-      - use a rep range:
-          compound  : 8–12
-          isolation : 10–15
-          finisher  : 12–20
-      - look at the *most recent* session for this exercise
-      - if no history: start at mid-range reps, default weight 50
-      - if history:
-          * use last weight
-          * if min reps across sets >= top of range -> +weight, reset reps to low end
-          * elif min reps >= low end         -> add +1 rep (up to top of range)
-          * else (struggling below range)    -> keep weight, keep reps
-      - number of sets = max(target_sets, last_n_sets, DEFAULT_TARGET_SETS)
-      - always return `done = False` (user controls logging via checkboxes)
+    1. Adjust target_sets based on recent feedback (volume up/down).
+    2. Compute next weight based on last session performance.
+    3. If deload is indicated → drop weight to ~55%.
+    4. Return rows ready for the Streamlit data editor.
     """
+    # 1) volume adjustment
+    target_sets = adjust_sets_based_on_feedback(db, we)
+    target_reps = we.target_reps or 10
 
-    rep_low, rep_high = _rep_range_for_ex(we)
-    last_session_id, last_sets = get_last_session_sets(db, we.id)
-    rows: List[Dict] = []
+    # 2) base load logic from last session
+    _, last_sets = get_last_session_sets(db, we.id)
 
-    # ---- no history: seed defaults ----
     if not last_sets:
-        num_sets = _base_sets_for_ex(we, last_sets=None)
-        # use target_reps if it falls in range, otherwise mid-range
-        if we.target_reps is not None and rep_low <= we.target_reps <= rep_high:
-            base_reps = int(we.target_reps)
-        else:
-            base_reps = (rep_low + rep_high) // 2
-
-        base_weight = 50.0
-
-        for i in range(1, num_sets + 1):
-            rows.append(
-                {
-                    "set_number": i,
-                    "weight": base_weight,
-                    "reps": base_reps,
-                    "done": False,
-                }
-            )
-        return rows
-
-    # ---- we have history ----
-    last_weight = float(last_sets[0].weight)  # assume same weight for all sets
-    min_reps = min(int(s.reps) for s in last_sets if s.reps is not None)
-
-    num_sets = _base_sets_for_ex(we, last_sets=last_sets)
-
-    next_weight = last_weight
-    next_reps = max(min_reps, rep_low)
-
-    if min_reps >= rep_high:
-        # crushed the top of the range -> add weight, drop reps to low end
-        next_weight = last_weight + WEIGHT_STEP
-        next_reps = rep_low
-    elif rep_low <= min_reps < rep_high:
-        # within range, try to climb reps
-        next_reps = min(min_reps + 1, rep_high)
+        next_weight = DEFAULT_BASE_WEIGHT
     else:
-        # below the range -> probably heavy; keep same prescription for now
-        next_reps = max(min_reps, rep_low)
+        all_hit_target = all((s.reps or 0) >= target_reps for s in last_sets)
+        last_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
+        next_weight = last_weight + 5 if all_hit_target else last_weight
 
-    for i in range(1, num_sets + 1):
+    # 3) deload?
+    if should_deload(db, we):
+        next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
+
+    # 4) build plan rows (checkboxes start unchecked)
+    rows: list[dict] = []
+    for i in range(1, int(target_sets) + 1):
         rows.append(
             {
                 "set_number": i,
-                "weight": next_weight,
-                "reps": next_reps,
+                "weight": round(float(next_weight), 1),
+                "reps": int(target_reps),
                 "done": False,
             }
         )
-
     return rows
