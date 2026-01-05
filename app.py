@@ -14,17 +14,12 @@ from db import (
 
 from progression import recommend_weights_and_reps
 
+# ----------------- ROTATION CONFIG -----------------
 
 LEG_ROTATION = [
     "Leg Extension",                # leg session 1
     "Leg Curl",                     # leg session 2
     "Hip Thrust + Glute Lunges",    # leg session 3
-]
-
-PUSH_BLOCK = [
-    "Incline DB Bench Press",
-    "Single-arm Chest Fly",
-    "Cable Tricep Pushdown",
 ]
 
 PULL_MAIN_ROTATION = [
@@ -33,11 +28,25 @@ PULL_MAIN_ROTATION = [
 ]
 
 PULL_SECONDARY = "Cable Curl"
-
 LATERAL_RAISES = "Dumbbell Lateral Raise"
 
+# default sets if nothing special is defined
 DEFAULT_TARGET_SETS = 4
 DEFAULT_TARGET_REPS = 10
+
+# per-exercise overrides for starting # of sets
+EXERCISE_DEFAULT_SETS = {
+    # chest finisher
+    "Single-arm Chest Fly": 1,
+    # quad finisher
+    "Sissy Squat": 1,
+    # lat finisher
+    "Straight-arm Pulldown": 1,
+    # biceps finisher
+    "Incline DB Curl": 1,
+    # triceps finisher
+    "Overhead Cable Extension": 1,
+}
 
 
 def get_session_exercises(session_index: int):
@@ -46,29 +55,50 @@ def get_session_exercises(session_index: int):
     Returns an ordered list of exercise names for that session.
 
     Pattern:
-      - Legs rotate over LEG_ROTATION
-      - Push / Pull alternates each session
-      - Pull days alternate Lat Pulldown / Cable Row
-      - Finish every session with lateral raises
+      - Legs rotate over LEG_ROTATION.
+      - Push / Pull alternates each session.
+      - Pull days alternate Lat Pulldown / Cable Row.
+      - Finish every session with lateral raises.
+      - Certain muscles get 1-set "finisher" exercises.
     """
-    # Legs: simple 3-day rotation
+    # ----- leg block -----
     leg_ex = LEG_ROTATION[session_index % len(LEG_ROTATION)]
+    leg_block = [leg_ex]
 
-    # Upper: alternate Push / Pull
+    # add quad finisher only on Leg Extension day
+    if leg_ex == "Leg Extension":
+        leg_block.append("Sissy Squat")
+
+    # ----- upper block -----
     is_push_day = (session_index % 2 == 0)
 
     if is_push_day:
-        # Push day: always the same three
-        upper_block = PUSH_BLOCK
+        # Push day:
+        #   main chest, chest finisher, main triceps, triceps finisher
+        upper_block = [
+            "Incline DB Bench Press",
+            "Single-arm Chest Fly",      # finisher, 1 set
+            "Cable Tricep Pushdown",
+            "Overhead Cable Extension",  # finisher, 1 set
+        ]
     else:
-        # Pull day: alternate Lat Pulldown / Cable Row for the main movement
+        # Pull day:
+        #   main back (alternating), lat finisher, main biceps, biceps finisher
         pull_session_number = session_index // 2  # counts only pull days
         pull_main = PULL_MAIN_ROTATION[pull_session_number % len(PULL_MAIN_ROTATION)]
-        upper_block = [pull_main, PULL_SECONDARY]
+        upper_block = [
+            pull_main,
+            "Straight-arm Pulldown",  # lat finisher
+            PULL_SECONDARY,           # Cable Curl
+            "Incline DB Curl",        # biceps finisher
+        ]
 
     # Always finish with laterals
-    exercises = [leg_ex] + upper_block + [LATERAL_RAISES]
+    exercises = leg_block + upper_block + [LATERAL_RAISES]
     return exercises
+
+
+# ---------- helpers ----------
 
 def get_or_create_today_session(db, workout_id):
     today = date.today()
@@ -116,11 +146,15 @@ def get_or_create_workout_exercise(db, workout, ex_name, order_index):
         .first()
     )
     if not we:
+        target_sets = EXERCISE_DEFAULT_SETS.get(
+            name_normalized,
+            DEFAULT_TARGET_SETS,
+        )
         we = WorkoutExercise(
             workout_id=workout.id,
             exercise_id=exercise.id,
             order_index=order_index,
-            target_sets=DEFAULT_TARGET_SETS,
+            target_sets=target_sets,
             target_reps=DEFAULT_TARGET_REPS,
         )
         db.add(we)
@@ -186,7 +220,7 @@ def main():
         # Create or retrieve today's session (used for storing sets)
         session = get_or_create_today_session(db, tracking_workout.id)
 
-        # Session date banner (cleaned up text)
+        # Session date banner
         st.info(f"Session date: {session.date}")
 
         # Determine which exercises this rotation session should have
@@ -238,13 +272,11 @@ def main():
             just_logged = False
             if not already_logged and not edited_df.empty:
                 if "done" in edited_df.columns and edited_df["done"].all():
-                    # remove any stale rows (should be none, but keep it simple)
                     db.query(Set).filter(
                         Set.session_id == session.id,
                         Set.workout_exercise_id == we.id,
                     ).delete()
 
-                    # insert only the rows that are marked as done
                     for _, row in edited_df.iterrows():
                         if not row["done"]:
                             continue
@@ -265,7 +297,6 @@ def main():
             # Simple feedback panel once this exercise has just been logged
             feedback_key_prefix = f"feedback_{session.id}_{we.id}"
             if just_logged:
-                # remember to keep showing feedback controls for this exercise
                 st.session_state[feedback_key_prefix + "_show"] = True
 
             if st.session_state.get(feedback_key_prefix + "_show", False):
@@ -300,4 +331,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
