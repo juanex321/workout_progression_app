@@ -9,7 +9,7 @@ from db import (
     WorkoutExercise,
     Session,
     Set,
-    Exercise,        # <-- make sure Exercise is exported from db.py
+    Exercise,
 )
 
 # ----------------- EXERCISE ROTATION CONFIG -----------------
@@ -113,7 +113,7 @@ def recommend_weights_and_reps(db, we: WorkoutExercise):
                     "set_number": i,
                     "weight": base_weight,
                     "reps": we.target_reps,
-                    "done": True,  # default: plan to do all sets
+                    "done": False,  # start unchecked; user marks when logged
                 }
             )
         return result
@@ -128,7 +128,7 @@ def recommend_weights_and_reps(db, we: WorkoutExercise):
                 "set_number": i,
                 "weight": next_weight,
                 "reps": we.target_reps,
-                "done": True,
+                "done": False,  # user will tick sets they actually complete
             }
         )
     return result
@@ -153,9 +153,9 @@ def get_or_create_today_session(db, workout_id):
     return sess
 
 
-def get_or_create_workout_exercise(db, prog, workout, ex_name, order_index):
+def get_or_create_workout_exercise(db, workout, ex_name, order_index):
     """
-    Given a program, a tracking workout and an exercise name string,
+    Given a tracking workout and an exercise name string,
     return a WorkoutExercise row. If needed, create Exercise and/or
     WorkoutExercise on the fly.
     """
@@ -171,7 +171,6 @@ def get_or_create_workout_exercise(db, prog, workout, ex_name, order_index):
         exercise = Exercise(name=name_normalized)
         db.add(exercise)
         db.flush()  # populate exercise.id
-        # (No commit here; we'll commit later)
 
     # 2) Try to find a WorkoutExercise linking this exercise to the workout
     we = (
@@ -191,7 +190,6 @@ def get_or_create_workout_exercise(db, prog, workout, ex_name, order_index):
             target_reps=DEFAULT_TARGET_REPS,
         )
         db.add(we)
-        # again, actual commit happens outside
 
     return we
 
@@ -200,7 +198,6 @@ def get_or_create_workout_exercise(db, prog, workout, ex_name, order_index):
 
 def main():
     st.set_page_config(page_title="Workout Progression", layout="centered")
-
     st.title("Workout Progression")
 
     with get_session() as db:
@@ -209,9 +206,9 @@ def main():
             st.error("No programs found. Run init_db.py first.")
             return
 
-        prog_names = [p.name for p in programs]
-        prog_choice = st.selectbox("Program", prog_names)
-        prog = programs[prog_names.index(prog_choice)]
+        # For now, just use the first program; no need for a selector.
+        prog = programs[0]
+        st.caption(f"Program: **{prog.name}**")
 
         # Use the FIRST workout as the container for sessions
         workouts = (
@@ -226,52 +223,62 @@ def main():
 
         tracking_workout = workouts[0]
 
-        # Create or retrieve today's session
+        # Create or retrieve today's session (for logging to DB by date)
         session = get_or_create_today_session(db, tracking_workout.id)
 
-        # Work out which number session this is (0-based) for this workout
-        ordered_sessions = (
-            db.query(Session)
-            .filter(Session.workout_id == tracking_workout.id)
-            .order_by(Session.date.asc())
-            .all()
+        # --- Rotation session control (manual, not tied to DB history) ---
+        if "rotation_index" not in st.session_state:
+            st.session_state.rotation_index = 0  # 0-based
+
+        nav_col1, nav_col2, nav_col3 = st.columns([1, 2, 1])
+        with nav_col1:
+            if st.button("◀ Previous"):
+                st.session_state.rotation_index = max(
+                    0, st.session_state.rotation_index - 1
+                )
+        with nav_col3:
+            if st.button("Next ▶"):
+                st.session_state.rotation_index += 1
+
+        rotation_index = st.session_state.rotation_index
+        nav_col2.markdown(
+            f"<div style='text-align:center;'>"
+            f"<strong>Rotation session: {rotation_index + 1}</strong>"
+            f"</div>",
+            unsafe_allow_html=True,
         )
-        session_index = 0
-        for i, s in enumerate(ordered_sessions):
-            if s.id == session.id: # type: ignore
-                session_index = i
-                break
 
         st.info(f"Session date (stored in DB): {session.date}")
-        st.caption(f"Rotation session number: **{session_index + 1}**")
 
         # Determine which exercises this rotation session should have
-        exercises_for_session = get_session_exercises(session_index)
+        exercises_for_session = get_session_exercises(rotation_index)
 
-        st.caption("Exercise order for this session:")
-        st.markdown("- " + "\n- ".join(exercises_for_session))
-
-                # -------- main UI per exercise in the rotation --------
+        # -------- main UI per exercise in the rotation --------
         for order_idx, ex_name in enumerate(exercises_for_session):
             # Get or create WorkoutExercise for this exercise name
             we = get_or_create_workout_exercise(
-                db, prog, tracking_workout, ex_name, order_idx
+                db, tracking_workout, ex_name, order_idx
             )
             # commit potential new rows before we query sets
             db.commit()
 
             st.subheader(ex_name)
 
-            # ---- recommended baseline table ----
+            # recommended baseline table
             rec_rows = recommend_weights_and_reps(db, we)
             df = pd.DataFrame(rec_rows)
 
-            # Ensure nice column order and presence of 'done'
-            if "done" not in df.columns:
-                df["done"] = True
-            df = df[["set_number", "weight", "reps", "done"]]
+            # Rename columns for nicer display
+            df = df.rename(
+                columns={
+                    "set_number": "Set",
+                    "weight": "Weight",
+                    "reps": "Reps",
+                    "done": "Logged",
+                }
+            )
 
-            # ---- previous logged sets for this session (if any) ----
+            # show previous logged sets for this date+exercise (if any)
             existing_sets = (
                 db.query(Set)
                 .filter(
@@ -286,81 +293,70 @@ def main():
                 prev_df = pd.DataFrame(
                     [
                         {
-                            "set_number": s.set_number,
-                            "weight": s.weight,
-                            "reps": s.reps,
+                            "Set": s.set_number,
+                            "Weight": s.weight,
+                            "Reps": s.reps,
                             "RIR": s.rir,
                         }
                         for s in existing_sets
                     ]
                 )
-                st.dataframe(prev_df, use_container_width=True)
+                st.dataframe(prev_df, use_container_width=True, hide_index=True)
 
-            st.caption("Edit the plan for this session before logging:")
-
-            edited_df = st.data_editor(
+            # Editable plan for this session
+            edited_display_df = st.data_editor(
                 df,
-                num_rows="dynamic",        # allow add/remove sets
-                hide_index=True,           # hide 0,1,2,... index column
+                num_rows="dynamic",          # allow adding/removing sets
                 use_container_width=True,
+                hide_index=True,             # hide the 0,1,2... index column
                 key=f"editor_{we.id}",
-                column_config={
-                    "set_number": st.column_config.NumberColumn(
-                        "Set",
-                        min_value=1,
-                        step=1,
-                    ),
-                    "weight": st.column_config.NumberColumn(
-                        "Weight",
-                        min_value=0.0,
-                        step=2.5,
-                    ),
-                    "reps": st.column_config.NumberColumn(
-                        "Reps",
-                        min_value=1,
-                        step=1,
-                    ),
-                    "done": st.column_config.CheckboxColumn(
-                        "Logged", help="Tick for sets you actually performed"
-                    ),
-                },
             )
 
             if st.button("Log sets", key=f"log_{we.id}"):
-                # delete any existing sets for this session/exercise
+                # Map display columns back to internal names
+                edited_df = edited_display_df.rename(
+                    columns={
+                        "Set": "set_number",
+                        "Weight": "weight",
+                        "Reps": "reps",
+                        "Logged": "done",
+                    }
+                )
+
+                # delete any existing sets for this session/exercise (simple behaviour)
                 db.query(Set).filter(
                     Set.session_id == session.id,
                     Set.workout_exercise_id == we.id,
                 ).delete()
 
-                # Only log rows that are marked as done
-                if "done" in edited_df.columns:
-                    rows_to_log = edited_df[edited_df["done"] == True]
-                else:
-                    # fallback: log all rows
-                    rows_to_log = edited_df
-
-                for _, row in rows_to_log.iterrows():
-                    # skip incomplete rows (e.g. newly added but empty)
-                    if pd.isna(row.get("set_number")) or pd.isna(row.get("weight")) or pd.isna(row.get("reps")):
+                # insert only rows where Logged is True
+                new_sets = []
+                running_set_number = 1
+                for _, row in edited_df.iterrows():
+                    if not bool(row.get("done", False)):
                         continue
+
+                    # If set_number is missing/NaN, assign sequential number
+                    set_num = row.get("set_number")
+                    try:
+                        set_num_int = int(set_num)
+                    except (TypeError, ValueError):
+                        set_num_int = running_set_number
+                    running_set_number = set_num_int + 1
 
                     new_set = Set(
                         session_id=session.id,
                         workout_exercise_id=we.id,
-                        set_number=int(row["set_number"]),
+                        set_number=set_num_int,
                         weight=float(row["weight"]),
                         reps=int(row["reps"]),
                         rir=None,
                     )
                     db.add(new_set)
+                    new_sets.append(new_set)
 
                 db.commit()
-
-                if len(rows_to_log) == 0:
-                    st.warning("No sets were marked as logged; cleared any previous sets.")
-                else:
-                    st.success(f"Logged {len(rows_to_log)} set(s) for this exercise.")
+                st.success(f"{len(new_sets)} set(s) logged for this exercise.")
 
             st.markdown("---")
 
