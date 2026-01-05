@@ -1,127 +1,31 @@
-# progression.py
-from typing import Dict, List, Tuple, Optional
-
-from sqlalchemy.orm import Session as DBSession
+from typing import List, Dict, Tuple, Optional
 
 from db import Set, Session, WorkoutExercise
 
-# ----------------- EXERCISE META DATA -----------------
+# ---------- basic config ----------
 
-EXERCISE_META: Dict[str, Dict] = {
-    # Legs
-    "Leg Extension": {
-        "type": "isolation",
-        "muscle": "quads",
-        "rep_range": (10, 15),
-        "finisher": False,
-    },
-    "Leg Curl": {
-        "type": "isolation",
-        "muscle": "hamstrings",
-        "rep_range": (10, 15),
-        "finisher": False,
-    },
-    "Hip Thrust + Glute Lunges": {
-        "type": "compound_like",
-        "muscle": "glutes",
-        "rep_range": (8, 12),
-        "finisher": False,
-    },
-    # NEW quad finisher
-    "Sissy Squat": {
-        "type": "isolation",
-        "muscle": "quads",
-        "rep_range": (12, 20),
-        "finisher": True,
-    },
+DEFAULT_TARGET_SETS = 4
+DEFAULT_TARGET_REPS = 10
+WEIGHT_STEP = 5.0  # lb/kg step when we bump load
 
-    # Push
-    "Incline DB Bench Press": {
-        "type": "compound_like",
-        "muscle": "chest",
-        "rep_range": (8, 12),
-        "finisher": False,
-    },
-    "Single-arm Chest Fly": {
-        "type": "isolation",
-        "muscle": "chest",
-        "rep_range": (10, 15),
-        "finisher": True,   # behaves like a finisher
-    },
-    "Cable Tricep Pushdown": {
-        "type": "isolation",
-        "muscle": "triceps",
-        "rep_range": (10, 15),
-        "finisher": False,
-    },
-    # NEW triceps finisher
-    "Overhead Cable Extension": {
-        "type": "isolation",
-        "muscle": "triceps",
-        "rep_range": (12, 18),
-        "finisher": True,
-    },
-
-    # Pull
-    "Lat Pulldown": {
-        "type": "compound_like",
-        "muscle": "lats",
-        "rep_range": (8, 12),
-        "finisher": False,
-    },
-    "Cable Row": {
-        "type": "compound_like",
-        "muscle": "mid_back",
-        "rep_range": (8, 12),
-        "finisher": False,
-    },
-    # NEW lat finisher
-    "Straight-arm Pulldown": {
-        "type": "isolation",
-        "muscle": "lats",
-        "rep_range": (12, 18),
-        "finisher": True,
-    },
-
-    # Biceps
-    "Cable Curl": {
-        "type": "isolation",
-        "muscle": "biceps",
-        "rep_range": (10, 15),
-        "finisher": False,
-    },
-    # NEW biceps finisher
-    "Incline DB Curl": {
-        "type": "isolation",
-        "muscle": "biceps",
-        "rep_range": (12, 20),
-        "finisher": True,
-    },
-
-    # Delts (no finisher needed)
-    "Dumbbell Lateral Raise": {
-        "type": "isolation",
-        "muscle": "delts",
-        "rep_range": (12, 20),
-        "finisher": False,
-    },
+# Explicit finisher list (by name, case-insensitive)
+FINISHER_NAMES = {
+    "single-arm chest fly",
+    "sissy squat",
+    "straight-arm pulldown",
+    "incline db curl",
+    "incline dumbbell curl",
+    "overhead cable extension",
 }
 
 
-# ----------------- HELPERS -----------------
+# ---------- helpers for history ----------
 
 
-def _get_ex_meta(name: str) -> Optional[Dict]:
-    """Look up exercise metadata by name (case-sensitive match)."""
-    return EXERCISE_META.get(name)
-
-
-def _get_last_session_sets(
-    db: DBSession, workout_exercise_id: int
-) -> Tuple[Optional[int], List[Set]]:
+def get_last_session_sets(db, workout_exercise_id: int) -> Tuple[Optional[int], Optional[List[Set]]]:
     """
-    Return (last_session_id, [Set, Set, ...]) for the most recent session
-    for this WorkoutExercise, ordered by set_number.
+    Return (session_id, list_of_sets) for the most recent session of this
+    workout_exercise_id, or (None, None) if there is no history.
     """
     q = (
         db.query(Set)
@@ -131,115 +35,160 @@ def _get_last_session_sets(
     )
     sets = q.all()
     if not sets:
-        return None, []
+        return None, None
 
-    sessions: Dict[int, List[Set]] = {}
+    # group by session_id
+    sessions = {}
     for s in sets:
         sessions.setdefault(s.session_id, []).append(s)
 
+    # take most recent session
     last_sid = list(sessions.keys())[0]
     return last_sid, sessions[last_sid]
 
 
-# ----------------- PROGRESSION LOGIC -----------------
+# ---------- classification ----------
 
 
-def recommend_weights_and_reps(
-    db: DBSession, we: WorkoutExercise
-) -> List[Dict[str, float]]:
+def _is_finisher(ex_name: str) -> bool:
+    return ex_name.lower().strip() in FINISHER_NAMES
+
+
+def _classify_exercise(ex_name: str) -> str:
     """
-    Return a list of dicts for the editor:
-    [
-        {"set_number": 1, "weight": 50.0, "reps": 10, "done": False},
-        ...
+    Return "compound", "isolation" or "finisher" based on the name.
+    This is heuristic but good enough for our current list.
+    """
+    n = ex_name.lower()
+
+    if _is_finisher(ex_name):
+        return "finisher"
+
+    compound_keywords = [
+        "squat",
+        "deadlift",
+        "hip thrust",
+        "bench",
+        "press",
+        "row",
+        "pulldown",
+        "pull-down",
+        "pull down",
+        "lunge",
     ]
 
-    Uses very conservative progression:
-      - isolation/finishers use higher rep ranges
-      - finishers get tiny load bumps and no aggressive deload
-      - main lifts can get ~5% load increases and real deloads
+    if any(k in n for k in compound_keywords):
+        return "compound"
+
+    # everything else defaults to isolation
+    return "isolation"
+
+
+def _rep_range_for_ex(we: WorkoutExercise) -> Tuple[int, int]:
+    name = we.exercise.name if getattr(we, "exercise", None) else ""
+    typ = _classify_exercise(name)
+
+    if typ == "compound":
+        return 8, 12
+    elif typ == "finisher":
+        return 12, 20
+    else:  # isolation
+        return 10, 15
+
+
+def _base_sets_for_ex(we: WorkoutExercise, last_sets: Optional[List[Set]]) -> int:
     """
-    meta = _get_ex_meta(we.exercise.name)
+    How many sets should we show as the starting template for this session?
+    - For finishers: 1 set
+    - Otherwise: max(target_sets, sets actually done last time, DEFAULT_TARGET_SETS)
+    """
+    name = we.exercise.name if getattr(we, "exercise", None) else ""
+    if _is_finisher(name):
+        return max(1, len(last_sets) if last_sets else 1)
 
-    if meta is not None:
-        rep_low, rep_high = meta["rep_range"]
-        is_finisher = meta.get("finisher", False)
-    else:
-        # default if an exercise isn't in EXERCISE_META
-        rep_low, rep_high = 8, 12
-        is_finisher = False
+    target_sets = int(we.target_sets) if we.target_sets is not None else DEFAULT_TARGET_SETS
+    last_n = len(last_sets) if last_sets else 0
+    return max(target_sets, last_n, DEFAULT_TARGET_SETS)
 
-    base_weight = 50.0
 
-    _, last_sets = _get_last_session_sets(db, we.id)
-    result: List[Dict[str, float]] = []
+# ---------- main progression function ----------
 
-    # Cold start: no history yet
+
+def recommend_weights_and_reps(db, we: WorkoutExercise) -> List[Dict]:
+    """
+    Core progression logic.
+
+    Strategy:
+      - classify exercise as compound / isolation / finisher
+      - use a rep range:
+          compound  : 8–12
+          isolation : 10–15
+          finisher  : 12–20
+      - look at the *most recent* session for this exercise
+      - if no history: start at mid-range reps, default weight 50
+      - if history:
+          * use last weight
+          * if min reps across sets >= top of range -> +weight, reset reps to low end
+          * elif min reps >= low end         -> add +1 rep (up to top of range)
+          * else (struggling below range)    -> keep weight, keep reps
+      - number of sets = max(target_sets, last_n_sets, DEFAULT_TARGET_SETS)
+      - always return `done = False` (user controls logging via checkboxes)
+    """
+
+    rep_low, rep_high = _rep_range_for_ex(we)
+    last_session_id, last_sets = get_last_session_sets(db, we.id)
+    rows: List[Dict] = []
+
+    # ---- no history: seed defaults ----
     if not last_sets:
-        target_sets = int(getattr(we, "target_sets", 4) or 4)
-        # if target_reps is not set, fall back to lower bound of range
-        target_reps = getattr(we, "target_reps", rep_low) or rep_low
-        for s in range(1, target_sets + 1):
-            result.append(
+        num_sets = _base_sets_for_ex(we, last_sets=None)
+        # use target_reps if it falls in range, otherwise mid-range
+        if we.target_reps is not None and rep_low <= we.target_reps <= rep_high:
+            base_reps = int(we.target_reps)
+        else:
+            base_reps = (rep_low + rep_high) // 2
+
+        base_weight = 50.0
+
+        for i in range(1, num_sets + 1):
+            rows.append(
                 {
-                    "set_number": s,
+                    "set_number": i,
                     "weight": base_weight,
-                    "reps": target_reps,
+                    "reps": base_reps,
                     "done": False,
                 }
             )
-        return result
+        return rows
 
-    # We have history
-    last_weight = last_sets[0].weight
-    reps_list = [s.reps for s in last_sets]
-    min_reps = min(reps_list)
-    max_reps = max(reps_list)
+    # ---- we have history ----
+    last_weight = float(last_sets[0].weight)  # assume same weight for all sets
+    min_reps = min(int(s.reps) for s in last_sets if s.reps is not None)
 
-    weight = last_weight
-    target_reps = reps_list[-1]
+    num_sets = _base_sets_for_ex(we, last_sets=last_sets)
 
-    # ---------- basic progression ----------
+    next_weight = last_weight
+    next_reps = max(min_reps, rep_low)
 
-    # If all sets hit or exceed top of range -> bump load
     if min_reps >= rep_high:
-        if is_finisher:
-            # finishers: small bump, reset to bottom of range
-            weight = round(last_weight * 1.025, 1)  # ~2–3%
-            target_reps = rep_low
-        else:
-            # main lifts: ~5% bump
-            weight = round(last_weight * 1.05, 1)
-            target_reps = rep_low
+        # crushed the top of the range -> add weight, drop reps to low end
+        next_weight = last_weight + WEIGHT_STEP
+        next_reps = rep_low
+    elif rep_low <= min_reps < rep_high:
+        # within range, try to climb reps
+        next_reps = min(min_reps + 1, rep_high)
+    else:
+        # below the range -> probably heavy; keep same prescription for now
+        next_reps = max(min_reps, rep_low)
 
-    # Otherwise, if not yet near the top, try to add reps
-    elif max_reps < rep_high:
-        target_reps = min(rep_high, max_reps + 1)
-
-    # ---------- simple deload trigger ----------
-    # If the reps dropped well below the bottom of the range, treat as deload.
-    if max_reps <= rep_low - 2:
-        if is_finisher:
-            # finishers: keep weight, just aim for low end of range
-            weight = last_weight
-            target_reps = rep_low
-        else:
-            # main lifts: real load drop
-            weight = round(last_weight * 0.55, 1)
-            target_reps = rep_low
-
-    # Number of sets: default to whatever is configured on the WE,
-    # or use previous count as a fallback
-    target_sets = int(getattr(we, "target_sets", len(last_sets)) or len(last_sets))
-
-    for s in range(1, target_sets + 1):
-        result.append(
+    for i in range(1, num_sets + 1):
+        rows.append(
             {
-                "set_number": s,
-                "weight": weight,
-                "reps": target_reps,
+                "set_number": i,
+                "weight": next_weight,
+                "reps": next_reps,
                 "done": False,
             }
         )
 
-    return result
+    return rows
