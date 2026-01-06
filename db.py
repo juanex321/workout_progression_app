@@ -1,22 +1,37 @@
 from contextlib import contextmanager
 from pathlib import Path
-
-from sqlalchemy import (
-    create_engine, Column, Integer, String, Float, Date, DateTime,
-    ForeignKey
-)
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 from datetime import datetime, date
 
+from sqlalchemy import (
+    create_engine,
+    Column,
+    Integer,
+    String,
+    Float,
+    ForeignKey,
+    Date,
+    DateTime,
+    func,
+)
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+
+# ---------- engine / session setup ----------
+
 DB_PATH = Path("workout.db")
-engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    connect_args={"check_same_thread": False},
+)
 SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
 
+# ---------- models ----------
+
 
 class Program(Base):
     __tablename__ = "programs"
+
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
 
@@ -25,6 +40,7 @@ class Program(Base):
 
 class Workout(Base):
     __tablename__ = "workouts"
+
     id = Column(Integer, primary_key=True)
     program_id = Column(Integer, ForeignKey("programs.id"), nullable=False)
     name = Column(String, nullable=False)
@@ -36,6 +52,7 @@ class Workout(Base):
 
 class Exercise(Base):
     __tablename__ = "exercises"
+
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     muscle_group = Column(String, nullable=True)
@@ -48,7 +65,9 @@ class WorkoutExercise(Base):
     An exercise assigned to a specific workout (e.g. Leg Extension in Week 6 Day 4),
     with target sets/reps and order.
     """
+
     __tablename__ = "workout_exercises"
+
     id = Column(Integer, primary_key=True)
     workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
     exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False)
@@ -63,16 +82,39 @@ class WorkoutExercise(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
+
     id = Column(Integer, primary_key=True)
     workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
     date = Column(Date, nullable=False, default=date.today)
 
     sets = relationship("Set", back_populates="session")
     workout = relationship("Workout")
+    # optional: if you want easy access to feedback from a session
+    # feedback_entries = relationship("Feedback", back_populates="session")
+
+
+class Feedback(Base):
+    __tablename__ = "feedback"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
+    workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
+
+    # stored as 1–4, 1–3, 1–4
+    soreness = Column(Integer)
+    pump = Column(Integer)
+    workload = Column(Integer)
+
+    created_at = Column(DateTime, server_default=func.now())
+
+    # These relationships are optional but handy
+    # session = relationship("Session")
+    # workout_exercise = relationship("WorkoutExercise")
 
 
 class Set(Base):
     __tablename__ = "sets"
+
     id = Column(Integer, primary_key=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
@@ -84,6 +126,9 @@ class Set(Base):
 
     session = relationship("Session", back_populates="sets")
     workout_exercise = relationship("WorkoutExercise", back_populates="sessions_sets")
+
+
+# ---------- helpers ----------
 
 
 def init_db():
