@@ -11,7 +11,9 @@ from db import (
     Set,
     Exercise,
     Feedback,
+    init_db,   # 👈 add this
 )
+
 
 from progression import recommend_weights_and_reps
 
@@ -202,6 +204,7 @@ def get_or_create_workout_exercise(db, workout, ex_name, order_index):
 
 def main():
     st.set_page_config(page_title="Workout Progression", layout="centered")
+    init_db()
     st.title("Workout Progression")
 
     # rotation index lives only in Streamlit session state
@@ -388,3 +391,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
