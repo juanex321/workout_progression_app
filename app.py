@@ -312,58 +312,58 @@ def main():
                     df["done"] = False
 
             # 3) Show the editor (no index, dynamic rows)
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="dynamic",
-                column_config={
-                    "set_number": st.column_config.NumberColumn("Set", min_value=1),
-                    "weight": st.column_config.NumberColumn("Weight"),
-                    "reps": st.column_config.NumberColumn("Reps", min_value=1),
-                    "done": st.column_config.CheckboxColumn("Logged", default=False),
-                },
-                key=f"editor_{session.id}_{we.id}",
-            )
+        edited_df = st.data_editor(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            num_rows="dynamic",
+            column_config={
+                "set_number": st.column_config.NumberColumn("Set", min_value=1),
+                "weight": st.column_config.NumberColumn("Weight"),
+                "reps": st.column_config.NumberColumn("Reps", min_value=1),
+                "done": st.column_config.CheckboxColumn("Logged", default=False),
+            },
+            key=f"editor_{we.id}",
+        )
 
-            # 4) Persist the current number of rows as target_sets
-            #    so that if you change 10 → 4 sets, it "sticks" for future sessions.
-            if not edited_df.empty:
-                current_rows = len(edited_df)
-                # safeguard if target_sets is None
-                current_target = we.target_sets or DEFAULT_TARGET_SETS
-                if current_rows != current_target:
-                    we.target_sets = int(current_rows)
-                    db.add(we)
-                    db.commit()
+        # --- NEW: make weight per-exercise, not per-set ---
+        # Whatever weight you put in the first row will be used for all sets
+        if not edited_df.empty:
+            first_weight = edited_df.iloc[0]["weight"]
+            try:
+                # coerce to float in case Streamlit returns e.g. Decimal
+                first_weight = float(first_weight)
+            except Exception:
+                pass
+            edited_df["weight"] = first_weight
+        # -----------------------------------------------
 
-            # 5) AUTO-LOG when all sets are checked AND nothing is logged yet.
-            #    This prevents double logging on refresh.
-            just_logged = False
-            if not already_logged and not edited_df.empty:
-                if "done" in edited_df.columns and edited_df["done"].all():
-                    # remove any existing sets for this session/exercise (safety)
-                    db.query(Set).filter(
-                        Set.session_id == session.id,
-                        Set.workout_exercise_id == we.id,
-                    ).delete()
+        # AUTO-LOG when all sets are checked AND nothing is logged yet
+        just_logged = False
+        if not already_logged and not edited_df.empty:
+            if "done" in edited_df.columns and edited_df["done"].all():
+                db.query(Set).filter(
+                    Set.session_id == session.id,
+                    Set.workout_exercise_id == we.id,
+                ).delete()
 
-                    for _, row in edited_df.iterrows():
-                        if not row["done"]:
-                            continue
-                        new_set = Set(
-                            session_id=session.id,
-                            workout_exercise_id=we.id,
-                            set_number=int(row["set_number"]),
-                            weight=float(row["weight"]),
-                            reps=int(row["reps"]),
-                            rir=None,
-                        )
-                        db.add(new_set)
-                    db.commit()
-                    just_logged = True
-                    already_logged = True
-                    st.success("Sets logged for this exercise ✅")
+                for _, row in edited_df.iterrows():
+                    if not row["done"]:
+                        continue
+                    new_set = Set(
+                        session_id=session.id,
+                        workout_exercise_id=we.id,
+                        set_number=int(row["set_number"]),
+                        weight=float(row["weight"]),
+                        reps=int(row["reps"]),
+                        rir=None,
+                    )
+                    db.add(new_set)
+                db.commit()
+                just_logged = True
+                already_logged = True
+                st.success("Sets logged for this exercise ✅")
+
 
             # 6) Feedback panel (per exercise for now)
             feedback_key_prefix = f"feedback_{session.id}_{we.id}"
@@ -423,3 +423,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
