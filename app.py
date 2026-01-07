@@ -11,10 +11,10 @@ from db import (
     Set,
     Exercise,
     Feedback,
-    init_db,
 )
 
 from progression import recommend_weights_and_reps
+
 
 # ----------------- ROTATION CONFIG -----------------
 
@@ -32,7 +32,6 @@ PULL_MAIN_ROTATION = [
 PULL_SECONDARY = "Cable Curl"
 LATERAL_RAISES = "Dumbbell Lateral Raise"
 
-# default sets if nothing special is defined
 DEFAULT_TARGET_SETS = 4
 DEFAULT_TARGET_REPS = 10
 
@@ -48,41 +47,6 @@ EXERCISE_DEFAULT_SETS = {
     "Incline DB Curl": 1,
     # triceps finisher
     "Overhead Cable Extension": 1,
-}
-
-# ----------------- FEEDBACK SCALES -----------------
-
-SORENESS_OPTIONS = [
-    "Never got sore",
-    "Healed a while ago",
-    "Healed just on time",
-    "I'm still sore",
-]
-SORENESS_SCALE = {
-    "Never got sore": 1,
-    "Healed a while ago": 2,
-    "Healed just on time": 3,
-    "I'm still sore": 4,
-}
-
-PUMP_OPTIONS = ["Low pump", "Moderate pump", "Amazing pump"]
-PUMP_SCALE = {
-    "Low pump": 1,
-    "Moderate pump": 2,
-    "Amazing pump": 3,
-}
-
-WORKLOAD_OPTIONS = [
-    "Easy",
-    "Pretty good",
-    "Pushed my limits",
-    "Too much",
-]
-WORKLOAD_SCALE = {
-    "Easy": 1,
-    "Pretty good": 2,
-    "Pushed my limits": 3,
-    "Too much": 4,
 }
 
 
@@ -203,10 +167,6 @@ def get_or_create_workout_exercise(db, workout, ex_name, order_index):
 
 def main():
     st.set_page_config(page_title="Workout Progression", layout="centered")
-
-    # Ensure all tables exist, including feedback
-    init_db()
-
     st.title("Workout Progression")
 
     # rotation index lives only in Streamlit session state
@@ -221,6 +181,7 @@ def main():
 
         # For now, just use the first program and show its name (no dropdown)
         prog = programs[0]
+
         st.markdown(f"**Program:** {prog.name}")
 
         # Use the FIRST workout as the container for sessions
@@ -267,7 +228,6 @@ def main():
         exercises_for_session = get_session_exercises(session_index)
 
         # -------- main UI per exercise in the rotation --------
-        # -------- main UI per exercise in the rotation --------
         for order_idx, ex_name in enumerate(exercises_for_session):
             # Get or create WorkoutExercise for this exercise name
             we = get_or_create_workout_exercise(
@@ -278,7 +238,7 @@ def main():
 
             st.subheader(ex_name)
 
-            # 1) Check if we already have logged sets for THIS session + exercise
+            # --- 1) check if we already have logged sets for THIS session+exercise ---
             existing_sets = (
                 db.query(Set)
                 .filter(
@@ -290,26 +250,28 @@ def main():
             )
 
             if existing_sets:
-                # If we have data in the DB, use it as the source of truth
-                already_logged = True
+                # Build DF from DB (this is the source of truth)
                 df = pd.DataFrame(
                     [
                         {
                             "set_number": s.set_number,
                             "weight": s.weight,
                             "reps": s.reps,
-                            "done": True,  # they’re already logged
                         }
                         for s in existing_sets
                     ]
                 )
+                st.caption("Loaded previously saved sets for this session.")
             else:
-                # No sets yet for this session+exercise → use progression logic
-                already_logged = False
+                # No sets yet -> use progression logic for a starting template
                 rec_rows = recommend_weights_and_reps(db, we)
-                df = pd.DataFrame(rec_rows)
 
-            # 2) Show the editor (no index, dynamic rows)
+                df = pd.DataFrame(rec_rows)
+                # In case progression returns a 'done' column, drop it here
+                if "done" in df.columns:
+                    df = df.drop(columns=["done"])
+
+            # --- 2) show editable table (no index, dynamic rows) ---
             edited_df = st.data_editor(
                 df,
                 use_container_width=True,
@@ -319,34 +281,29 @@ def main():
                     "set_number": st.column_config.NumberColumn("Set", min_value=1),
                     "weight": st.column_config.NumberColumn("Weight"),
                     "reps": st.column_config.NumberColumn("Reps", min_value=1),
-                    "done": st.column_config.CheckboxColumn("Logged", default=False),
                 },
                 key=f"editor_{we.id}",
             )
 
-            # 3) Make weight per-exercise, not per-set:
-            #    whatever you put in the first row is used for all sets
-            if not edited_df.empty and "weight" in edited_df.columns:
-                first_weight = edited_df.iloc[0]["weight"]
-                try:
-                    first_weight = float(first_weight)
-                except Exception:
-                    pass
-                edited_df["weight"] = first_weight
+            # --- 3) explicit SAVE button to write to DB ---
+            save_key = f"save_{we.id}"
+            if st.button("Save sets", key=save_key):
+                if not edited_df.empty:
+                    # Always use the first row's weight for all rows (your rule)
+                    first_weight = float(edited_df.iloc[0]["weight"])
+                    edited_df["weight"] = first_weight
 
-            # 4) AUTO-LOG when all sets are checked AND nothing is logged yet
-            just_logged = False
-            if (not already_logged) and (not edited_df.empty):
-                if "done" in edited_df.columns and edited_df["done"].all():
-                    # delete any existing sets for this session/exercise
+                    # Sort by set_number to keep things tidy
+                    edited_df = edited_df.sort_values("set_number")
+
+                    # Wipe old sets for this session+exercise
                     db.query(Set).filter(
                         Set.session_id == session.id,
                         Set.workout_exercise_id == we.id,
                     ).delete()
 
+                    # Insert new sets
                     for _, row in edited_df.iterrows():
-                        if not row["done"]:
-                            continue
                         new_set = Set(
                             session_id=session.id,
                             workout_exercise_id=we.id,
@@ -357,15 +314,15 @@ def main():
                         )
                         db.add(new_set)
                     db.commit()
-                    just_logged = True
-                    already_logged = True
-                    st.success("Sets logged for this exercise ✅")
 
-            # 5) Feedback UI (unchanged)
+                    st.success("Sets saved for this exercise ✅")
+
+                    # Turn on feedback expander for this exercise
+                    feedback_key_prefix = f"feedback_{session.id}_{we.id}"
+                    st.session_state[feedback_key_prefix + "_show"] = True
+
+            # --- 4) feedback (still per exercise for now) ---
             feedback_key_prefix = f"feedback_{session.id}_{we.id}"
-            if just_logged:
-                st.session_state[feedback_key_prefix + "_show"] = True
-
             if st.session_state.get(feedback_key_prefix + "_show", False):
                 with st.expander("Feedback for this muscle group"):
                     st.write("How did this exercise feel?")
@@ -398,5 +355,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-
