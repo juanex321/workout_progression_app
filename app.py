@@ -11,9 +11,8 @@ from db import (
     Set,
     Exercise,
     Feedback,
-    init_db,   # 👈 add this
+    init_db,
 )
-
 
 from progression import recommend_weights_and_reps
 
@@ -204,7 +203,10 @@ def get_or_create_workout_exercise(db, workout, ex_name, order_index):
 
 def main():
     st.set_page_config(page_title="Workout Progression", layout="centered")
+
+    # Ensure all tables exist, including feedback
     init_db()
+
     st.title("Workout Progression")
 
     # rotation index lives only in Streamlit session state
@@ -219,7 +221,6 @@ def main():
 
         # For now, just use the first program and show its name (no dropdown)
         prog = programs[0]
-
         st.markdown(f"**Program:** {prog.name}")
 
         # Use the FIRST workout as the container for sessions
@@ -276,11 +277,7 @@ def main():
 
             st.subheader(ex_name)
 
-            # recommended baseline table (now uses feedback + deload logic)
-            rec_rows = recommend_weights_and_reps(db, we)
-            df = pd.DataFrame(rec_rows)
-
-            # check if we already logged sets for this session+exercise
+            # 1) Load any existing logged sets for this session+exercise
             existing_sets = (
                 db.query(Set)
                 .filter(
@@ -292,7 +289,29 @@ def main():
             )
             already_logged = len(existing_sets) > 0
 
-            # Show the editor (no index, dynamic rows, checkboxes start False)
+            # 2) Build the editor DataFrame:
+            #    - If we already have sets logged for TODAY, use those.
+            #    - Otherwise, build from progression template.
+            if already_logged:
+                df = pd.DataFrame(
+                    [
+                        {
+                            "set_number": s.set_number,
+                            "weight": s.weight,
+                            "reps": s.reps,
+                            "done": True,
+                        }
+                        for s in existing_sets
+                    ]
+                )
+            else:
+                rec_rows = recommend_weights_and_reps(db, we)
+                df = pd.DataFrame(rec_rows)
+                # ensure done column exists
+                if "done" not in df.columns:
+                    df["done"] = False
+
+            # 3) Show the editor (no index, dynamic rows)
             edited_df = st.data_editor(
                 df,
                 use_container_width=True,
@@ -304,13 +323,26 @@ def main():
                     "reps": st.column_config.NumberColumn("Reps", min_value=1),
                     "done": st.column_config.CheckboxColumn("Logged", default=False),
                 },
-                key=f"editor_{we.id}",
+                key=f"editor_{session.id}_{we.id}",
             )
 
-            # AUTO-LOG when all sets are checked AND nothing is logged yet
+            # 4) Persist the current number of rows as target_sets
+            #    so that if you change 10 → 4 sets, it "sticks" for future sessions.
+            if not edited_df.empty:
+                current_rows = len(edited_df)
+                # safeguard if target_sets is None
+                current_target = we.target_sets or DEFAULT_TARGET_SETS
+                if current_rows != current_target:
+                    we.target_sets = int(current_rows)
+                    db.add(we)
+                    db.commit()
+
+            # 5) AUTO-LOG when all sets are checked AND nothing is logged yet.
+            #    This prevents double logging on refresh.
             just_logged = False
             if not already_logged and not edited_df.empty:
                 if "done" in edited_df.columns and edited_df["done"].all():
+                    # remove any existing sets for this session/exercise (safety)
                     db.query(Set).filter(
                         Set.session_id == session.id,
                         Set.workout_exercise_id == we.id,
@@ -333,7 +365,7 @@ def main():
                     already_logged = True
                     st.success("Sets logged for this exercise ✅")
 
-            # Simple feedback panel once this exercise has just been logged
+            # 6) Feedback panel (per exercise for now)
             feedback_key_prefix = f"feedback_{session.id}_{we.id}"
             if just_logged:
                 st.session_state[feedback_key_prefix + "_show"] = True
@@ -391,4 +423,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
