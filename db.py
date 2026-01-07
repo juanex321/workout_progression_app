@@ -128,11 +128,12 @@ class Set(Base):
     workout_exercise = relationship("WorkoutExercise", back_populates="sessions_sets")
 
 
-# ---------- helpers ----------
-
-
 def init_db():
     Base.metadata.create_all(bind=engine)
+
+
+# Ensure all tables (including Feedback) exist whenever db.py is imported
+init_db()
 
 
 @contextmanager
@@ -142,3 +143,4 @@ def get_session():
         yield db
     finally:
         db.close()
+
