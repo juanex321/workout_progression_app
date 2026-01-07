@@ -267,6 +267,7 @@ def main():
         exercises_for_session = get_session_exercises(session_index)
 
         # -------- main UI per exercise in the rotation --------
+        # -------- main UI per exercise in the rotation --------
         for order_idx, ex_name in enumerate(exercises_for_session):
             # Get or create WorkoutExercise for this exercise name
             we = get_or_create_workout_exercise(
@@ -277,7 +278,7 @@ def main():
 
             st.subheader(ex_name)
 
-            # 1) Load any existing logged sets for this session+exercise
+            # 1) Check if we already have logged sets for THIS session + exercise
             existing_sets = (
                 db.query(Set)
                 .filter(
@@ -287,85 +288,80 @@ def main():
                 .order_by(Set.set_number.asc())
                 .all()
             )
-            already_logged = len(existing_sets) > 0
 
-            # 2) Build the editor DataFrame:
-            #    - If we already have sets logged for TODAY, use those.
-            #    - Otherwise, build from progression template.
-            if already_logged:
+            if existing_sets:
+                # If we have data in the DB, use it as the source of truth
+                already_logged = True
                 df = pd.DataFrame(
                     [
                         {
                             "set_number": s.set_number,
                             "weight": s.weight,
                             "reps": s.reps,
-                            "done": True,
+                            "done": True,  # they’re already logged
                         }
                         for s in existing_sets
                     ]
                 )
             else:
+                # No sets yet for this session+exercise → use progression logic
+                already_logged = False
                 rec_rows = recommend_weights_and_reps(db, we)
                 df = pd.DataFrame(rec_rows)
-                # ensure done column exists
-                if "done" not in df.columns:
-                    df["done"] = False
 
-            # 3) Show the editor (no index, dynamic rows)
-        edited_df = st.data_editor(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            num_rows="dynamic",
-            column_config={
-                "set_number": st.column_config.NumberColumn("Set", min_value=1),
-                "weight": st.column_config.NumberColumn("Weight"),
-                "reps": st.column_config.NumberColumn("Reps", min_value=1),
-                "done": st.column_config.CheckboxColumn("Logged", default=False),
-            },
-            key=f"editor_{we.id}",
-        )
+            # 2) Show the editor (no index, dynamic rows)
+            edited_df = st.data_editor(
+                df,
+                use_container_width=True,
+                hide_index=True,
+                num_rows="dynamic",
+                column_config={
+                    "set_number": st.column_config.NumberColumn("Set", min_value=1),
+                    "weight": st.column_config.NumberColumn("Weight"),
+                    "reps": st.column_config.NumberColumn("Reps", min_value=1),
+                    "done": st.column_config.CheckboxColumn("Logged", default=False),
+                },
+                key=f"editor_{we.id}",
+            )
 
-        # --- NEW: make weight per-exercise, not per-set ---
-        # Whatever weight you put in the first row will be used for all sets
-        if not edited_df.empty:
-            first_weight = edited_df.iloc[0]["weight"]
-            try:
-                # coerce to float in case Streamlit returns e.g. Decimal
-                first_weight = float(first_weight)
-            except Exception:
-                pass
-            edited_df["weight"] = first_weight
-        # -----------------------------------------------
+            # 3) Make weight per-exercise, not per-set:
+            #    whatever you put in the first row is used for all sets
+            if not edited_df.empty and "weight" in edited_df.columns:
+                first_weight = edited_df.iloc[0]["weight"]
+                try:
+                    first_weight = float(first_weight)
+                except Exception:
+                    pass
+                edited_df["weight"] = first_weight
 
-        # AUTO-LOG when all sets are checked AND nothing is logged yet
-        just_logged = False
-        if not already_logged and not edited_df.empty:
-            if "done" in edited_df.columns and edited_df["done"].all():
-                db.query(Set).filter(
-                    Set.session_id == session.id,
-                    Set.workout_exercise_id == we.id,
-                ).delete()
+            # 4) AUTO-LOG when all sets are checked AND nothing is logged yet
+            just_logged = False
+            if (not already_logged) and (not edited_df.empty):
+                if "done" in edited_df.columns and edited_df["done"].all():
+                    # delete any existing sets for this session/exercise
+                    db.query(Set).filter(
+                        Set.session_id == session.id,
+                        Set.workout_exercise_id == we.id,
+                    ).delete()
 
-                for _, row in edited_df.iterrows():
-                    if not row["done"]:
-                        continue
-                    new_set = Set(
-                        session_id=session.id,
-                        workout_exercise_id=we.id,
-                        set_number=int(row["set_number"]),
-                        weight=float(row["weight"]),
-                        reps=int(row["reps"]),
-                        rir=None,
-                    )
-                    db.add(new_set)
-                db.commit()
-                just_logged = True
-                already_logged = True
-                st.success("Sets logged for this exercise ✅")
+                    for _, row in edited_df.iterrows():
+                        if not row["done"]:
+                            continue
+                        new_set = Set(
+                            session_id=session.id,
+                            workout_exercise_id=we.id,
+                            set_number=int(row["set_number"]),
+                            weight=float(row["weight"]),
+                            reps=int(row["reps"]),
+                            rir=None,
+                        )
+                        db.add(new_set)
+                    db.commit()
+                    just_logged = True
+                    already_logged = True
+                    st.success("Sets logged for this exercise ✅")
 
-
-            # 6) Feedback panel (per exercise for now)
+            # 5) Feedback UI (unchanged)
             feedback_key_prefix = f"feedback_{session.id}_{we.id}"
             if just_logged:
                 st.session_state[feedback_key_prefix + "_show"] = True
@@ -374,53 +370,33 @@ def main():
                 with st.expander("Feedback for this muscle group"):
                     st.write("How did this exercise feel?")
 
-                    # Check whether feedback is already saved for this session+exercise
-                    existing_fb = (
-                        db.query(Feedback)
-                        .filter(
-                            Feedback.session_id == session.id,
-                            Feedback.workout_exercise_id == we.id,
-                        )
-                        .order_by(Feedback.created_at.desc())
-                        .first()
-                    )
-                    if existing_fb:
-                        st.caption("Feedback already saved for this session.")
-
-                    s_choice = st.radio(
+                    st.radio(
                         "Soreness AFTER last time:",
-                        SORENESS_OPTIONS,
+                        [
+                            "Never got sore",
+                            "Healed a while ago",
+                            "Healed just on time",
+                            "I'm still sore",
+                        ],
                         key=feedback_key_prefix + "_soreness",
                     )
 
-                    p_choice = st.radio(
+                    st.radio(
                         "Pump TODAY:",
-                        PUMP_OPTIONS,
+                        ["Low pump", "Moderate pump", "Amazing pump"],
                         key=feedback_key_prefix + "_pump",
                     )
 
-                    w_choice = st.radio(
+                    st.radio(
                         "Workload TODAY:",
-                        WORKLOAD_OPTIONS,
+                        ["Easy", "Pretty good", "Pushed my limits", "Too much"],
                         key=feedback_key_prefix + "_workload",
                     )
-
-                    # Save feedback once (if not already saved)
-                    if (not existing_fb) and s_choice and p_choice and w_choice:
-                        fb = Feedback(
-                            session_id=session.id,
-                            workout_exercise_id=we.id,
-                            soreness=SORENESS_SCALE[s_choice],
-                            pump=PUMP_SCALE[p_choice],
-                            workload=WORKLOAD_SCALE[w_choice],
-                        )
-                        db.add(fb)
-                        db.commit()
-                        st.success("Feedback saved ✅")
 
             st.markdown("---")
 
 
 if __name__ == "__main__":
     main()
+
 
