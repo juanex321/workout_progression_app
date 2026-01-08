@@ -3,7 +3,6 @@ from pathlib import Path
 from datetime import datetime, date
 
 from sqlalchemy import (
-    create_engine,
     Column,
     Integer,
     String,
@@ -12,10 +11,9 @@ from sqlalchemy import (
     Date,
     DateTime,
     func,
+    create_engine,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
-
-# ---------- engine / session setup ----------
 
 DB_PATH = Path("workout.db")
 engine = create_engine(
@@ -26,12 +24,9 @@ SessionLocal = sessionmaker(bind=engine)
 
 Base = declarative_base()
 
-# ---------- models ----------
-
 
 class Program(Base):
     __tablename__ = "programs"
-
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
 
@@ -40,11 +35,10 @@ class Program(Base):
 
 class Workout(Base):
     __tablename__ = "workouts"
-
     id = Column(Integer, primary_key=True)
     program_id = Column(Integer, ForeignKey("programs.id"), nullable=False)
     name = Column(String, nullable=False)
-    day_label = Column(String, nullable=False)  # e.g. "Week 6 Day 4 Thursday"
+    day_label = Column(String, nullable=False)
 
     program = relationship("Program", back_populates="workouts")
     workout_exercises = relationship("WorkoutExercise", back_populates="workout")
@@ -52,7 +46,6 @@ class Workout(Base):
 
 class Exercise(Base):
     __tablename__ = "exercises"
-
     id = Column(Integer, primary_key=True)
     name = Column(String, nullable=False)
     muscle_group = Column(String, nullable=True)
@@ -61,13 +54,7 @@ class Exercise(Base):
 
 
 class WorkoutExercise(Base):
-    """
-    An exercise assigned to a specific workout (e.g. Leg Extension in Week 6 Day 4),
-    with target sets/reps and order.
-    """
-
     __tablename__ = "workout_exercises"
-
     id = Column(Integer, primary_key=True)
     workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
     exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False)
@@ -82,15 +69,12 @@ class WorkoutExercise(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
-
     id = Column(Integer, primary_key=True)
     workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
     date = Column(Date, nullable=False, default=date.today)
 
     sets = relationship("Set", back_populates="session")
     workout = relationship("Workout")
-    # optional: if you want easy access to feedback from a session
-    # feedback_entries = relationship("Feedback", back_populates="session")
 
 
 class Feedback(Base):
@@ -100,21 +84,15 @@ class Feedback(Base):
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
 
-    # stored as 1–4, 1–3, 1–4
     soreness = Column(Integer)
     pump = Column(Integer)
     workload = Column(Integer)
 
     created_at = Column(DateTime, server_default=func.now())
 
-    # These relationships are optional but handy
-    # session = relationship("Session")
-    # workout_exercise = relationship("WorkoutExercise")
-
 
 class Set(Base):
     __tablename__ = "sets"
-
     id = Column(Integer, primary_key=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
@@ -128,11 +106,26 @@ class Set(Base):
     workout_exercise = relationship("WorkoutExercise", back_populates="sessions_sets")
 
 
+# NEW: autosaved draft rows so refresh/reboots don’t wipe your progress
+class DraftSet(Base):
+    __tablename__ = "draft_sets"
+    id = Column(Integer, primary_key=True)
+    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
+    workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
+
+    set_number = Column(Integer, nullable=False)
+    weight = Column(Float, nullable=False)
+    reps = Column(Integer, nullable=False)
+    done = Column(Integer, nullable=False, default=0)  # 0/1
+
+    updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
+
+
 def init_db():
     Base.metadata.create_all(bind=engine)
 
 
-# Ensure all tables (including Feedback) exist whenever db.py is imported
+# Make sure tables exist in Streamlit Cloud even if init_db.py isn't run
 init_db()
 
 
@@ -143,4 +136,3 @@ def get_session():
         yield db
     finally:
         db.close()
-
