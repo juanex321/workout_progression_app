@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from datetime import date
+import math
 
 from db import (
     get_session,
@@ -194,30 +195,113 @@ def load_sets_or_draft_as_df(db, session_id: int, workout_exercise_id: int) -> p
     return None
 
 
+def _safe_int(x, default=None):
+    if x is None:
+        return default
+    try:
+        if isinstance(x, float) and math.isnan(x):
+            return default
+        return int(x)
+    except Exception:
+        return default
+
+def _safe_float(x, default=None):
+    if x is None:
+        return default
+    try:
+        if isinstance(x, float) and math.isnan(x):
+            return default
+        return float(x)
+    except Exception:
+        return default
+
+def _safe_bool(x) -> bool:
+    # IMPORTANT: pandas/streamlit may return NaN for unchecked boxes
+    if x is None:
+        return False
+    try:
+        if isinstance(x, float) and math.isnan(x):
+            return False
+    except Exception:
+        pass
+    return bool(x)
+
+
 def save_draft_from_df(db, session_id: int, workout_exercise_id: int, df: pd.DataFrame):
-    """Always persist current edits as draft so refresh doesn’t wipe progress."""
+    """Persist current edits as draft WITHOUT wiping values on checkbox clicks."""
     if df is None or df.empty:
         return
 
-    # Replace draft with the current table rows (including unchecked)
-    db.query(DraftSet).filter(
-        DraftSet.session_id == session_id,
-        DraftSet.workout_exercise_id == workout_exercise_id,
-    ).delete()
+    df2 = df.copy()
 
-    df2 = df.copy().reset_index(drop=True)
-    for i, row in df2.iterrows():
-        # tolerate missing done column
-        done_val = bool(row["done"]) if "done" in df2.columns else False
-        ds = DraftSet(
-            session_id=session_id,
-            workout_exercise_id=workout_exercise_id,
-            set_number=int(i + 1),
-            weight=float(row["weight"]),
-            reps=int(row["reps"]),
-            done=1 if done_val else 0,
+    # Ensure required columns exist
+    if "set_number" not in df2.columns:
+        df2["set_number"] = list(range(1, len(df2) + 1))
+    if "done" not in df2.columns:
+        df2["done"] = False
+
+    # Load existing drafts so we can preserve values when streamlit returns NaN
+    existing = (
+        db.query(DraftSet)
+        .filter(
+            DraftSet.session_id == session_id,
+            DraftSet.workout_exercise_id == workout_exercise_id,
         )
-        db.add(ds)
+        .all()
+    )
+    prev_by_set = {d.set_number: d for d in existing}
+
+    # Normalize rows
+    normalized_rows = []
+    for _, row in df2.iterrows():
+        sn = _safe_int(row.get("set_number"), None)
+        if sn is None:
+            continue
+
+        prev = prev_by_set.get(sn)
+
+        w = _safe_float(row.get("weight"), None)
+        r = _safe_int(row.get("reps"), None)
+        d = _safe_bool(row.get("done"))
+
+        # If streamlit gave us NaN for weight/reps, keep previous draft values
+        if w is None and prev is not None:
+            w = float(prev.weight)
+        if r is None and prev is not None:
+            r = int(prev.reps)
+
+        # Still missing? give safe defaults
+        if w is None:
+            w = 50.0
+        if r is None:
+            r = DEFAULT_TARGET_REPS
+
+        normalized_rows.append((sn, w, r, d))
+
+    # Remove drafts that no longer exist in the UI
+    keep_set_numbers = {sn for sn, _, _, _ in normalized_rows}
+    if existing:
+        for d in existing:
+            if d.set_number not in keep_set_numbers:
+                db.delete(d)
+
+    # Upsert drafts
+    for sn, w, r, d in normalized_rows:
+        ds = prev_by_set.get(sn)
+        if ds is None:
+            ds = DraftSet(
+                session_id=session_id,
+                workout_exercise_id=workout_exercise_id,
+                set_number=sn,
+                weight=float(w),
+                reps=int(r),
+                done=1 if d else 0,
+            )
+            db.add(ds)
+        else:
+            ds.weight = float(w)
+            ds.reps = int(r)
+            ds.done = 1 if d else 0
 
     db.commit()
 
@@ -226,14 +310,18 @@ def promote_draft_to_sets_if_complete(db, session_id: int, workout_exercise_id: 
     """If all draft rows are checked, commit them to final Set table."""
     drafts = (
         db.query(DraftSet)
-        .filter(DraftSet.session_id == session_id, DraftSet.workout_exercise_id == workout_exercise_id)
+        .filter(
+            DraftSet.session_id == session_id,
+            DraftSet.workout_exercise_id == workout_exercise_id,
+        )
         .order_by(DraftSet.set_number.asc())
         .all()
     )
     if not drafts:
         return False
 
-    if not all(d.done == 1 for d in drafts):
+    # Must be explicitly done=1 for every row (no NaN weirdness)
+    if not all(int(d.done) == 1 for d in drafts):
         return False
 
     # Replace final sets
@@ -242,11 +330,11 @@ def promote_draft_to_sets_if_complete(db, session_id: int, workout_exercise_id: 
         Set.workout_exercise_id == workout_exercise_id,
     ).delete()
 
-    for i, d in enumerate(drafts):
+    for d in drafts:
         s = Set(
             session_id=session_id,
             workout_exercise_id=workout_exercise_id,
-            set_number=int(i + 1),
+            set_number=int(d.set_number),
             weight=float(d.weight),
             reps=int(d.reps),
             rir=None,
@@ -261,7 +349,6 @@ def promote_draft_to_sets_if_complete(db, session_id: int, workout_exercise_id: 
 
     db.commit()
     return True
-
 
 def muscle_for(ex_name: str) -> str:
     return EXERCISE_TO_MUSCLE.get(ex_name, "Other")
@@ -391,3 +478,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
