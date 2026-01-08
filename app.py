@@ -11,9 +11,9 @@ from db import (
     Set,
     Exercise,
     Feedback,
+    DraftSet,   # NEW
 )
 
-# Prefer your refactored modules if present
 try:
     from plan import get_session_exercises  # type: ignore
 except Exception:
@@ -26,19 +26,14 @@ except Exception:
 
 
 # -----------------------------
-# Fallback plan (only used if plan.py import missing)
+# Plan fallback (if plan.py missing)
 # -----------------------------
 LEG_ROTATION = [
-    "Leg Extension",                # leg session 1
-    "Leg Curl",                     # leg session 2
-    "Hip Thrust + Glute Lunges",    # leg session 3
+    "Leg Extension",
+    "Leg Curl",
+    "Hip Thrust + Glute Lunges",
 ]
-
-PULL_MAIN_ROTATION = [
-    "Lat Pulldown",
-    "Cable Row",
-]
-
+PULL_MAIN_ROTATION = ["Lat Pulldown", "Cable Row"]
 PULL_SECONDARY = "Cable Curl"
 LATERAL_RAISES = "Dumbbell Lateral Raise"
 
@@ -51,6 +46,31 @@ EXERCISE_DEFAULT_SETS = {
     "Straight-arm Pulldown": 1,
     "Incline DB Curl": 1,
     "Overhead Cable Extension": 1,
+}
+
+# Muscle mapping for “divider only when muscle group changes”
+EXERCISE_TO_MUSCLE = {
+    # Quads
+    "Leg Extension": "Quads",
+    "Sissy Squat": "Quads",
+    # Hams / Glutes
+    "Leg Curl": "Hams",
+    "Hip Thrust + Glute Lunges": "Glutes",
+    # Chest
+    "Incline DB Bench Press": "Chest",
+    "Single-arm Chest Fly": "Chest",
+    # Triceps
+    "Cable Tricep Pushdown": "Triceps",
+    "Overhead Cable Extension": "Triceps",
+    # Back / Lats
+    "Lat Pulldown": "Back",
+    "Cable Row": "Back",
+    "Straight-arm Pulldown": "Back",
+    # Biceps
+    "Cable Curl": "Biceps",
+    "Incline DB Curl": "Biceps",
+    # Delts
+    "Dumbbell Lateral Raise": "Delts",
 }
 
 
@@ -82,7 +102,7 @@ def fallback_get_session_exercises(session_index: int):
 
 
 # -----------------------------
-# DB helpers (kept inside app.py for portability)
+# DB helpers
 # -----------------------------
 def get_or_create_today_session(db, workout_id: int):
     today = date.today()
@@ -93,7 +113,6 @@ def get_or_create_today_session(db, workout_id: int):
     )
     if sess:
         return sess
-
     sess = Session(workout_id=workout_id, date=today)
     db.add(sess)
     db.commit()
@@ -136,61 +155,116 @@ def get_or_create_workout_exercise(db, workout: Workout, ex_name: str, order_ind
     return we
 
 
-def load_existing_sets_as_df(db, session_id: int, workout_exercise_id: int) -> pd.DataFrame | None:
-    existing_sets = (
+def load_sets_or_draft_as_df(db, session_id: int, workout_exercise_id: int) -> pd.DataFrame | None:
+    # If final sets exist, show them (done=True)
+    final_sets = (
         db.query(Set)
-        .filter(
-            Set.session_id == session_id,
-            Set.workout_exercise_id == workout_exercise_id,
-        )
+        .filter(Set.session_id == session_id, Set.workout_exercise_id == workout_exercise_id)
         .order_by(Set.set_number.asc())
         .all()
     )
-    if not existing_sets:
-        return None
-
-    rows = []
-    for s in existing_sets:
-        rows.append(
-            {
-                "set_number": int(s.set_number),
-                "weight": float(s.weight),
-                "reps": int(s.reps),
-                "done": True,  # already logged
-            }
+    if final_sets:
+        return pd.DataFrame(
+            [
+                {"set_number": s.set_number, "weight": float(s.weight), "reps": int(s.reps), "done": True}
+                for s in final_sets
+            ]
         )
-    return pd.DataFrame(rows)
+
+    # Else show draft if exists
+    drafts = (
+        db.query(DraftSet)
+        .filter(DraftSet.session_id == session_id, DraftSet.workout_exercise_id == workout_exercise_id)
+        .order_by(DraftSet.set_number.asc())
+        .all()
+    )
+    if drafts:
+        return pd.DataFrame(
+            [
+                {
+                    "set_number": d.set_number,
+                    "weight": float(d.weight),
+                    "reps": int(d.reps),
+                    "done": bool(d.done),
+                }
+                for d in drafts
+            ]
+        )
+
+    return None
 
 
-def save_sets_from_df(db, session_id: int, workout_exercise_id: int, df: pd.DataFrame):
-    # Only save rows that are checked as done
-    if df.empty or "done" not in df.columns:
+def save_draft_from_df(db, session_id: int, workout_exercise_id: int, df: pd.DataFrame):
+    """Always persist current edits as draft so refresh doesn’t wipe progress."""
+    if df is None or df.empty:
         return
 
-    done_df = df[df["done"] == True].copy()  # noqa: E712
-    if done_df.empty:
-        return
-
-    # Replace existing rows for this session/exercise
-    db.query(Set).filter(
-        Set.session_id == session_id,
-        Set.workout_exercise_id == workout_exercise_id,
+    # Replace draft with the current table rows (including unchecked)
+    db.query(DraftSet).filter(
+        DraftSet.session_id == session_id,
+        DraftSet.workout_exercise_id == workout_exercise_id,
     ).delete()
 
-    # Re-number sets based on their current order in the table
-    done_df = done_df.reset_index(drop=True)
-    for i, row in done_df.iterrows():
-        new_set = Set(
+    df2 = df.copy().reset_index(drop=True)
+    for i, row in df2.iterrows():
+        # tolerate missing done column
+        done_val = bool(row["done"]) if "done" in df2.columns else False
+        ds = DraftSet(
             session_id=session_id,
             workout_exercise_id=workout_exercise_id,
             set_number=int(i + 1),
             weight=float(row["weight"]),
             reps=int(row["reps"]),
-            rir=None,
+            done=1 if done_val else 0,
         )
-        db.add(new_set)
+        db.add(ds)
 
     db.commit()
+
+
+def promote_draft_to_sets_if_complete(db, session_id: int, workout_exercise_id: int):
+    """If all draft rows are checked, commit them to final Set table."""
+    drafts = (
+        db.query(DraftSet)
+        .filter(DraftSet.session_id == session_id, DraftSet.workout_exercise_id == workout_exercise_id)
+        .order_by(DraftSet.set_number.asc())
+        .all()
+    )
+    if not drafts:
+        return False
+
+    if not all(d.done == 1 for d in drafts):
+        return False
+
+    # Replace final sets
+    db.query(Set).filter(
+        Set.session_id == session_id,
+        Set.workout_exercise_id == workout_exercise_id,
+    ).delete()
+
+    for i, d in enumerate(drafts):
+        s = Set(
+            session_id=session_id,
+            workout_exercise_id=workout_exercise_id,
+            set_number=int(i + 1),
+            weight=float(d.weight),
+            reps=int(d.reps),
+            rir=None,
+        )
+        db.add(s)
+
+    # Clear draft after promote
+    db.query(DraftSet).filter(
+        DraftSet.session_id == session_id,
+        DraftSet.workout_exercise_id == workout_exercise_id,
+    ).delete()
+
+    db.commit()
+    return True
+
+
+def muscle_for(ex_name: str) -> str:
+    return EXERCISE_TO_MUSCLE.get(ex_name, "Other")
 
 
 # -----------------------------
@@ -209,7 +283,6 @@ def main():
             return
 
         prog = programs[0]
-
         workouts = (
             db.query(Workout)
             .filter(Workout.program_id == prog.id)
@@ -223,7 +296,7 @@ def main():
         tracking_workout = workouts[0]
         session = get_or_create_today_session(db, tracking_workout.id)
 
-        # Top compact header
+        # Compact header
         st.markdown(f"**Program:** {prog.name}")
 
         col_prev, col_mid, col_next = st.columns([1, 3, 1])
@@ -233,7 +306,6 @@ def main():
                 st.rerun()
 
         with col_mid:
-            # compact combined banner: session + date
             rot_num = st.session_state["rotation_index"] + 1
             st.info(f"Session {rot_num} • {session.date}")
 
@@ -244,40 +316,32 @@ def main():
 
         session_index = st.session_state["rotation_index"]
 
-        # Get exercises for this rotation
+        # Build session exercise list
         if callable(get_session_exercises):
             exercises_for_session = get_session_exercises(session_index)
         else:
             exercises_for_session = fallback_get_session_exercises(session_index)
 
-        # Render each exercise
-        for order_idx, ex_name in enumerate(exercises_for_session):
-            we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
+        # Render exercises
+        for idx, ex_name in enumerate(exercises_for_session):
+            we = get_or_create_workout_exercise(db, tracking_workout, ex_name, idx)
             db.commit()
 
             st.subheader(ex_name)
 
-            # If we already have logged sets in DB, show those; else show recommendation
-            existing_df = load_existing_sets_as_df(db, session.id, we.id)
-            if existing_df is not None:
-                df = existing_df
-            else:
+            # Load final sets OR draft OR recommendation
+            df = load_sets_or_draft_as_df(db, session.id, we.id)
+            if df is None:
                 if recommend_weights_and_reps is None:
-                    # safe fallback if progression import missing
+                    # Safe fallback
                     rows = []
-                    for i in range(1, int(getattr(we, "target_sets", DEFAULT_TARGET_SETS)) + 1):
-                        rows.append(
-                            {
-                                "set_number": i,
-                                "weight": 50.0,
-                                "reps": int(getattr(we, "target_reps", DEFAULT_TARGET_REPS)),
-                                "done": False,
-                            }
-                        )
+                    target_sets = int(getattr(we, "target_sets", DEFAULT_TARGET_SETS))
+                    target_reps = int(getattr(we, "target_reps", DEFAULT_TARGET_REPS))
+                    for i in range(1, target_sets + 1):
+                        rows.append({"set_number": i, "weight": 50.0, "reps": target_reps, "done": False})
                     df = pd.DataFrame(rows)
                 else:
                     rec_rows = recommend_weights_and_reps(db, we)
-                    # Ensure checkboxes start OFF until user logs
                     for r in rec_rows:
                         r["done"] = False
                     df = pd.DataFrame(rec_rows)
@@ -298,23 +362,29 @@ def main():
                 key=editor_key,
             )
 
-            # One clear action: Save sets (removes Reset Draft)
-            if st.button("Save sets", key=f"save_{session.id}_{we.id}"):
-                save_sets_from_df(db, session.id, we.id, edited_df)
+            # Always save draft so refresh doesn’t wipe progress
+            save_draft_from_df(db, session.id, we.id, edited_df)
+
+            # Auto-promote to final sets when ALL checked
+            did_promote = promote_draft_to_sets_if_complete(db, session.id, we.id)
+            if did_promote:
                 st.success("Saved ✅")
                 st.rerun()
 
-            st.markdown("---")
+            # Divider ONLY when muscle group changes
+            if idx < len(exercises_for_session) - 1:
+                cur_m = muscle_for(ex_name)
+                nxt_m = muscle_for(exercises_for_session[idx + 1])
+                if cur_m != nxt_m:
+                    st.markdown("---")
 
-        # Finish Workout button at the end
+        # Finish workout
         if st.button("Finish Workout ✅"):
             st.session_state["rotation_index"] += 1
-
-            # Optional: clear any editor state so next session starts clean
+            # Clear editor states so next session starts clean
             for k in list(st.session_state.keys()):
                 if k.startswith("editor_"):
                     del st.session_state[k]
-
             st.success("Workout finished — moved to next session.")
             st.rerun()
 
