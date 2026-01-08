@@ -14,156 +14,58 @@ from db import (
 )
 
 from progression import recommend_weights_and_reps
+from plan import get_session_exercises
+from services import (
+    get_or_create_today_session,
+    get_or_create_workout_exercise,
+    load_existing_sets,
+    save_sets,
+)
 
 
-# ----------------- ROTATION CONFIG -----------------
-
-LEG_ROTATION = [
-    "Leg Extension",                # leg session 1
-    "Leg Curl",                     # leg session 2
-    "Hip Thrust + Glute Lunges",    # leg session 3
-]
-
-PULL_MAIN_ROTATION = [
-    "Lat Pulldown",
-    "Cable Row",
-]
-
-PULL_SECONDARY = "Cable Curl"
-LATERAL_RAISES = "Dumbbell Lateral Raise"
-
-DEFAULT_TARGET_SETS = 4
-DEFAULT_TARGET_REPS = 10
-
-# per-exercise overrides for starting # of sets
-EXERCISE_DEFAULT_SETS = {
-    # chest finisher
-    "Single-arm Chest Fly": 1,
-    # quad finisher
-    "Sissy Squat": 1,
-    # lat finisher
-    "Straight-arm Pulldown": 1,
-    # biceps finisher
-    "Incline DB Curl": 1,
-    # triceps finisher
-    "Overhead Cable Extension": 1,
-}
+def _editor_key(session_id: int, we_id: int) -> str:
+    return f"editor_{session_id}_{we_id}"
 
 
-def get_session_exercises(session_index: int):
+def _draft_key(session_id: int, we_id: int) -> str:
+    return f"draft_{session_id}_{we_id}"
+
+
+def _load_df_for_exercise(db, session_id: int, we: WorkoutExercise) -> pd.DataFrame:
     """
-    session_index: 0-based training session number.
-    Returns an ordered list of exercise names for that session.
-
-    Pattern:
-      - Legs rotate over LEG_ROTATION.
-      - Push / Pull alternates each session.
-      - Pull days alternate Lat Pulldown / Cable Row.
-      - Finish every session with lateral raises.
-      - Certain muscles get 1-set "finisher" exercises.
+    Priority:
+      1) draft from st.session_state (unsaved edits)
+      2) saved sets from DB (if any)
+      3) recommendations from progression.py
     """
-    # ----- leg block -----
-    leg_ex = LEG_ROTATION[session_index % len(LEG_ROTATION)]
-    leg_block = [leg_ex]
+    dk = _draft_key(session_id, we.id)
 
-    # add quad finisher only on Leg Extension day
-    if leg_ex == "Leg Extension":
-        leg_block.append("Sissy Squat")
+    # 1) Unsaved draft
+    if dk in st.session_state and isinstance(st.session_state[dk], pd.DataFrame):
+        return st.session_state[dk].copy()
 
-    # ----- upper block -----
-    is_push_day = (session_index % 2 == 0)
+    # 2) Saved sets
+    existing_sets = load_existing_sets(db, session_id, we.id)
+    if existing_sets:
+        rows = []
+        for s in existing_sets:
+            rows.append(
+                {
+                    "set_number": int(s.set_number),
+                    "weight": float(s.weight),
+                    "reps": int(s.reps),
+                    "done": True,  # already saved
+                }
+            )
+        return pd.DataFrame(rows)
 
-    if is_push_day:
-        # Push day:
-        #   main chest, chest finisher, main triceps, triceps finisher
-        upper_block = [
-            "Incline DB Bench Press",
-            "Single-arm Chest Fly",      # finisher, 1 set
-            "Cable Tricep Pushdown",
-            "Overhead Cable Extension",  # finisher, 1 set
-        ]
-    else:
-        # Pull day:
-        #   main back (alternating), lat finisher, main biceps, biceps finisher
-        pull_session_number = session_index // 2  # counts only pull days
-        pull_main = PULL_MAIN_ROTATION[pull_session_number % len(PULL_MAIN_ROTATION)]
-        upper_block = [
-            pull_main,
-            "Straight-arm Pulldown",  # lat finisher
-            PULL_SECONDARY,           # Cable Curl
-            "Incline DB Curl",        # biceps finisher
-        ]
+    # 3) Fresh recommendation
+    rec_rows = recommend_weights_and_reps(db, we)
+    df = pd.DataFrame(rec_rows)
+    if "done" not in df.columns:
+        df["done"] = False
+    return df
 
-    # Always finish with laterals
-    exercises = leg_block + upper_block + [LATERAL_RAISES]
-    return exercises
-
-
-# ---------- helpers ----------
-
-def get_or_create_today_session(db, workout_id):
-    today = date.today()
-    sess = (
-        db.query(Session)
-        .filter(Session.workout_id == workout_id, Session.date == today)
-        .first()
-    )
-    if sess:
-        return sess
-
-    sess = Session(workout_id=workout_id, date=today)
-    db.add(sess)
-    db.commit()
-    db.refresh(sess)
-    return sess
-
-
-def get_or_create_workout_exercise(db, workout, ex_name, order_index):
-    """
-    Given a tracking workout and an exercise name string,
-    return a WorkoutExercise row. If needed, create Exercise and/or
-    WorkoutExercise on the fly.
-    """
-    name_normalized = ex_name.strip()
-
-    # 1) Try to find an Exercise by name (case-insensitive)
-    exercise = (
-        db.query(Exercise)
-        .filter(Exercise.name.ilike(name_normalized))
-        .first()
-    )
-    if not exercise:
-        exercise = Exercise(name=name_normalized)
-        db.add(exercise)
-        db.flush()  # populate exercise.id
-
-    # 2) Try to find a WorkoutExercise linking this exercise to the workout
-    we = (
-        db.query(WorkoutExercise)
-        .filter(
-            WorkoutExercise.workout_id == workout.id,
-            WorkoutExercise.exercise_id == exercise.id,
-        )
-        .first()
-    )
-    if not we:
-        target_sets = EXERCISE_DEFAULT_SETS.get(
-            name_normalized,
-            DEFAULT_TARGET_SETS,
-        )
-        we = WorkoutExercise(
-            workout_id=workout.id,
-            exercise_id=exercise.id,
-            order_index=order_index,
-            target_sets=target_sets,
-            target_reps=DEFAULT_TARGET_REPS,
-        )
-        db.add(we)
-
-    return we
-
-
-# ---------- main app ----------
 
 def main():
     st.set_page_config(page_title="Workout Progression", layout="centered")
@@ -179,12 +81,10 @@ def main():
             st.error("No programs found. Run init_db.py first.")
             return
 
-        # For now, just use the first program and show its name (no dropdown)
+        # Use the first program for now
         prog = programs[0]
-
         st.markdown(f"**Program:** {prog.name}")
 
-        # Use the FIRST workout as the container for sessions
         workouts = (
             db.query(Workout)
             .filter(Workout.program_id == prog.id)
@@ -197,7 +97,7 @@ def main():
 
         tracking_workout = workouts[0]
 
-        # Navigation for rotation session number
+        # Rotation navigation
         col_prev, col_label, col_next = st.columns([1, 2, 1])
 
         with col_prev:
@@ -218,60 +118,23 @@ def main():
 
         session_index = st.session_state["rotation_index"]
 
-        # Create or retrieve today's session (used for storing sets)
+        # Create/retrieve today's session
         session = get_or_create_today_session(db, tracking_workout.id)
-
-        # Session date banner
         st.info(f"Session date: {session.date}")
 
-        # Determine which exercises this rotation session should have
         exercises_for_session = get_session_exercises(session_index)
 
-        # -------- main UI per exercise in the rotation --------
+        # Render each exercise
         for order_idx, ex_name in enumerate(exercises_for_session):
-            # Get or create WorkoutExercise for this exercise name
-            we = get_or_create_workout_exercise(
-                db, tracking_workout, ex_name, order_idx
-            )
-            # commit potential new rows before we query sets
-            db.commit()
+            we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
+            db.commit()  # commit any newly created Exercise/WorkoutExercise
 
             st.subheader(ex_name)
 
-            # --- 1) check if we already have logged sets for THIS session+exercise ---
-            existing_sets = (
-                db.query(Set)
-                .filter(
-                    Set.session_id == session.id,
-                    Set.workout_exercise_id == we.id,
-                )
-                .order_by(Set.set_number.asc())
-                .all()
-            )
+            # Load DF (draft -> db -> recommendation)
+            df = _load_df_for_exercise(db, session.id, we)
 
-            if existing_sets:
-                # Build DF from DB (this is the source of truth)
-                df = pd.DataFrame(
-                    [
-                        {
-                            "set_number": s.set_number,
-                            "weight": s.weight,
-                            "reps": s.reps,
-                        }
-                        for s in existing_sets
-                    ]
-                )
-                st.caption("Loaded previously saved sets for this session.")
-            else:
-                # No sets yet -> use progression logic for a starting template
-                rec_rows = recommend_weights_and_reps(db, we)
-
-                df = pd.DataFrame(rec_rows)
-                # In case progression returns a 'done' column, drop it here
-                if "done" in df.columns:
-                    df = df.drop(columns=["done"])
-
-            # --- 2) show editable table (no index, dynamic rows) ---
+            # Show editor
             edited_df = st.data_editor(
                 df,
                 use_container_width=True,
@@ -281,52 +144,52 @@ def main():
                     "set_number": st.column_config.NumberColumn("Set", min_value=1),
                     "weight": st.column_config.NumberColumn("Weight"),
                     "reps": st.column_config.NumberColumn("Reps", min_value=1),
+                    "done": st.column_config.CheckboxColumn("Logged", default=False),
                 },
-                key=f"editor_{we.id}",
+                key=_editor_key(session.id, we.id),
             )
 
-            # --- 3) explicit SAVE button to write to DB ---
-            save_key = f"save_{we.id}"
-            if st.button("Save sets", key=save_key):
-                if not edited_df.empty:
-                    # Always use the first row's weight for all rows (your rule)
-                    first_weight = float(edited_df.iloc[0]["weight"])
-                    edited_df["weight"] = first_weight
+            # Persist draft edits in session state so a rerun doesn't wipe them
+            st.session_state[_draft_key(session.id, we.id)] = edited_df.copy()
 
-                    # Sort by set_number to keep things tidy
-                    edited_df = edited_df.sort_values("set_number")
+            # Check saved sets status (for UI messaging only)
+            existing_sets = load_existing_sets(db, session.id, we.id)
+            already_saved = len(existing_sets) > 0
 
-                    # Wipe old sets for this session+exercise
-                    db.query(Set).filter(
-                        Set.session_id == session.id,
-                        Set.workout_exercise_id == we.id,
-                    ).delete()
+            # Save button (explicit > auto-save on rerun)
+            btn_cols = st.columns([1, 1, 3])
+            with btn_cols[0]:
+                if st.button("Save sets", key=f"save_{session.id}_{we.id}"):
+                    # Save only rows marked done=True
+                    rows = edited_df.to_dict("records")
+                    if not rows:
+                        st.warning("No rows to save.")
+                    else:
+                        done_rows = [r for r in rows if bool(r.get("done", False))]
+                        if not done_rows:
+                            st.warning("Nothing is checked as Logged. Check the sets you completed, then Save.")
+                        else:
+                            save_sets(db, session.id, we.id, done_rows)
 
-                    # Insert new sets
-                    for _, row in edited_df.iterrows():
-                        new_set = Set(
-                            session_id=session.id,
-                            workout_exercise_id=we.id,
-                            set_number=int(row["set_number"]),
-                            weight=float(row["weight"]),
-                            reps=int(row["reps"]),
-                            rir=None,
-                        )
-                        db.add(new_set)
-                    db.commit()
+                            # clear draft so DB becomes the source of truth on reload
+                            dk = _draft_key(session.id, we.id)
+                            if dk in st.session_state:
+                                del st.session_state[dk]
 
-                    st.success("Sets saved for this exercise ✅")
+                            st.success("Saved ✅")
 
-                    # Turn on feedback expander for this exercise
-                    feedback_key_prefix = f"feedback_{session.id}_{we.id}"
-                    st.session_state[feedback_key_prefix + "_show"] = True
+            with btn_cols[1]:
+                if st.button("Reset draft", key=f"reset_{session.id}_{we.id}"):
+                    # discard unsaved changes (draft) and rerun to reload
+                    dk = _draft_key(session.id, we.id)
+                    if dk in st.session_state:
+                        del st.session_state[dk]
+                    st.rerun()
 
-            # --- 4) feedback (still per exercise for now) ---
-            feedback_key_prefix = f"feedback_{session.id}_{we.id}"
-            if st.session_state.get(feedback_key_prefix + "_show", False):
-                with st.expander("Feedback for this muscle group"):
-                    st.write("How did this exercise feel?")
-
+            # Feedback expander (kept simple for now)
+            # NOTE: We'll later move this to "after all exercises in the muscle group are saved"
+            if already_saved:
+                with st.expander("Feedback (for this exercise)", expanded=False):
                     st.radio(
                         "Soreness AFTER last time:",
                         [
@@ -335,19 +198,17 @@ def main():
                             "Healed just on time",
                             "I'm still sore",
                         ],
-                        key=feedback_key_prefix + "_soreness",
+                        key=f"fb_{session.id}_{we.id}_soreness",
                     )
-
                     st.radio(
                         "Pump TODAY:",
                         ["Low pump", "Moderate pump", "Amazing pump"],
-                        key=feedback_key_prefix + "_pump",
+                        key=f"fb_{session.id}_{we.id}_pump",
                     )
-
                     st.radio(
                         "Workload TODAY:",
                         ["Easy", "Pretty good", "Pushed my limits", "Too much"],
-                        key=feedback_key_prefix + "_workload",
+                        key=f"fb_{session.id}_{we.id}_workload",
                     )
 
             st.markdown("---")
