@@ -108,11 +108,11 @@ def main():
                 "Planned sets",
                 min_value=1,
                 max_value=20,
-                value=int(st.session_state[draft_sets_key]),
                 step=1,
                 key=draft_sets_key,
                 help="This controls how many sets you plan to do for this exercise today.",
             )
+
 
             st.caption("Edit Weight/Reps, then press **Log** for each completed set. Use **Update** to correct a logged set.")
 
@@ -196,3 +196,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
