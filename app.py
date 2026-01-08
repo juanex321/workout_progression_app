@@ -1,7 +1,5 @@
 import streamlit as st
-import pandas as pd
 from datetime import date
-import math
 
 from db import (
     get_session,
@@ -12,364 +10,34 @@ from db import (
     Set,
     Exercise,
     Feedback,
-    DraftSet,   # NEW
 )
 
-try:
-    from plan import get_session_exercises  # type: ignore
-except Exception:
-    get_session_exercises = None  # type: ignore
+from plan import get_session_exercises
+from progression import recommend_weights_and_reps
+from services import (
+    get_or_create_today_session,
+    get_or_create_workout_exercise,
+    load_existing_sets,
+)
 
-try:
-    from progression import recommend_weights_and_reps  # type: ignore
-except Exception:
-    recommend_weights_and_reps = None  # type: ignore
+# ----------------- page config -----------------
 
-
-# -----------------------------
-# Plan fallback (if plan.py missing)
-# -----------------------------
-LEG_ROTATION = [
-    "Leg Extension",
-    "Leg Curl",
-    "Hip Thrust + Glute Lunges",
-]
-PULL_MAIN_ROTATION = ["Lat Pulldown", "Cable Row"]
-PULL_SECONDARY = "Cable Curl"
-LATERAL_RAISES = "Dumbbell Lateral Raise"
-
-DEFAULT_TARGET_SETS = 4
-DEFAULT_TARGET_REPS = 10
-
-EXERCISE_DEFAULT_SETS = {
-    "Single-arm Chest Fly": 1,
-    "Sissy Squat": 1,
-    "Straight-arm Pulldown": 1,
-    "Incline DB Curl": 1,
-    "Overhead Cable Extension": 1,
-}
-
-# Muscle mapping for “divider only when muscle group changes”
-EXERCISE_TO_MUSCLE = {
-    # Quads
-    "Leg Extension": "Quads",
-    "Sissy Squat": "Quads",
-    # Hams / Glutes
-    "Leg Curl": "Hams",
-    "Hip Thrust + Glute Lunges": "Glutes",
-    # Chest
-    "Incline DB Bench Press": "Chest",
-    "Single-arm Chest Fly": "Chest",
-    # Triceps
-    "Cable Tricep Pushdown": "Triceps",
-    "Overhead Cable Extension": "Triceps",
-    # Back / Lats
-    "Lat Pulldown": "Back",
-    "Cable Row": "Back",
-    "Straight-arm Pulldown": "Back",
-    # Biceps
-    "Cable Curl": "Biceps",
-    "Incline DB Curl": "Biceps",
-    # Delts
-    "Dumbbell Lateral Raise": "Delts",
-}
-
-
-def fallback_get_session_exercises(session_index: int):
-    leg_ex = LEG_ROTATION[session_index % len(LEG_ROTATION)]
-    leg_block = [leg_ex]
-    if leg_ex == "Leg Extension":
-        leg_block.append("Sissy Squat")
-
-    is_push_day = (session_index % 2 == 0)
-    if is_push_day:
-        upper_block = [
-            "Incline DB Bench Press",
-            "Single-arm Chest Fly",
-            "Cable Tricep Pushdown",
-            "Overhead Cable Extension",
-        ]
-    else:
-        pull_session_number = session_index // 2
-        pull_main = PULL_MAIN_ROTATION[pull_session_number % len(PULL_MAIN_ROTATION)]
-        upper_block = [
-            pull_main,
-            "Straight-arm Pulldown",
-            PULL_SECONDARY,
-            "Incline DB Curl",
-        ]
-
-    return leg_block + upper_block + [LATERAL_RAISES]
-
-
-# -----------------------------
-# DB helpers
-# -----------------------------
-def get_or_create_today_session(db, workout_id: int):
-    today = date.today()
-    sess = (
-        db.query(Session)
-        .filter(Session.workout_id == workout_id, Session.date == today)
-        .first()
-    )
-    if sess:
-        return sess
-    sess = Session(workout_id=workout_id, date=today)
-    db.add(sess)
-    db.commit()
-    db.refresh(sess)
-    return sess
-
-
-def get_or_create_workout_exercise(db, workout: Workout, ex_name: str, order_index: int):
-    name_normalized = ex_name.strip()
-
-    exercise = (
-        db.query(Exercise)
-        .filter(Exercise.name.ilike(name_normalized))
-        .first()
-    )
-    if not exercise:
-        exercise = Exercise(name=name_normalized)
-        db.add(exercise)
-        db.flush()
-
-    we = (
-        db.query(WorkoutExercise)
-        .filter(
-            WorkoutExercise.workout_id == workout.id,
-            WorkoutExercise.exercise_id == exercise.id,
-        )
-        .first()
-    )
-    if not we:
-        target_sets = EXERCISE_DEFAULT_SETS.get(name_normalized, DEFAULT_TARGET_SETS)
-        we = WorkoutExercise(
-            workout_id=workout.id,
-            exercise_id=exercise.id,
-            order_index=order_index,
-            target_sets=target_sets,
-            target_reps=DEFAULT_TARGET_REPS,
-        )
-        db.add(we)
-
-    return we
-
-
-def load_sets_or_draft_as_df(db, session_id: int, workout_exercise_id: int) -> pd.DataFrame | None:
-    # If final sets exist, show them (done=True)
-    final_sets = (
-        db.query(Set)
-        .filter(Set.session_id == session_id, Set.workout_exercise_id == workout_exercise_id)
-        .order_by(Set.set_number.asc())
-        .all()
-    )
-    if final_sets:
-        return pd.DataFrame(
-            [
-                {"set_number": s.set_number, "weight": float(s.weight), "reps": int(s.reps), "done": True}
-                for s in final_sets
-            ]
-        )
-
-    # Else show draft if exists
-    drafts = (
-        db.query(DraftSet)
-        .filter(DraftSet.session_id == session_id, DraftSet.workout_exercise_id == workout_exercise_id)
-        .order_by(DraftSet.set_number.asc())
-        .all()
-    )
-    if drafts:
-        return pd.DataFrame(
-            [
-                {
-                    "set_number": d.set_number,
-                    "weight": float(d.weight),
-                    "reps": int(d.reps),
-                    "done": bool(d.done),
-                }
-                for d in drafts
-            ]
-        )
-
-    return None
-
-
-def _safe_int(x, default=None):
-    if x is None:
-        return default
-    try:
-        if isinstance(x, float) and math.isnan(x):
-            return default
-        return int(x)
-    except Exception:
-        return default
-
-def _safe_float(x, default=None):
-    if x is None:
-        return default
-    try:
-        if isinstance(x, float) and math.isnan(x):
-            return default
-        return float(x)
-    except Exception:
-        return default
-
-def _safe_bool(x) -> bool:
-    # IMPORTANT: pandas/streamlit may return NaN for unchecked boxes
-    if x is None:
-        return False
-    try:
-        if isinstance(x, float) and math.isnan(x):
-            return False
-    except Exception:
-        pass
-    return bool(x)
-
-
-def save_draft_from_df(db, session_id: int, workout_exercise_id: int, df: pd.DataFrame):
-    """Persist current edits as draft WITHOUT wiping values on checkbox clicks."""
-    if df is None or df.empty:
-        return
-
-    df2 = df.copy()
-
-    # Ensure required columns exist
-    if "set_number" not in df2.columns:
-        df2["set_number"] = list(range(1, len(df2) + 1))
-    if "done" not in df2.columns:
-        df2["done"] = False
-
-    # Load existing drafts so we can preserve values when streamlit returns NaN
-    existing = (
-        db.query(DraftSet)
-        .filter(
-            DraftSet.session_id == session_id,
-            DraftSet.workout_exercise_id == workout_exercise_id,
-        )
-        .all()
-    )
-    prev_by_set = {d.set_number: d for d in existing}
-
-    # Normalize rows
-    normalized_rows = []
-    for _, row in df2.iterrows():
-        sn = _safe_int(row.get("set_number"), None)
-        if sn is None:
-            continue
-
-        prev = prev_by_set.get(sn)
-
-        w = _safe_float(row.get("weight"), None)
-        r = _safe_int(row.get("reps"), None)
-        d = _safe_bool(row.get("done"))
-
-        # If streamlit gave us NaN for weight/reps, keep previous draft values
-        if w is None and prev is not None:
-            w = float(prev.weight)
-        if r is None and prev is not None:
-            r = int(prev.reps)
-
-        # Still missing? give safe defaults
-        if w is None:
-            w = 50.0
-        if r is None:
-            r = DEFAULT_TARGET_REPS
-
-        normalized_rows.append((sn, w, r, d))
-
-    # Remove drafts that no longer exist in the UI
-    keep_set_numbers = {sn for sn, _, _, _ in normalized_rows}
-    if existing:
-        for d in existing:
-            if d.set_number not in keep_set_numbers:
-                db.delete(d)
-
-    # Upsert drafts
-    for sn, w, r, d in normalized_rows:
-        ds = prev_by_set.get(sn)
-        if ds is None:
-            ds = DraftSet(
-                session_id=session_id,
-                workout_exercise_id=workout_exercise_id,
-                set_number=sn,
-                weight=float(w),
-                reps=int(r),
-                done=1 if d else 0,
-            )
-            db.add(ds)
-        else:
-            ds.weight = float(w)
-            ds.reps = int(r)
-            ds.done = 1 if d else 0
-
-    db.commit()
-
-
-def promote_draft_to_sets_if_complete(db, session_id: int, workout_exercise_id: int):
-    """If all draft rows are checked, commit them to final Set table."""
-    drafts = (
-        db.query(DraftSet)
-        .filter(
-            DraftSet.session_id == session_id,
-            DraftSet.workout_exercise_id == workout_exercise_id,
-        )
-        .order_by(DraftSet.set_number.asc())
-        .all()
-    )
-    if not drafts:
-        return False
-
-    # Must be explicitly done=1 for every row (no NaN weirdness)
-    if not all(int(d.done) == 1 for d in drafts):
-        return False
-
-    # Replace final sets
-    db.query(Set).filter(
-        Set.session_id == session_id,
-        Set.workout_exercise_id == workout_exercise_id,
-    ).delete()
-
-    for d in drafts:
-        s = Set(
-            session_id=session_id,
-            workout_exercise_id=workout_exercise_id,
-            set_number=int(d.set_number),
-            weight=float(d.weight),
-            reps=int(d.reps),
-            rir=None,
-        )
-        db.add(s)
-
-    # Clear draft after promote
-    db.query(DraftSet).filter(
-        DraftSet.session_id == session_id,
-        DraftSet.workout_exercise_id == workout_exercise_id,
-    ).delete()
-
-    db.commit()
-    return True
-
-def muscle_for(ex_name: str) -> str:
-    return EXERCISE_TO_MUSCLE.get(ex_name, "Other")
-
-
-# -----------------------------
-# Main app
-# -----------------------------
 def main():
     st.set_page_config(page_title="Workout", layout="centered")
 
+    # rotation index lives only in Streamlit session state
     if "rotation_index" not in st.session_state:
         st.session_state["rotation_index"] = 0
 
     with get_session() as db:
-        programs = db.query(Program).all()
+        programs = db.query(Program).order_by(Program.id.asc()).all()
         if not programs:
             st.error("No programs found. Run init_db.py first.")
             return
 
         prog = programs[0]
+        st.markdown(f"**Program:** {prog.name}")
+
         workouts = (
             db.query(Workout)
             .filter(Workout.program_id == prog.id)
@@ -381,101 +49,150 @@ def main():
             return
 
         tracking_workout = workouts[0]
-        session = get_or_create_today_session(db, tracking_workout.id)
 
-        # Compact header
-        st.markdown(f"**Program:** {prog.name}")
+        # Navigation for rotation session number
+        col_prev, col_center, col_next = st.columns([1, 2, 1])
 
-        col_prev, col_mid, col_next = st.columns([1, 3, 1])
         with col_prev:
             if st.button("◀ Previous") and st.session_state["rotation_index"] > 0:
                 st.session_state["rotation_index"] -= 1
-                st.rerun()
 
-        with col_mid:
-            rot_num = st.session_state["rotation_index"] + 1
-            st.info(f"Session {rot_num} • {session.date}")
+        with col_center:
+            # "Session 1 · YYYY-MM-DD"
+            sess_label = st.session_state["rotation_index"] + 1
+            # we create the session below, but show a stable label now
+            st.markdown(
+                f"<div style='text-align:center; font-weight:bold;'>"
+                f"Session {sess_label}"
+                f"</div>",
+                unsafe_allow_html=True,
+            )
 
         with col_next:
             if st.button("Next ▶"):
                 st.session_state["rotation_index"] += 1
-                st.rerun()
 
         session_index = st.session_state["rotation_index"]
 
-        # Build session exercise list
-        if callable(get_session_exercises):
-            exercises_for_session = get_session_exercises(session_index)
-        else:
-            exercises_for_session = fallback_get_session_exercises(session_index)
+        # Create/retrieve today's session (DB-persisted)
+        session = get_or_create_today_session(db, tracking_workout.id)
 
-        # Render exercises
-        for idx, ex_name in enumerate(exercises_for_session):
-            we = get_or_create_workout_exercise(db, tracking_workout, ex_name, idx)
+        # compact banner
+        st.info(f"Session {session_index + 1} · {session.date}")
+
+        # Determine exercises for this rotation session
+        exercises_for_session = get_session_exercises(session_index)
+
+        # -------- per exercise UI --------
+        for order_idx, ex_name in enumerate(exercises_for_session):
+            we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
             db.commit()
 
             st.subheader(ex_name)
 
-            # Load final sets OR draft OR recommendation
-            df = load_sets_or_draft_as_df(db, session.id, we.id)
-            if df is None:
-                if recommend_weights_and_reps is None:
-                    # Safe fallback
-                    rows = []
-                    target_sets = int(getattr(we, "target_sets", DEFAULT_TARGET_SETS))
-                    target_reps = int(getattr(we, "target_reps", DEFAULT_TARGET_REPS))
-                    for i in range(1, target_sets + 1):
-                        rows.append({"set_number": i, "weight": 50.0, "reps": target_reps, "done": False})
-                    df = pd.DataFrame(rows)
-                else:
-                    rec_rows = recommend_weights_and_reps(db, we)
-                    for r in rec_rows:
-                        r["done"] = False
-                    df = pd.DataFrame(rec_rows)
+            # recommendations
+            rec_rows = recommend_weights_and_reps(db, we) or []
 
-            editor_key = f"editor_{session.id}_{we.id}"
+            # existing logged sets (DB)
+            existing_sets = load_existing_sets(db, session.id, we.id)
+            existing_by_num = {s.set_number: s for s in existing_sets}
 
-            edited_df = st.data_editor(
-                df,
-                use_container_width=True,
-                hide_index=True,
-                num_rows="dynamic",
-                column_config={
-                    "set_number": st.column_config.NumberColumn("Set", min_value=1),
-                    "weight": st.column_config.NumberColumn("Weight"),
-                    "reps": st.column_config.NumberColumn("Reps", min_value=1),
-                    "done": st.column_config.CheckboxColumn("Logged", default=False),
-                },
-                key=editor_key,
+            # Draft planned sets, persisted in session_state so refresh/rerun doesn't revert
+            draft_sets_key = f"draft_sets_{session.id}_{we.id}"
+            if draft_sets_key not in st.session_state:
+                # default to recommended length; fallback to we.target_sets; min 1
+                default_n = len(rec_rows) if len(rec_rows) > 0 else int(getattr(we, "target_sets", 4))
+                st.session_state[draft_sets_key] = max(1, int(default_n))
+
+            planned_sets = st.number_input(
+                "Planned sets",
+                min_value=1,
+                max_value=20,
+                value=int(st.session_state[draft_sets_key]),
+                step=1,
+                key=draft_sets_key,
+                help="This controls how many sets you plan to do for this exercise today.",
             )
 
-            # Always save draft so refresh doesn’t wipe progress
-            save_draft_from_df(db, session.id, we.id, edited_df)
+            st.caption("Edit Weight/Reps, then press **Log** for each completed set. Use **Update** to correct a logged set.")
 
-            # Auto-promote to final sets when ALL checked
-            did_promote = promote_draft_to_sets_if_complete(db, session.id, we.id)
-            if did_promote:
-                st.success("Saved ✅")
-                st.rerun()
+            # Render rows
+            for i in range(1, int(planned_sets) + 1):
+                base = rec_rows[i - 1] if i - 1 < len(rec_rows) else None
+                default_weight = float(base["weight"]) if base and "weight" in base else 50.0
+                default_reps = int(base["reps"]) if base and "reps" in base else 10
 
-            # Divider ONLY when muscle group changes
-            if idx < len(exercises_for_session) - 1:
-                cur_m = muscle_for(ex_name)
-                nxt_m = muscle_for(exercises_for_session[idx + 1])
-                if cur_m != nxt_m:
-                    st.markdown("---")
+                logged = existing_by_num.get(i)
+                if logged:
+                    default_weight = float(logged.weight)
+                    default_reps = int(logged.reps)
 
-        # Finish workout
+                row_cols = st.columns([1.2, 2.2, 2.0, 1.6, 1.6])
+
+                with row_cols[0]:
+                    st.markdown(f"**Set {i}**")
+
+                # Stable per-set keys so values persist across reruns
+                w_key = f"w_{session.id}_{we.id}_{i}"
+                r_key = f"r_{session.id}_{we.id}_{i}"
+
+                with row_cols[1]:
+                    weight_val = st.number_input(
+                        "Weight",
+                        value=float(default_weight),
+                        step=2.5,
+                        key=w_key,
+                        label_visibility="collapsed",
+                    )
+
+                with row_cols[2]:
+                    reps_val = st.number_input(
+                        "Reps",
+                        value=int(default_reps),
+                        step=1,
+                        min_value=1,
+                        key=r_key,
+                        label_visibility="collapsed",
+                    )
+
+                with row_cols[3]:
+                    if logged:
+                        st.success("Logged ✅")
+                    else:
+                        st.info("Not logged")
+
+                with row_cols[4]:
+                    if logged:
+                        if st.button("Update", key=f"btn_update_{session.id}_{we.id}_{i}"):
+                            logged.weight = float(weight_val)
+                            logged.reps = int(reps_val)
+                            db.add(logged)
+                            db.commit()
+                            st.toast(f"Updated set {i} ✅", icon="✅")
+                            st.rerun()
+                    else:
+                        if st.button("Log", key=f"btn_log_{session.id}_{we.id}_{i}"):
+                            new_set = Set(
+                                session_id=session.id,
+                                workout_exercise_id=we.id,
+                                set_number=int(i),
+                                weight=float(weight_val),
+                                reps=int(reps_val),
+                                rir=None,
+                            )
+                            db.add(new_set)
+                            db.commit()
+                            st.toast(f"Logged set {i} ✅", icon="✅")
+                            st.rerun()
+
+            st.markdown("---")
+
+        # Finish workout button (moves to next rotation session)
         if st.button("Finish Workout ✅"):
             st.session_state["rotation_index"] += 1
-            # Clear editor states so next session starts clean
-            for k in list(st.session_state.keys()):
-                if k.startswith("editor_"):
-                    del st.session_state[k]
-            st.success("Workout finished — moved to next session.")
+            st.toast("Workout complete — moving to next session.", icon="✅")
             st.rerun()
 
 
 if __name__ == "__main__":
     main()
-
