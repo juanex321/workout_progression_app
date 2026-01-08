@@ -141,6 +141,7 @@ def main():
                         "Weight",
                         value=float(default_weight),
                         step=2.5,
+                        format="%.0f",
                         key=w_key,
                         label_visibility="collapsed",
                     )
@@ -196,4 +197,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
