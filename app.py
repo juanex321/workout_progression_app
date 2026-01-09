@@ -20,61 +20,67 @@ from services import (
     save_sets,
 )
 
-
 # ----------------- UI HELPERS -----------------
 
 def inject_css():
-    """
-    Mobile-first: DO NOT force horizontal scrolling.
-    Instead, make controls compact so each set fits screen width.
-    """
     st.markdown(
         """
         <style>
-        /* tighten overall spacing a bit */
-        .block-container { padding-top: 1.0rem; padding-bottom: 1.5rem; }
+        .block-container { padding-top: 0.8rem; padding-bottom: 1.2rem; }
 
-        /* make number inputs / buttons more compact */
-        div[data-testid="stNumberInput"] input {
-            padding-top: 0.35rem !important;
-            padding-bottom: 0.35rem !important;
+        /* --- IMPORTANT: keep st.columns horizontal on mobile --- */
+        div[data-testid="stHorizontalBlock"]{
+            flex-wrap: nowrap !important;
+            gap: 0.5rem !important;
+            align-items: center !important;
         }
-        .stButton > button {
-            padding: 0.35rem 0.65rem;
+        div[data-testid="column"]{
+            min-width: 0 !important; /* allow child widgets to shrink */
+        }
+
+        /* Make widgets shrink instead of causing overflow */
+        div[data-testid="stNumberInput"],
+        div[data-testid="stNumberInput"] > div{
+            width: 100% !important;
+            min-width: 0 !important;
+        }
+        div[data-testid="stNumberInput"] input{
+            width: 100% !important;
+            min-width: 0 !important;
+            padding-top: .25rem !important;
+            padding-bottom: .25rem !important;
+        }
+
+        .stButton > button{
+            width: 100% !important;
+            padding: .35rem .55rem;
             border-radius: 12px;
         }
 
         /* badges */
-        .badge {
+        .badge{
             display:inline-block;
             padding: 2px 8px;
             border-radius: 999px;
             font-size: 12px;
             font-weight: 800;
-            margin-left: 8px;
-            vertical-align: middle;
+            white-space: nowrap;
         }
         .badge-ok { background: rgba(46,204,113,0.20); color: rgba(46,204,113,1); }
         .badge-no { background: rgba(52,152,219,0.20); color: rgba(52,152,219,1); }
 
-        /* reduce exercise spacing */
-        .exercise-gap { height: 14px; }
+        .exercise-gap { height: 12px; }
 
-        /* slightly smaller headers on mobile */
         @media (max-width: 600px){
-            h2 { font-size: 1.45rem !important; margin-bottom: 0.2rem; }
-            .block-container { padding-left: 0.9rem; padding-right: 0.9rem; }
+            h2 { font-size: 1.35rem !important; margin-bottom: 0.15rem; }
+            .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
         }
         </style>
         """,
         unsafe_allow_html=True,
     )
 
-
 def number_input_int(key: str, default_value: int, min_value: int, step: int):
-    """
-    Avoid Streamlit warning: don't pass value= if session_state already owns the key.
-    """
     if key not in st.session_state:
         st.session_state[key] = int(default_value)
         return st.number_input(
@@ -94,7 +100,6 @@ def number_input_int(key: str, default_value: int, min_value: int, step: int):
         format="%d",
         label_visibility="collapsed",
     )
-
 
 # ----------------- MAIN APP -----------------
 
@@ -125,8 +130,8 @@ def main():
 
         session = get_or_create_today_session(db, tracking_workout.id)
 
-        # -------- Compact header (no redundant banner) --------
-        col_prev, col_mid, col_next = st.columns([1.0, 2.0, 1.0])
+        # -------- Header (compact) --------
+        col_prev, col_mid, col_next = st.columns([1.0, 2.2, 1.0])
 
         with col_prev:
             if st.button("◀ Previous") and st.session_state["rotation_index"] > 0:
@@ -141,7 +146,7 @@ def main():
                   <div style="font-size:22px; font-weight:900;">
                     Session {sess_num} • {session.date}
                   </div>
-                  <div style="opacity:0.75; margin-top:4px;">Program: {prog.name}</div>
+                  <div style="opacity:0.75; margin-top:2px;">Program: {prog.name}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -197,7 +202,6 @@ def main():
 
             draft = st.session_state[draft_key]
 
-            # Keep draft length aligned with planned sets
             planned_sets = max(1, int(st.session_state[planned_key]))
 
             if len(draft) < planned_sets:
@@ -207,7 +211,6 @@ def main():
                 for i in range(start_n, planned_sets + 1):
                     draft.append(dict(set_number=i, weight=last_w, reps=last_r, logged=False))
             elif len(draft) > planned_sets:
-                # trim only non-logged from the end
                 while len(draft) > planned_sets and not draft[-1]["logged"]:
                     draft.pop()
                 st.session_state[planned_key] = len(draft)
@@ -216,11 +219,11 @@ def main():
             st.session_state[draft_key] = draft
 
             # -------- Exercise header row with +/- --------
-            h1, h2, h3 = st.columns([2.2, 1.2, 1.0])
+            h1, h2 = st.columns([2.2, 1.2])
             with h1:
                 st.markdown(f"## {ex_name}")
             with h2:
-                c1, c2, c3 = st.columns([1, 0.6, 1])
+                c1, c2, c3 = st.columns([0.8, 0.6, 0.8])
                 with c1:
                     if st.button("−", key=f"minus_{we.id}"):
                         if st.session_state[planned_key] > 1:
@@ -228,40 +231,40 @@ def main():
                             st.rerun()
                 with c2:
                     st.markdown(
-                        f"<div style='text-align:center; font-size:18px; font-weight:900; padding-top:6px;'>{st.session_state[planned_key]}</div>",
+                        f"<div style='text-align:center; font-size:18px; font-weight:900;'>{st.session_state[planned_key]}</div>",
                         unsafe_allow_html=True,
                     )
                 with c3:
                     if st.button("+", key=f"plus_{we.id}"):
                         st.session_state[planned_key] += 1
                         st.rerun()
-            with h3:
-                # If you later map muscle groups, put the label here.
-                st.markdown("<div style='text-align:right; opacity:0.65; padding-top:14px;'> </div>", unsafe_allow_html=True)
 
             st.caption("Edit weight/reps, then press **Log** for each completed set.")
 
-            # -------- Set rows: Weight | Reps | Log/Update (fits mobile width) --------
+            # -------- Set rows --------
             for i, row in enumerate(draft, start=1):
                 row_key_prefix = f"{session.id}_{we.id}_{i}"
                 w_key = f"w_{row_key_prefix}"
                 r_key = f"r_{row_key_prefix}"
 
-                # init widget states
                 if w_key not in st.session_state:
                     st.session_state[w_key] = int(row["weight"])
                 if r_key not in st.session_state:
                     st.session_state[r_key] = int(row["reps"])
 
-                # Set title + badge
-                badge = "badge-ok" if row["logged"] else "badge-no"
-                badge_text = "Logged ✅" if row["logged"] else "Not logged"
-                st.markdown(
-                    f"**Set {i}** <span class='badge {badge}'>{badge_text}</span>",
-                    unsafe_allow_html=True,
-                )
+                # Compact header line: Set label + badge inline
+                label_col, badge_col = st.columns([1.0, 2.0])
+                with label_col:
+                    st.markdown(f"**Set {i}**")
+                with badge_col:
+                    badge = "badge-ok" if row["logged"] else "badge-no"
+                    badge_text = "Logged ✅" if row["logged"] else "Not logged"
+                    st.markdown(
+                        f"<div style='text-align:left; padding-top:2px;'><span class='badge {badge}'>{badge_text}</span></div>",
+                        unsafe_allow_html=True,
+                    )
 
-                cols = st.columns([1.25, 1.0, 0.9])  # Weight, Reps, Button
+                cols = st.columns([1.2, 1.0, 0.9])  # Weight, Reps, Button
 
                 with cols[0]:
                     number_input_int(
@@ -296,14 +299,13 @@ def main():
                             st.session_state[draft_key] = draft
                             st.rerun()
 
-                st.markdown("<div style='height:6px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height:4px;'></div>", unsafe_allow_html=True)
 
             st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
 
         if st.button("✅ Finish Workout"):
             st.session_state["rotation_index"] += 1
             st.rerun()
-
 
 if __name__ == "__main__":
     main()
