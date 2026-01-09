@@ -36,12 +36,6 @@ def inject_css():
             margin: 0 auto;
         }
 
-        /* Main content wrapper for exercises */
-        .content-wrapper {
-            max-width: 100%;
-            margin: 0 auto;
-        }
-
         /* Header section */
         .header-container {
             margin-bottom: 1.5rem;
