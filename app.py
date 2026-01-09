@@ -31,30 +31,43 @@ def inject_css():
         /* --- IMPORTANT: keep st.columns horizontal on mobile --- */
         div[data-testid="stHorizontalBlock"]{
             flex-wrap: nowrap !important;
-            gap: 0.5rem !important;
+            gap: 0.3rem !important;
             align-items: center !important;
         }
         div[data-testid="column"]{
-            min-width: 0 !important; /* allow child widgets to shrink */
+            min-width: 0 !important;
+            flex-shrink: 1 !important;
         }
 
-        /* Make widgets shrink instead of causing overflow */
+        /* Make number inputs compact */
         div[data-testid="stNumberInput"],
         div[data-testid="stNumberInput"] > div{
             width: 100% !important;
             min-width: 0 !important;
+            max-width: 100% !important;
         }
         div[data-testid="stNumberInput"] input{
             width: 100% !important;
             min-width: 0 !important;
-            padding-top: .25rem !important;
-            padding-bottom: .25rem !important;
+            padding: .25rem .35rem !important;
+            font-size: 15px !important;
+        }
+        
+        /* Hide the increment/decrement buttons on number inputs */
+        input[type="number"]::-webkit-inner-spin-button,
+        input[type="number"]::-webkit-outer-spin-button {
+            -webkit-appearance: none;
+            margin: 0;
+        }
+        input[type="number"] {
+            -moz-appearance: textfield;
         }
 
         .stButton > button{
             width: 100% !important;
-            padding: .35rem .55rem;
+            padding: .35rem .45rem;
             border-radius: 12px;
+            font-size: 14px !important;
         }
 
         /* badges */
@@ -74,6 +87,8 @@ def inject_css():
         @media (max-width: 600px){
             h2 { font-size: 1.35rem !important; margin-bottom: 0.15rem; }
             .block-container { padding-left: 0.8rem; padding-right: 0.8rem; }
+            div[data-testid="stHorizontalBlock"]{ gap: 0.2rem !important; }
+            .stButton > button{ padding: .3rem .35rem; font-size: 13px !important; }
         }
         </style>
         """,
@@ -253,7 +268,7 @@ def main():
                     st.session_state[r_key] = int(row["reps"])
 
                 # Compact header line: Set label + badge inline
-                label_col, badge_col = st.columns([1.0, 2.0])
+                label_col, badge_col = st.columns([1.0, 2.5])
                 with label_col:
                     st.markdown(f"**Set {i}**")
                 with badge_col:
@@ -264,7 +279,7 @@ def main():
                         unsafe_allow_html=True,
                     )
 
-                cols = st.columns([1.2, 1.0, 0.9])  # Weight, Reps, Button
+                cols = st.columns([1.0, 0.8, 1.0])  # Weight, Reps, Button - adjusted ratios
 
                 with cols[0]:
                     number_input_int(
