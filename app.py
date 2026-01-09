@@ -1,6 +1,5 @@
 import streamlit as st
 from datetime import date
-from typing import Optional, Dict, Any, List
 
 from db import (
     get_session,
@@ -14,136 +13,101 @@ from db import (
 
 from progression import recommend_weights_and_reps
 from plan import get_session_exercises
+from services import (
+    get_or_create_today_session,
+    get_or_create_workout_exercise,
+    load_existing_sets,
+    save_sets,
+)
 
 
-# -----------------------------
-# Helpers
-# -----------------------------
+# ----------------- UI HELPERS -----------------
 
-def get_or_create_today_session(db, workout_id: int) -> Session:
-    today = date.today()
-    sess = (
-        db.query(Session)
-        .filter(Session.workout_id == workout_id, Session.date == today)
-        .first()
+def inject_responsive_css():
+    """
+    Streamlit collapses columns into vertical stacks on mobile.
+    This CSS forces horizontal blocks to stay in a single row
+    and enables horizontal scrolling instead of vertical stacking.
+    """
+    st.markdown(
+        """
+        <style>
+        /* --- Keep Streamlit columns on one row, allow horizontal scroll --- */
+        div[data-testid="stHorizontalBlock"]{
+            flex-wrap: nowrap !important;
+            overflow-x: auto !important;
+            overflow-y: hidden !important;
+            -webkit-overflow-scrolling: touch;
+            gap: 0.6rem;
+            padding-bottom: 2px;
+        }
+        /* Each column should have a minimum width so it doesn't collapse */
+        div[data-testid="column"]{
+            min-width: 170px;
+        }
+
+        /* Make number inputs / buttons slightly tighter on small screens */
+        @media (max-width: 900px){
+            div[data-testid="column"]{ min-width: 155px; }
+            .stButton > button { padding: 0.35rem 0.7rem; }
+            h2 { margin-bottom: 0.35rem; }
+            .stCaption { margin-top: -6px; }
+        }
+
+        /* Make the status pill columns (Logged / Not logged) a bit wider */
+        .status-pill {
+            width: 100%;
+            border-radius: 12px;
+            padding: 12px 14px;
+            font-weight: 700;
+            text-align: left;
+        }
+        .status-logged { background: rgba(46, 204, 113, 0.20); color: rgba(46, 204, 113, 1); }
+        .status-not { background: rgba(52, 152, 219, 0.20); color: rgba(52, 152, 219, 1); }
+
+        /* Reduce the "white space" between exercises a little */
+        .exercise-spacer { height: 10px; }
+        </style>
+        """,
+        unsafe_allow_html=True,
     )
-    if sess:
-        return sess
-
-    sess = Session(workout_id=workout_id, date=today)
-    db.add(sess)
-    db.commit()
-    db.refresh(sess)
-    return sess
 
 
-def get_or_create_workout_exercise(db, workout: Workout, ex_name: str, order_index: int) -> WorkoutExercise:
-    name_normalized = ex_name.strip()
-
-    exercise = (
-        db.query(Exercise)
-        .filter(Exercise.name.ilike(name_normalized))
-        .first()
-    )
-    if not exercise:
-        exercise = Exercise(name=name_normalized)
-        db.add(exercise)
-        db.flush()
-
-    we = (
-        db.query(WorkoutExercise)
-        .filter(
-            WorkoutExercise.workout_id == workout.id,
-            WorkoutExercise.exercise_id == exercise.id,
+def number_input_no_warning(
+    key: str,
+    min_value: int,
+    step: int,
+    default_value: int,
+):
+    """
+    Avoid Streamlit warning: don't pass `value=` if session_state already owns the key.
+    """
+    if key not in st.session_state:
+        st.session_state[key] = int(default_value)
+        return st.number_input(
+            label="",
+            key=key,
+            min_value=min_value,
+            step=step,
+            format="%d",
+            label_visibility="collapsed",
+            value=int(default_value),
         )
-        .first()
+    return st.number_input(
+        label="",
+        key=key,
+        min_value=min_value,
+        step=step,
+        format="%d",
+        label_visibility="collapsed",
     )
-    if not we:
-        we = WorkoutExercise(
-            workout_id=workout.id,
-            exercise_id=exercise.id,
-            order_index=order_index,
-            target_sets=4,
-            target_reps=10,
-        )
-        db.add(we)
-
-    return we
 
 
-def load_logged_sets(db, session_id: int, we_id: int) -> Dict[int, Set]:
-    rows = (
-        db.query(Set)
-        .filter(Set.session_id == session_id, Set.workout_exercise_id == we_id)
-        .order_by(Set.set_number.asc())
-        .all()
-    )
-    return {int(s.set_number): s for s in rows}
-
-
-def upsert_set(db, session_id: int, we_id: int, set_number: int, weight: int, reps: int) -> None:
-    existing = (
-        db.query(Set)
-        .filter(
-            Set.session_id == session_id,
-            Set.workout_exercise_id == we_id,
-            Set.set_number == set_number,
-        )
-        .first()
-    )
-    if existing:
-        existing.weight = float(weight)
-        existing.reps = int(reps)
-    else:
-        db.add(
-            Set(
-                session_id=session_id,
-                workout_exercise_id=we_id,
-                set_number=int(set_number),
-                weight=float(weight),
-                reps=int(reps),
-                rir=None,
-            )
-        )
-    db.commit()
-
-
-def init_draft_from_recommendations(
-    session_id: int,
-    we_id: int,
-    planned_sets: int,
-    rec_rows: List[Dict[str, Any]],
-    logged_map: Dict[int, Set],
-) -> None:
-    rec_by_set = {int(r.get("set_number", i + 1)): r for i, r in enumerate(rec_rows)}
-
-    for n in range(1, planned_sets + 1):
-        w_key = f"w_{session_id}_{we_id}_{n}"
-        r_key = f"r_{session_id}_{we_id}_{n}"
-
-        if w_key in st.session_state and r_key in st.session_state:
-            continue
-
-        if n in logged_map:
-            if w_key not in st.session_state:
-                st.session_state[w_key] = int(round(float(logged_map[n].weight)))
-            if r_key not in st.session_state:
-                st.session_state[r_key] = int(logged_map[n].reps)
-            continue
-
-        rec = rec_by_set.get(n) or (rec_rows[0] if rec_rows else {"weight": 50, "reps": 10})
-        if w_key not in st.session_state:
-            st.session_state[w_key] = int(round(float(rec.get("weight", 50))))
-        if r_key not in st.session_state:
-            st.session_state[r_key] = int(rec.get("reps", 10))
-
-
-# -----------------------------
-# UI
-# -----------------------------
+# ----------------- MAIN APP -----------------
 
 def main():
-    st.set_page_config(page_title="Workout", layout="centered")
+    st.set_page_config(page_title="Workout Progression", layout="wide")
+    inject_responsive_css()
 
     if "rotation_index" not in st.session_state:
         st.session_state["rotation_index"] = 0
@@ -153,7 +117,6 @@ def main():
         if not programs:
             st.error("No programs found. Run init_db.py first.")
             return
-
         prog = programs[0]
 
         workouts = (
@@ -165,173 +128,188 @@ def main():
         if not workouts:
             st.error("No workouts found for this program. Run init_db.py first.")
             return
-
         tracking_workout = workouts[0]
+
+        # today's session
         session = get_or_create_today_session(db, tracking_workout.id)
 
-        # --- compact top header (session/date merged) ---
-        top_left, top_mid, top_right = st.columns([1.6, 3.2, 1.6])
+        # ---------- Compact header ----------
+        col_prev, col_mid, col_next = st.columns([1.2, 2.5, 1.2])
 
-        with top_left:
-            if st.button("◀ Previous", use_container_width=True) and st.session_state["rotation_index"] > 0:
+        with col_prev:
+            if st.button("◀ Previous") and st.session_state["rotation_index"] > 0:
                 st.session_state["rotation_index"] -= 1
                 st.rerun()
 
-        with top_mid:
+        with col_mid:
             sess_num = st.session_state["rotation_index"] + 1
             st.markdown(
-                f"<div style='text-align:center; font-weight:800; font-size:1.1rem;'>"
-                f"Session {sess_num} • {session.date}"
-                f"</div>",
+                f"""
+                <div style="text-align:center;">
+                  <div style="font-size:24px; font-weight:900;">Session {sess_num} • {session.date}</div>
+                  <div style="opacity:0.75; margin-top:4px;">Program: {prog.name}</div>
+                </div>
+                """,
                 unsafe_allow_html=True,
             )
 
-        with top_right:
-            if st.button("Next ▶", use_container_width=True):
+        with col_next:
+            if st.button("Next ▶"):
                 st.session_state["rotation_index"] += 1
                 st.rerun()
 
+        st.markdown("<div class='exercise-spacer'></div>", unsafe_allow_html=True)
+
+        # Determine exercises for this rotation session
         session_index = st.session_state["rotation_index"]
-
-        # Program line (small)
-        st.caption(f"Program: {prog.name}")
-
         exercises_for_session = get_session_exercises(session_index)
-
-        last_group: Optional[str] = None
 
         for order_idx, ex_name in enumerate(exercises_for_session):
             we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
             db.commit()
-            db.refresh(we)
-            db.refresh(we.exercise)
 
-            group = (we.exercise.muscle_group or "").strip()
+            existing_sets = load_existing_sets(db, session.id, we.id)
+            rec_rows = recommend_weights_and_reps(db, we)
 
-            if last_group is not None and group and group != last_group:
-                st.markdown("---")
-            if group:
-                last_group = group
+            draft_key = f"draft_{session.id}_{we.id}"
+            planned_key = f"planned_{session.id}_{we.id}"
 
-            logged_map = load_logged_sets(db, session.id, we.id)
-            logged_count = len(logged_map)
+            if draft_key not in st.session_state:
+                if existing_sets:
+                    draft = [
+                        dict(
+                            set_number=s.set_number,
+                            weight=int(round(s.weight)),
+                            reps=int(s.reps),
+                            logged=True,
+                        )
+                        for s in existing_sets
+                    ]
+                else:
+                    draft = [
+                        dict(
+                            set_number=int(r["set_number"]),
+                            weight=int(round(float(r["weight"]))),
+                            reps=int(r["reps"]),
+                            logged=False,
+                        )
+                        for r in rec_rows
+                    ]
+                st.session_state[draft_key] = draft
 
-            planned_sets_key = f"planned_{session.id}_{we.id}"
-            if planned_sets_key not in st.session_state:
-                st.session_state[planned_sets_key] = max(we.target_sets, logged_count, 1)
-            planned_sets = int(st.session_state[planned_sets_key])
+            if planned_key not in st.session_state:
+                st.session_state[planned_key] = len(st.session_state[draft_key])
 
-            rec_rows = recommend_weights_and_reps(db, we) or []
+            draft = st.session_state[draft_key]
 
-            init_draft_from_recommendations(
-                session_id=session.id,
-                we_id=we.id,
-                planned_sets=planned_sets,
-                rec_rows=rec_rows,
-                logged_map=logged_map,
-            )
+            # keep draft length aligned with planned sets
+            planned_sets = max(1, int(st.session_state[planned_key]))
 
-            # Header row for exercise + controls
-            title_col, minus_col, count_col, plus_col, group_col = st.columns([7, 1.4, 0.8, 1.4, 2.4])
+            if len(draft) < planned_sets:
+                last_w = draft[-1]["weight"] if draft else 0
+                last_r = draft[-1]["reps"] if draft else 10
+                start_n = len(draft) + 1
+                for i in range(start_n, planned_sets + 1):
+                    draft.append(dict(set_number=i, weight=last_w, reps=last_r, logged=False))
+            elif len(draft) > planned_sets:
+                # trim only non-logged from the end
+                while len(draft) > planned_sets and not draft[-1]["logged"]:
+                    draft.pop()
+                st.session_state[planned_key] = len(draft)
+                planned_sets = len(draft)
 
-            with title_col:
-                st.subheader(ex_name)
+            st.session_state[draft_key] = draft
 
-            with minus_col:
-                if st.button("−", key=f"minus_{session.id}_{we.id}", use_container_width=True):
-                    new_val = max(max(1, logged_count), planned_sets - 1)
-                    st.session_state[planned_sets_key] = new_val
-                    st.rerun()
-
-            with count_col:
-                st.markdown(
-                    f"<div style='text-align:center; padding-top:0.55rem; font-weight:800;'>"
-                    f"{planned_sets}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            with plus_col:
-                if st.button("+", key=f"plus_{session.id}_{we.id}", use_container_width=True):
-                    st.session_state[planned_sets_key] = min(30, planned_sets + 1)
-                    st.rerun()
-
-            with group_col:
-                st.markdown(
-                    f"<div style='text-align:right; opacity:0.7; padding-top:0.55rem;'>"
-                    f"{group}"
-                    f"</div>",
-                    unsafe_allow_html=True,
-                )
-
-            st.caption("Edit Weight/Reps, then press Log for each completed set. Use Update to correct a logged set.")
-
-            # Per-set rows
-            for n in range(1, planned_sets + 1):
-                w_key = f"w_{session.id}_{we.id}_{n}"
-                r_key = f"r_{session.id}_{we.id}_{n}"
-
-                is_logged = n in logged_map
-
-                c0, c1, c2, c3, c4 = st.columns([1.2, 2.2, 2.0, 3.0, 1.6])
-
-                with c0:
-                    st.markdown(f"**Set {n}**")
-
+            # -------- Exercise header row --------
+            hdr_l, hdr_m, hdr_r = st.columns([2.2, 1.4, 0.9])
+            with hdr_l:
+                st.markdown(f"## {ex_name}")
+            with hdr_m:
+                # compact set +/- controls
+                c1, c2, c3 = st.columns([1, 0.6, 1])
                 with c1:
-                    # IMPORTANT: no "value=" here (prevents session_state warning)
-                    st.number_input(
-                        "Weight",
+                    if st.button("−", key=f"minus_{we.id}"):
+                        if st.session_state[planned_key] > 1:
+                            st.session_state[planned_key] -= 1
+                            st.rerun()
+                with c2:
+                    st.markdown(
+                        f"<div style='text-align:center; font-size:18px; font-weight:900; padding-top:6px;'>{st.session_state[planned_key]}</div>",
+                        unsafe_allow_html=True,
+                    )
+                with c3:
+                    if st.button("+", key=f"plus_{we.id}"):
+                        st.session_state[planned_key] += 1
+                        st.rerun()
+            with hdr_r:
+                st.markdown(
+                    "<div style='text-align:right; opacity:0.7; padding-top:14px;'>Quads</div>",
+                    unsafe_allow_html=True,
+                )
+
+            st.caption("Edit weight/reps, then press **Log** for each completed set. Use **Update** to correct a logged set.")
+
+            # -------- Set rows (now stay horizontal on mobile) --------
+            for i, row in enumerate(draft, start=1):
+                row_key_prefix = f"{session.id}_{we.id}_{i}"
+                w_key = f"w_{row_key_prefix}"
+                r_key = f"r_{row_key_prefix}"
+
+                # Initialize widget state once
+                if w_key not in st.session_state:
+                    st.session_state[w_key] = int(row["weight"])
+                if r_key not in st.session_state:
+                    st.session_state[r_key] = int(row["reps"])
+
+                cols = st.columns([0.9, 1.6, 1.2, 1.7, 1.0])
+
+                with cols[0]:
+                    st.markdown(f"**Set {i}**")
+
+                with cols[1]:
+                    # Weight integer only
+                    number_input_no_warning(
+                        key=w_key,
                         min_value=0,
                         step=5,
-                        key=w_key,
-                        label_visibility="collapsed",
+                        default_value=int(row["weight"]),
                     )
 
-                with c2:
-                    # IMPORTANT: no "value=" here (prevents session_state warning)
-                    st.number_input(
-                        "Reps",
-                        min_value=0,
-                        step=1,
+                with cols[2]:
+                    number_input_no_warning(
                         key=r_key,
-                        label_visibility="collapsed",
+                        min_value=1,
+                        step=1,
+                        default_value=int(row["reps"]),
                     )
 
-                with c3:
-                    if is_logged:
-                        st.success("Logged ✅")
+                with cols[3]:
+                    if row["logged"]:
+                        st.markdown("<div class='status-pill status-logged'>Logged ✅</div>", unsafe_allow_html=True)
                     else:
-                        st.info("Not logged")
+                        st.markdown("<div class='status-pill status-not'>Not logged</div>", unsafe_allow_html=True)
 
-                with c4:
-                    if is_logged:
-                        if st.button("Update", key=f"update_{session.id}_{we.id}_{n}", use_container_width=True):
-                            upsert_set(
-                                db,
-                                session_id=session.id,
-                                we_id=we.id,
-                                set_number=n,
-                                weight=int(st.session_state[w_key]),
-                                reps=int(st.session_state[r_key]),
-                            )
+                with cols[4]:
+                    if not row["logged"]:
+                        if st.button("Log", key=f"log_{row_key_prefix}"):
+                            row["weight"] = int(st.session_state[w_key])
+                            row["reps"] = int(st.session_state[r_key])
+                            row["logged"] = True
+                            save_sets(db, session.id, we.id, draft)
+                            st.session_state[draft_key] = draft
                             st.rerun()
                     else:
-                        if st.button("Log", key=f"log_{session.id}_{we.id}_{n}", use_container_width=True):
-                            upsert_set(
-                                db,
-                                session_id=session.id,
-                                we_id=we.id,
-                                set_number=n,
-                                weight=int(st.session_state[w_key]),
-                                reps=int(st.session_state[r_key]),
-                            )
+                        if st.button("Update", key=f"upd_{row_key_prefix}"):
+                            row["weight"] = int(st.session_state[w_key])
+                            row["reps"] = int(st.session_state[r_key])
+                            save_sets(db, session.id, we.id, draft)
+                            st.session_state[draft_key] = draft
                             st.rerun()
 
-        st.markdown("---")
-        if st.button("Finish Workout ✅", use_container_width=True):
+            st.markdown("<div class='exercise-spacer'></div>", unsafe_allow_html=True)
+
+        if st.button("✅ Finish Workout"):
             st.session_state["rotation_index"] += 1
-            st.success("Workout complete. Moving to next session.")
             st.rerun()
 
 
