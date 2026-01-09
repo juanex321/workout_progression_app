@@ -9,34 +9,162 @@ from db import (
     Session,
     Set,
     Exercise,
-    Feedback,
 )
 
-from plan import get_session_exercises
 from progression import recommend_weights_and_reps
-from services import (
-    get_or_create_today_session,
-    get_or_create_workout_exercise,
-    load_existing_sets,
-)
+from plan import get_session_exercises
 
-# ----------------- page config -----------------
+
+# ----------------- UI / CONFIG -----------------
+
+DEFAULT_TARGET_SETS = 4
+DEFAULT_TARGET_REPS = 10
+
+# Optional: per-exercise starting sets (finishers etc.)
+EXERCISE_DEFAULT_SETS = {
+    "Single-arm Chest Fly": 1,
+    "Sissy Squat": 1,
+    "Straight-arm Pulldown": 1,
+    "Incline DB Curl": 1,
+    "Overhead Cable Extension": 1,
+}
+
+# Used ONLY for drawing dividers when muscle group changes.
+# Expand this over time as you add exercises.
+MUSCLE_GROUP_BY_EXERCISE = {
+    # legs / quads
+    "Leg Extension": "Quads",
+    "Sissy Squat": "Quads",
+    # hamstrings / glutes
+    "Leg Curl": "Hamstrings",
+    "Hip Thrust + Glute Lunges": "Glutes",
+    # chest
+    "Incline DB Bench Press": "Chest",
+    "Single-arm Chest Fly": "Chest",
+    # back / lats
+    "Lat Pulldown": "Back",
+    "Cable Row": "Back",
+    "Straight-arm Pulldown": "Back",
+    # biceps
+    "Cable Curl": "Biceps",
+    "Incline DB Curl": "Biceps",
+    # triceps
+    "Cable Tricep Pushdown": "Triceps",
+    "Overhead Cable Extension": "Triceps",
+    # delts
+    "Dumbbell Lateral Raise": "Delts",
+}
+
+
+# ----------------- DB HELPERS -----------------
+
+def get_or_create_exercise(db, ex_name: str) -> Exercise:
+    name_normalized = ex_name.strip()
+    exercise = (
+        db.query(Exercise)
+        .filter(Exercise.name.ilike(name_normalized))
+        .first()
+    )
+    if not exercise:
+        exercise = Exercise(name=name_normalized)
+        db.add(exercise)
+        db.flush()
+    return exercise
+
+
+def get_or_create_workout_exercise(db, workout: Workout, ex_name: str, order_index: int) -> WorkoutExercise:
+    exercise = get_or_create_exercise(db, ex_name)
+
+    we = (
+        db.query(WorkoutExercise)
+        .filter(
+            WorkoutExercise.workout_id == workout.id,
+            WorkoutExercise.exercise_id == exercise.id,
+        )
+        .first()
+    )
+
+    if not we:
+        target_sets = EXERCISE_DEFAULT_SETS.get(ex_name.strip(), DEFAULT_TARGET_SETS)
+        we = WorkoutExercise(
+            workout_id=workout.id,
+            exercise_id=exercise.id,
+            order_index=order_index,
+            target_sets=target_sets,
+            target_reps=DEFAULT_TARGET_REPS,
+        )
+        db.add(we)
+        db.flush()
+
+    return we
+
+
+def get_or_create_active_session(db, workout_id: int) -> Session:
+    """
+    IMPORTANT CHANGE vs your earlier code:
+    - We keep an "active_session_id" in st.session_state.
+    - That lets you press "Finish Workout" and create a NEW session row
+      even on the same date (no data mixing, no overwrites).
+    """
+    active_id = st.session_state.get("active_session_id")
+    if active_id is not None:
+        sess = db.query(Session).filter(Session.id == active_id).first()
+        if sess:
+            return sess
+
+    sess = Session(workout_id=workout_id, date=date.today())
+    db.add(sess)
+    db.commit()
+    db.refresh(sess)
+    st.session_state["active_session_id"] = sess.id
+    return sess
+
+
+def load_logged_sets(db, session_id: int, workout_exercise_id: int) -> dict:
+    """
+    Returns dict: {set_number: Set}
+    """
+    rows = (
+        db.query(Set)
+        .filter(
+            Set.session_id == session_id,
+            Set.workout_exercise_id == workout_exercise_id,
+        )
+        .order_by(Set.set_number.asc())
+        .all()
+    )
+    return {r.set_number: r for r in rows}
+
+
+# ----------------- UI HELPERS -----------------
+
+def muscle_group_for_exercise(ex_name: str) -> str:
+    return MUSCLE_GROUP_BY_EXERCISE.get(ex_name, "Other")
+
+
+def clamp_int(x, lo, hi):
+    try:
+        v = int(x)
+    except Exception:
+        v = lo
+    return max(lo, min(hi, v))
+
+
+# ----------------- APP -----------------
 
 def main():
-    st.set_page_config(page_title="Workout", layout="centered")
+    st.set_page_config(page_title="Workout Progression", layout="wide")
 
-    # rotation index lives only in Streamlit session state
+    # rotation index (session # in the rotation)
     if "rotation_index" not in st.session_state:
         st.session_state["rotation_index"] = 0
 
     with get_session() as db:
-        programs = db.query(Program).order_by(Program.id.asc()).all()
+        programs = db.query(Program).all()
         if not programs:
             st.error("No programs found. Run init_db.py first.")
             return
-
         prog = programs[0]
-        st.markdown(f"**Program:** {prog.name}")
 
         workouts = (
             db.query(Workout)
@@ -49,153 +177,194 @@ def main():
             return
 
         tracking_workout = workouts[0]
+        session = get_or_create_active_session(db, tracking_workout.id)
 
-        # Navigation for rotation session number
-        col_prev, col_center, col_next = st.columns([1, 2, 1])
+        # -------- top bar (compact) --------
+        top_l, top_c, top_r = st.columns([1.2, 3, 1.2])
 
-        with col_prev:
-            if st.button("◀ Previous") and st.session_state["rotation_index"] > 0:
+        with top_l:
+            if st.button("◀ Previous", use_container_width=True) and st.session_state["rotation_index"] > 0:
                 st.session_state["rotation_index"] -= 1
+                st.rerun()
 
-        with col_center:
-            # "Session 1 · YYYY-MM-DD"
-            sess_label = st.session_state["rotation_index"] + 1
-            # we create the session below, but show a stable label now
-            st.markdown(
-                f"<div style='text-align:center; font-weight:bold;'>"
-                f"Session {sess_label}"
-                f"</div>",
-                unsafe_allow_html=True,
-            )
+        with top_c:
+            st.markdown(f"**Program:** {prog.name}")
+            st.info(f"Session {st.session_state['rotation_index'] + 1} · {session.date}")
 
-        with col_next:
-            if st.button("Next ▶"):
+        with top_r:
+            if st.button("Next ▶", use_container_width=True):
                 st.session_state["rotation_index"] += 1
+                st.rerun()
+
+        st.write("")
 
         session_index = st.session_state["rotation_index"]
-
-        # Create/retrieve today's session (DB-persisted)
-        session = get_or_create_today_session(db, tracking_workout.id)
-
-        # compact banner
-        st.info(f"Session {session_index + 1} · {session.date}")
-
-        # Determine exercises for this rotation session
         exercises_for_session = get_session_exercises(session_index)
 
-        # -------- per exercise UI --------
+        prev_group = None
+
         for order_idx, ex_name in enumerate(exercises_for_session):
+            # Create WE rows as needed
             we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
             db.commit()
 
-            st.subheader(ex_name)
+            # Divider only when muscle group changes
+            group = muscle_group_for_exercise(ex_name)
+            if prev_group is not None and group != prev_group:
+                st.markdown("---")
+            prev_group = group
 
-            # recommendations
+            # Get recommendation baseline (used for defaults)
             rec_rows = recommend_weights_and_reps(db, we) or []
+            # fallback if progression returns nothing
+            if rec_rows:
+                # assume first row has weight/reps
+                base_weight = int(float(rec_rows[0].get("weight", 0) or 0))
+                base_reps = int(rec_rows[0].get("reps", we.target_reps) or we.target_reps)
+                base_sets = int(len(rec_rows))
+            else:
+                base_weight = 0
+                base_reps = int(we.target_reps)
+                base_sets = int(we.target_sets)
 
-            # existing logged sets (DB)
-            existing_sets = load_existing_sets(db, session.id, we.id)
-            existing_by_num = {s.set_number: s for s in existing_sets}
+            # load logged sets from DB
+            logged = load_logged_sets(db, session.id, we.id)
+            logged_max = max(logged.keys()) if logged else 0
 
-            # Draft planned sets, persisted in session_state so refresh/rerun doesn't revert
+            # planned sets state key
             draft_sets_key = f"draft_sets_{session.id}_{we.id}"
             if draft_sets_key not in st.session_state:
-                # default to recommended length; fallback to we.target_sets; min 1
-                default_n = len(rec_rows) if len(rec_rows) > 0 else int(getattr(we, "target_sets", 4))
-                st.session_state[draft_sets_key] = max(1, int(default_n))
+                # start with either recommendation length, or target_sets
+                st.session_state[draft_sets_key] = max(base_sets, we.target_sets, logged_max, 1)
 
-            planned_sets = st.number_input(
-                "Planned sets",
-                min_value=1,
-                max_value=20,
-                step=1,
-                key=draft_sets_key,
-                help="This controls how many sets you plan to do for this exercise today.",
-            )
+            planned_sets = clamp_int(st.session_state[draft_sets_key], lo=max(1, logged_max), hi=30)
+            st.session_state[draft_sets_key] = planned_sets
 
+            # -------- Compact header row: Exercise name + sets controls --------
+            title_col, minus_col, count_col, plus_col, group_col = st.columns([6, 1, 1.2, 1, 2])
 
-            st.caption("Edit Weight/Reps, then press **Log** for each completed set. Use **Update** to correct a logged set.")
+            with title_col:
+                st.subheader(ex_name)
 
-            # Render rows
-            for i in range(1, int(planned_sets) + 1):
-                base = rec_rows[i - 1] if i - 1 < len(rec_rows) else None
-                default_weight = float(base["weight"]) if base and "weight" in base else 50.0
-                default_reps = int(base["reps"]) if base and "reps" in base else 10
+            with group_col:
+                st.markdown(
+                    f"<div style='text-align:right; opacity:0.75; padding-top:0.6rem;'>"
+                    f"{group}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
 
-                logged = existing_by_num.get(i)
-                if logged:
-                    default_weight = float(logged.weight)
-                    default_reps = int(logged.reps)
+            with minus_col:
+                if st.button("−", key=f"minus_{session.id}_{we.id}", use_container_width=True):
+                    # don’t allow shrinking below already-logged max
+                    new_val = max(max(1, logged_max), planned_sets - 1)
+                    st.session_state[draft_sets_key] = new_val
+                    st.rerun()
 
-                row_cols = st.columns([1.2, 2.2, 2.0, 1.6, 1.6])
+            with count_col:
+                st.markdown(
+                    f"<div style='text-align:center; padding-top:0.6rem; font-weight:700;'>"
+                    f"{planned_sets}"
+                    f"</div>",
+                    unsafe_allow_html=True,
+                )
+
+            with plus_col:
+                if st.button("+", key=f"plus_{session.id}_{we.id}", use_container_width=True):
+                    st.session_state[draft_sets_key] = min(30, planned_sets + 1)
+                    st.rerun()
+
+            st.caption("Edit Weight/Reps, then press Log for each completed set. Use Update to correct a logged set.")
+
+            # -------- Set rows (per-set logging) --------
+            for set_num in range(1, planned_sets + 1):
+                # input keys
+                w_key = f"w_{session.id}_{we.id}_{set_num}"
+                r_key = f"r_{session.id}_{we.id}_{set_num}"
+
+                # initialize inputs once
+                if w_key not in st.session_state:
+                    if set_num in logged:
+                        st.session_state[w_key] = int(float(logged[set_num].weight))
+                    else:
+                        st.session_state[w_key] = int(base_weight)
+
+                if r_key not in st.session_state:
+                    if set_num in logged:
+                        st.session_state[r_key] = int(logged[set_num].reps)
+                    else:
+                        st.session_state[r_key] = int(base_reps)
+
+                row_cols = st.columns([1.2, 2.2, 2.2, 2.4, 1.2])
 
                 with row_cols[0]:
-                    st.markdown(f"**Set {i}**")
-
-                # Stable per-set keys so values persist across reruns
-                w_key = f"w_{session.id}_{we.id}_{i}"
-                r_key = f"r_{session.id}_{we.id}_{i}"
+                    st.markdown(f"**Set {set_num}**")
 
                 with row_cols[1]:
-                    weight_val = st.number_input(
+                    st.number_input(
                         "Weight",
-                        value=float(default_weight),
-                        step=2.5,
-                        format="%.0f",
+                        min_value=0,
+                        max_value=2000,
+                        step=5,
                         key=w_key,
                         label_visibility="collapsed",
                     )
 
                 with row_cols[2]:
-                    reps_val = st.number_input(
+                    st.number_input(
                         "Reps",
-                        value=int(default_reps),
+                        min_value=0,
+                        max_value=100,
                         step=1,
-                        min_value=1,
                         key=r_key,
                         label_visibility="collapsed",
                     )
 
+                # status pill
+                is_logged = set_num in logged
                 with row_cols[3]:
-                    if logged:
+                    if is_logged:
                         st.success("Logged ✅")
                     else:
                         st.info("Not logged")
 
+                # action button (Log or Update)
                 with row_cols[4]:
-                    if logged:
-                        if st.button("Update", key=f"btn_update_{session.id}_{we.id}_{i}"):
-                            logged.weight = float(weight_val)
-                            logged.reps = int(reps_val)
-                            db.add(logged)
+                    if is_logged:
+                        if st.button("Update", key=f"update_{session.id}_{we.id}_{set_num}", use_container_width=True):
+                            s = logged[set_num]
+                            s.weight = float(int(st.session_state[w_key]))
+                            s.reps = int(st.session_state[r_key])
+                            db.add(s)
                             db.commit()
-                            st.toast(f"Updated set {i} ✅", icon="✅")
                             st.rerun()
                     else:
-                        if st.button("Log", key=f"btn_log_{session.id}_{we.id}_{i}"):
+                        if st.button("Log", key=f"log_{session.id}_{we.id}_{set_num}", use_container_width=True):
                             new_set = Set(
                                 session_id=session.id,
                                 workout_exercise_id=we.id,
-                                set_number=int(i),
-                                weight=float(weight_val),
-                                reps=int(reps_val),
+                                set_number=set_num,
+                                weight=float(int(st.session_state[w_key])),
+                                reps=int(st.session_state[r_key]),
                                 rir=None,
                             )
                             db.add(new_set)
                             db.commit()
-                            st.toast(f"Logged set {i} ✅", icon="✅")
                             st.rerun()
 
-            st.markdown("---")
+            st.write("")
 
-        # Finish workout button (moves to next rotation session)
-        if st.button("Finish Workout ✅"):
-            st.session_state["rotation_index"] += 1
-            st.toast("Workout complete — moving to next session.", icon="✅")
-            st.rerun()
+        st.markdown("---")
+
+        # -------- Finish Workout --------
+        finish_col_l, finish_col_r = st.columns([4, 1.5])
+        with finish_col_r:
+            if st.button("Finish Workout ✅", use_container_width=True):
+                # create a new session row and advance rotation
+                st.session_state["active_session_id"] = None
+                st.session_state["rotation_index"] += 1
+                st.rerun()
 
 
 if __name__ == "__main__":
     main()
-
-
