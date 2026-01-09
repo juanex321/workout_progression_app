@@ -26,6 +26,12 @@ def inject_css():
     st.markdown(
         """
         <style>
+        /* Prevent horizontal scrolling */
+        html, body, [data-testid="stAppViewContainer"], [data-testid="stApp"] {
+            overflow-x: hidden !important;
+            max-width: 100vw !important;
+        }
+        
         /* Centered container with max-width for better desktop layout */
         .block-container {
             max-width: 900px;
@@ -34,6 +40,7 @@ def inject_css():
             padding-left: 1.5rem;
             padding-right: 1.5rem;
             margin: 0 auto;
+            overflow-x: hidden !important;
         }
 
         /* Header section */
@@ -135,6 +142,11 @@ def inject_css():
             display: flex !important;
             align-items: center !important;
             justify-content: center !important;
+            overflow: visible !important;
+        }
+        
+        .stButton {
+            overflow: visible !important;
         }
 
         /* Badges */
@@ -317,7 +329,11 @@ def number_input_int(key: str, default_value: int, min_value: int, step: int):
 # ----------------- MAIN APP -----------------
 
 def main():
-    st.set_page_config(page_title="Workout Progression", layout="centered")
+    st.set_page_config(
+        page_title="Workout Progression",
+        layout="centered",
+        initial_sidebar_state="collapsed"
+    )
     inject_css()
 
     if "rotation_index" not in st.session_state:
