@@ -87,11 +87,13 @@ def inject_css():
             flex-wrap: nowrap !important;
             gap: 0.5rem !important;
             align-items: stretch !important;
+            overflow-x: visible !important;
         }
 
         div[data-testid="column"] {
             min-width: 0 !important;
             flex-shrink: 1 !important;
+            overflow: visible !important;
         }
 
         /* Number inputs - more compact */
@@ -143,6 +145,9 @@ def inject_css():
             font-size: 11px;
             font-weight: 700;
             white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 100%;
         }
         .badge-ok {
             background: rgba(46,204,113,0.20);
@@ -184,68 +189,103 @@ def inject_css():
         /* Mobile breakpoint (600px) */
         @media (max-width: 600px) {
             .block-container {
-                padding-left: 1rem;
-                padding-right: 1rem;
-                padding-top: 0.75rem;
+                padding-left: 0.5rem;
+                padding-right: 0.5rem;
+                padding-top: 0.5rem;
             }
 
             h2 {
-                font-size: 1.3rem !important;
-                margin-bottom: 0.25rem !important;
+                font-size: 1.2rem !important;
+                margin-bottom: 0.2rem !important;
             }
 
             .session-info {
-                font-size: 18px;
+                font-size: 16px;
             }
 
             .program-name {
-                font-size: 13px;
+                font-size: 12px;
             }
 
             div[data-testid="stHorizontalBlock"] {
-                gap: 0.4rem !important;
+                gap: 0.25rem !important;
             }
 
             div[data-testid="stNumberInput"] input {
-                padding: 0.45rem 0.4rem !important;
+                padding: 0.4rem 0.3rem !important;
                 font-size: 14px !important;
                 height: 38px !important;
             }
 
             .stButton > button {
-                padding: 0.45rem 0.6rem !important;
-                font-size: 13px !important;
+                padding: 0.4rem 0.4rem !important;
+                font-size: 12px !important;
                 height: 38px !important;
+                white-space: nowrap !important;
             }
 
             .set-row {
-                padding: 0.4rem;
-                margin-bottom: 0.4rem;
+                padding: 0.3rem;
+                margin-bottom: 0.3rem;
             }
 
             .badge {
-                font-size: 10px;
-                padding: 2px 8px;
+                font-size: 9px;
+                padding: 2px 6px;
+                max-width: 60px;
             }
 
             .exercise-gap {
-                height: 1rem;
+                height: 0.75rem;
+            }
+
+            .set-label {
+                font-size: 13px;
+            }
+
+            .stCaption {
+                font-size: 12px !important;
+                margin-bottom: 0.5rem !important;
             }
         }
 
         /* Small mobile (375px minimum) */
         @media (max-width: 400px) {
             .block-container {
-                padding-left: 0.75rem;
-                padding-right: 0.75rem;
+                padding-left: 0.4rem;
+                padding-right: 0.4rem;
+            }
+
+            h2 {
+                font-size: 1.1rem !important;
+            }
+
+            .session-info {
+                font-size: 15px;
+            }
+
+            div[data-testid="stHorizontalBlock"] {
+                gap: 0.2rem !important;
             }
 
             div[data-testid="stNumberInput"] input {
                 font-size: 13px !important;
+                padding: 0.35rem 0.25rem !important;
             }
 
             .stButton > button {
-                font-size: 12px !important;
+                font-size: 11px !important;
+                padding: 0.35rem 0.3rem !important;
+            }
+
+            .badge {
+                font-size: 8px;
+                padding: 2px 5px;
+                max-width: 50px;
+            }
+
+            .set-label {
+                font-size: 12px;
             }
         }
         </style>
