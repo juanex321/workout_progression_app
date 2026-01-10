@@ -5,7 +5,7 @@ from datetime import date
 from typing import Optional
 
 from db import Session as DbSession, WorkoutExercise, Exercise, Set
-from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS
+from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS
 
 
 def get_or_create_today_session(db, workout_id: int) -> DbSession:
@@ -54,12 +54,13 @@ def get_or_create_workout_exercise(db, workout, ex_name: str, order_index: int) 
     )
     if not we:
         target_sets = EXERCISE_DEFAULT_SETS.get(name_normalized, DEFAULT_TARGET_SETS)
+        target_reps = EXERCISE_DEFAULT_REPS.get(name_normalized, DEFAULT_TARGET_REPS)
         we = WorkoutExercise(
             workout_id=workout.id,
             exercise_id=exercise.id,
             order_index=order_index,
             target_sets=target_sets,
-            target_reps=DEFAULT_TARGET_REPS,
+            target_reps=target_reps,
         )
         db.add(we)
 

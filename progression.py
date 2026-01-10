@@ -4,11 +4,11 @@ from typing import List, Tuple
 from sqlalchemy.orm import Session as OrmSession
 
 from db import Set, Session, Feedback, WorkoutExercise
+from plan import DEFAULT_TARGET_SETS
 
 # ------- constants / config -------
 
 DEFAULT_BASE_WEIGHT = 50.0
-DEFAULT_TARGET_SETS = 4
 
 MIN_SETS = 1
 MAX_SETS_MAIN = 10          # upper cap for normal exercises

@@ -34,6 +34,14 @@ EXERCISE_DEFAULT_SETS = {
     "Overhead Cable Extension": 1,
 }
 
+# per-exercise overrides for target reps (muscle-specific targeting)
+EXERCISE_DEFAULT_REPS = {
+    "Dumbbell Lateral Raise": 12,  # Higher rep range for delts
+    "Cable Curl": 12,
+    "Incline DB Curl": 12,
+    # All other exercises default to DEFAULT_TARGET_REPS (10)
+}
+
 def get_session_exercises(session_index: int) -> list[str]:
     """
     session_index: 0-based training session number.

@@ -11,7 +11,7 @@ from db import (
     Exercise,
 )
 
-from progression import recommend_weights_and_reps
+from progression import recommend_weights_and_reps, is_finisher, MAX_SETS_FINISHER, MAX_SETS_MAIN
 from plan import get_session_exercises
 from services import (
     get_or_create_today_session,
@@ -487,6 +487,7 @@ def main():
             st.session_state[draft_key] = draft
 
             # -------- Exercise header row with +/- --------
+            max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
             h1, h2 = st.columns([2.5, 1.5])
             with h1:
                 st.markdown(f"## {ex_name}")
@@ -504,8 +505,9 @@ def main():
                     )
                 with c3:
                     if st.button("+", key=f"plus_{we.id}"):
-                        st.session_state[planned_key] += 1
-                        st.rerun()
+                        if st.session_state[planned_key] < max_sets:
+                            st.session_state[planned_key] += 1
+                            st.rerun()
 
             st.caption("Edit weight/reps, then press **Log** for each completed set.")
 
