@@ -95,12 +95,14 @@ def inject_css():
             gap: 0.5rem !important;
             align-items: stretch !important;
             overflow-x: visible !important;
+            max-width: 100% !important;
         }
 
         div[data-testid="column"] {
             min-width: 0 !important;
             flex-shrink: 1 !important;
             overflow: visible !important;
+            max-width: 100% !important;
         }
 
         /* Number inputs - more compact */
@@ -198,11 +200,24 @@ def inject_css():
             }
         }
 
+        /* Ensure columns container doesn't exceed viewport */
+        @media (max-width: 600px) {
+            div[data-testid="stHorizontalBlock"] {
+                max-width: 100vw !important;
+                width: 100% !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div {
+                max-width: none !important;
+                width: auto !important;
+            }
+        }
+        
         /* Mobile breakpoint (600px) */
         @media (max-width: 600px) {
             .block-container {
-                padding-left: 0.5rem;
-                padding-right: 0.5rem;
+                padding-left: 0.4rem;
+                padding-right: 0.4rem;
                 padding-top: 0.5rem;
             }
 
@@ -219,21 +234,47 @@ def inject_css():
                 font-size: 12px;
             }
 
+            /* Force columns to display as rows on mobile */
             div[data-testid="stHorizontalBlock"] {
-                gap: 0.25rem !important;
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 0.3rem !important;
+                width: 100% !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+            }
+            
+            /* Adjust flex basis for weight/reps/button columns */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
+                flex: 1.2 1 0 !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+                flex: 0.9 1 0 !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
+                flex: 0.7 1 0 !important;
             }
 
             div[data-testid="stNumberInput"] input {
-                padding: 0.4rem 0.3rem !important;
-                font-size: 14px !important;
-                height: 38px !important;
+                padding: 0.3rem 0.2rem !important;
+                font-size: 12px !important;
+                height: 34px !important;
+                width: 100% !important;
             }
 
             .stButton > button {
-                padding: 0.4rem 0.4rem !important;
-                font-size: 12px !important;
-                height: 38px !important;
+                padding: 0.3rem 0.3rem !important;
+                font-size: 11px !important;
+                height: 34px !important;
                 white-space: nowrap !important;
+                width: 100% !important;
             }
 
             .set-row {
@@ -264,8 +305,8 @@ def inject_css():
         /* Small mobile (375px minimum) */
         @media (max-width: 400px) {
             .block-container {
-                padding-left: 0.4rem;
-                padding-right: 0.4rem;
+                padding-left: 0.3rem;
+                padding-right: 0.3rem;
             }
 
             h2 {
@@ -277,17 +318,17 @@ def inject_css():
             }
 
             div[data-testid="stHorizontalBlock"] {
-                gap: 0.2rem !important;
+                gap: 0.1rem !important;
             }
 
             div[data-testid="stNumberInput"] input {
                 font-size: 13px !important;
-                padding: 0.35rem 0.25rem !important;
+                padding: 0.35rem 0.2rem !important;
             }
 
             .stButton > button {
                 font-size: 11px !important;
-                padding: 0.35rem 0.3rem !important;
+                padding: 0.35rem 0.25rem !important;
             }
 
             .badge {
@@ -491,8 +532,8 @@ def main():
                         unsafe_allow_html=True,
                     )
 
-                # Input row: Weight, Reps, Button (better proportions)
-                cols = st.columns([1.2, 1.0, 1.2])
+                # Input row: Weight, Reps, Button
+                cols = st.columns([1.2, 0.9, 0.7])
 
                 with cols[0]:
                     number_input_int(
