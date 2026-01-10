@@ -234,24 +234,47 @@ def inject_css():
                 font-size: 12px;
             }
 
+            /* Force columns to display as rows on mobile */
             div[data-testid="stHorizontalBlock"] {
-                gap: 0.1rem !important;
+                display: flex !important;
+                flex-direction: row !important;
+                flex-wrap: nowrap !important;
+                gap: 0.3rem !important;
+                width: 100% !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div {
+                flex: 1 1 auto !important;
+                min-width: 0 !important;
+                max-width: none !important;
+            }
+            
+            /* Adjust flex basis for weight/reps/button columns */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
+                flex: 1.2 1 0 !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+                flex: 0.9 1 0 !important;
+            }
+            
+            div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
+                flex: 0.7 1 0 !important;
             }
 
             div[data-testid="stNumberInput"] input {
-                padding: 0.35rem 0.2rem !important;
-                font-size: 13px !important;
-                height: 36px !important;
-                max-width: 100% !important;
+                padding: 0.3rem 0.2rem !important;
+                font-size: 12px !important;
+                height: 34px !important;
+                width: 100% !important;
             }
 
             .stButton > button {
-                padding: 0.35rem 0.25rem !important;
+                padding: 0.3rem 0.3rem !important;
                 font-size: 11px !important;
-                height: 36px !important;
+                height: 34px !important;
                 white-space: nowrap !important;
-                max-width: 100% !important;
-                min-width: 0 !important;
+                width: 100% !important;
             }
 
             .set-row {
@@ -509,8 +532,8 @@ def main():
                         unsafe_allow_html=True,
                     )
 
-                # Input row: Weight, Reps, Button (better proportions)
-                cols = st.columns([1.5, 0.9, 0.8])
+                # Input row: Weight, Reps, Button
+                cols = st.columns([1.2, 0.9, 0.7])
 
                 with cols[0]:
                     number_input_int(
