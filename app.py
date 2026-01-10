@@ -35,7 +35,7 @@ def inject_css():
         /* Centered container with max-width for better desktop layout */
         .block-container {
             max-width: 900px;
-            padding-top: 1rem;
+            padding-top: 2.5rem;
             padding-bottom: 1.5rem;
             padding-left: 1.5rem;
             padding-right: 1.5rem;
@@ -218,7 +218,7 @@ def inject_css():
             .block-container {
                 padding-left: 0.4rem;
                 padding-right: 0.4rem;
-                padding-top: 0.5rem;
+                padding-top: 1.5rem;
             }
 
             h2 {
