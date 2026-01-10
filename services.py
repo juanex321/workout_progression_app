@@ -4,7 +4,7 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
-from db import Session as DbSession, WorkoutExercise, Exercise, Set
+from db import Session as DbSession, WorkoutExercise, Exercise, Set, Feedback
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS
 
 
@@ -98,5 +98,53 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
             rir=None,
         )
         db.add(s)
+
+    db.commit()
+
+
+def check_feedback_exists(db, session_id: int, workout_exercise_id: int) -> bool:
+    """
+    Check if feedback already exists for this exercise in this session.
+    """
+    feedback = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.workout_exercise_id == workout_exercise_id,
+        )
+        .first()
+    )
+    return feedback is not None
+
+
+def save_feedback(
+    db, session_id: int, workout_exercise_id: int, soreness: int, pump: int, workload: int
+) -> None:
+    """
+    Save feedback to the database for a given session and exercise.
+    If feedback already exists, update it. Otherwise, create new feedback.
+    """
+    existing_feedback = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.workout_exercise_id == workout_exercise_id,
+        )
+        .first()
+    )
+
+    if existing_feedback:
+        existing_feedback.soreness = soreness
+        existing_feedback.pump = pump
+        existing_feedback.workload = workload
+    else:
+        feedback = Feedback(
+            session_id=session_id,
+            workout_exercise_id=workout_exercise_id,
+            soreness=soreness,
+            pump=pump,
+            workload=workload,
+        )
+        db.add(feedback)
 
     db.commit()

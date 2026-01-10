@@ -9,6 +9,7 @@ from db import (
     Session,
     Set,
     Exercise,
+    Feedback,
 )
 
 from progression import recommend_weights_and_reps, is_finisher, MAX_SETS_FINISHER, MAX_SETS_MAIN
@@ -18,6 +19,8 @@ from services import (
     get_or_create_workout_exercise,
     load_existing_sets,
     save_sets,
+    check_feedback_exists,
+    save_feedback,
 )
 
 # ----------------- UI HELPERS -----------------
@@ -170,6 +173,42 @@ def inject_css():
         .badge-no {
             background: rgba(52,152,219,0.20);
             color: rgba(52,152,219,1);
+        }
+
+        /* Feedback form */
+        .feedback-container {
+            background: rgba(100, 100, 100, 0.1);
+            border-radius: 12px;
+            padding: 1.25rem;
+            margin-top: 1rem;
+            margin-bottom: 1.5rem;
+            border: 1px solid rgba(100, 100, 100, 0.2);
+        }
+
+        .feedback-title {
+            font-size: 16px;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-align: center;
+        }
+
+        .feedback-description {
+            font-size: 13px;
+            opacity: 0.75;
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+
+        .feedback-success {
+            background: rgba(46,204,113,0.15);
+            border: 1px solid rgba(46,204,113,0.3);
+            border-radius: 8px;
+            padding: 0.75rem;
+            text-align: center;
+            font-size: 14px;
+            color: rgba(46,204,113,1);
+            font-weight: 600;
+            margin-top: 1rem;
         }
 
         /* Exercise gap */
@@ -572,6 +611,74 @@ def main():
 
                 # Minimal spacing between sets
                 st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+
+            # -------- Feedback form --------
+            # Check if all sets are logged
+            all_sets_logged = all(row["logged"] for row in draft)
+            feedback_exists = check_feedback_exists(db, session.id, we.id)
+
+            if all_sets_logged and not feedback_exists:
+                st.markdown(
+                    """
+                    <div class="feedback-container">
+                        <div class="feedback-title">💪 How did this exercise feel?</div>
+                        <div class="feedback-description">Rate your experience (1-5 scale)</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                feedback_key_prefix = f"feedback_{session.id}_{we.id}"
+
+                # Rating inputs with emojis for visual appeal
+                st.markdown("**😓 Soreness / Fatigue**")
+                st.caption("1 = No soreness • 5 = Very sore/fatigued")
+                soreness = st.slider(
+                    "Soreness",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    key=f"{feedback_key_prefix}_soreness",
+                    label_visibility="collapsed",
+                )
+
+                st.markdown("**💥 Pump**")
+                st.caption("1 = No pump • 5 = Incredible pump")
+                pump = st.slider(
+                    "Pump",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    key=f"{feedback_key_prefix}_pump",
+                    label_visibility="collapsed",
+                )
+
+                st.markdown("**⚡ Workload**")
+                st.caption("1 = Too easy • 3 = Just right • 5 = Too much")
+                workload = st.slider(
+                    "Workload",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    key=f"{feedback_key_prefix}_workload",
+                    label_visibility="collapsed",
+                )
+
+                # Submit button
+                if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
+                    save_feedback(db, session.id, we.id, soreness, pump, workload)
+                    st.rerun()
+
+            elif all_sets_logged and feedback_exists:
+                # Show completion indicator
+                st.markdown(
+                    """
+                    <div class="feedback-success">
+                        ✅ Feedback submitted - Thank you!
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
             st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
 
