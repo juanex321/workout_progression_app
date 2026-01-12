@@ -42,6 +42,35 @@ EXERCISE_DEFAULT_REPS = {
     # All other exercises default to DEFAULT_TARGET_REPS (10)
 }
 
+# muscle group mapping for exercises
+EXERCISE_MUSCLE_GROUPS = {
+    # Leg exercises
+    "Leg Extension": "Quads",
+    "Sissy Squat": "Quads",
+    "Leg Curl": "Hamstrings",
+    "Hip Thrust + Glute Lunges": "Glutes",
+    
+    # Push exercises - Chest
+    "Incline DB Bench Press": "Chest",
+    "Single-arm Chest Fly": "Chest",
+    
+    # Push exercises - Triceps
+    "Cable Tricep Pushdown": "Triceps",
+    "Overhead Cable Extension": "Triceps",
+    
+    # Pull exercises - Back
+    "Lat Pulldown": "Back",
+    "Cable Row": "Back",
+    "Straight-arm Pulldown": "Back",
+    
+    # Pull exercises - Biceps
+    "Cable Curl": "Biceps",
+    "Incline DB Curl": "Biceps",
+    
+    # Shoulders
+    "Dumbbell Lateral Raise": "Shoulders",
+}
+
 def get_session_exercises(session_index: int) -> list[str]:
     """
     session_index: 0-based training session number.
