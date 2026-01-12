@@ -151,19 +151,22 @@ def save_feedback(
 
 
 def is_last_exercise_for_muscle_group(
-    db, workout_exercise: WorkoutExercise, session_exercises: list[str]
+    db, workout_exercise: WorkoutExercise, session_exercises: list[str], session_id: int
 ) -> bool:
     """
     Check if the given workout_exercise is the last exercise for its muscle group
-    in the current session.
+    in the current session, AND all other exercises for the same muscle group have
+    completed all their sets.
     
     Args:
         db: Database session
         workout_exercise: The WorkoutExercise to check
         session_exercises: Ordered list of exercise names for the session
+        session_id: The session ID to check set completion
     
     Returns:
-        True if this is the last exercise for its muscle group, False otherwise
+        True if this is the last exercise for its muscle group AND all exercises
+        for the muscle group have all their sets logged, False otherwise
     """
     # Get the exercise and its muscle group
     exercise = workout_exercise.exercise
@@ -188,7 +191,29 @@ def is_last_exercise_for_muscle_group(
             # Found a later exercise with the same muscle group
             return False
     
-    # No later exercises with the same muscle group found
+    # Check if all exercises with the same muscle group have all their sets logged
+    for ex_name in session_exercises:
+        ex = db.query(Exercise).filter(Exercise.name.ilike(ex_name)).first()
+        if ex and ex.muscle_group == muscle_group:
+            # Find the corresponding WorkoutExercise
+            we = db.query(WorkoutExercise).filter(
+                WorkoutExercise.workout_id == workout_exercise.workout_id,
+                WorkoutExercise.exercise_id == ex.id
+            ).first()
+            
+            if we:
+                # Count logged sets for this exercise in the current session
+                logged_sets_count = db.query(Set).filter(
+                    Set.session_id == session_id,
+                    Set.workout_exercise_id == we.id
+                ).count()
+                
+                # Check if all sets are logged by comparing with target_sets
+                # An exercise is considered complete if it has at least target_sets logged
+                if logged_sets_count < we.target_sets:
+                    return False
+    
+    # No later exercises with the same muscle group found and all exercises are complete
     return True
 
 

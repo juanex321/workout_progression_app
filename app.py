@@ -624,7 +624,7 @@ def main():
             
             # Check if this is the last exercise for this muscle group
             is_last_for_muscle_group = is_last_exercise_for_muscle_group(
-                db, we, exercises_for_session
+                db, we, exercises_for_session, session.id
             )
             
             # Check if feedback exists for this muscle group
