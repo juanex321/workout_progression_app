@@ -42,7 +42,7 @@ EXERCISE_DEFAULT_REPS = {
     # All other exercises default to DEFAULT_TARGET_REPS (10)
 }
 
-# muscle group mapping for exercises
+# Muscle group mapping for exercises
 EXERCISE_MUSCLE_GROUPS = {
     # Leg exercises
     "Leg Extension": "Quads",
