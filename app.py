@@ -21,6 +21,9 @@ from services import (
     save_sets,
     check_feedback_exists,
     save_feedback,
+    is_last_exercise_for_muscle_group,
+    check_muscle_group_feedback_exists,
+    save_muscle_group_feedback,
 )
 
 # ----------------- UI HELPERS -----------------
@@ -615,13 +618,32 @@ def main():
             # -------- Feedback form --------
             # Check if all sets are logged
             all_sets_logged = all(row["logged"] for row in draft)
-            feedback_exists = check_feedback_exists(db, session.id, we.id)
+            
+            # Get the muscle group for this exercise
+            muscle_group = we.exercise.muscle_group
+            
+            # Check if this is the last exercise for this muscle group
+            is_last_for_muscle_group = is_last_exercise_for_muscle_group(
+                db, we, exercises_for_session
+            )
+            
+            # Check if feedback exists for this muscle group
+            if muscle_group:
+                feedback_exists = check_muscle_group_feedback_exists(db, session.id, muscle_group)
+            else:
+                # Fallback to per-exercise feedback if no muscle group
+                feedback_exists = check_feedback_exists(db, session.id, we.id)
 
-            if all_sets_logged and not feedback_exists:
+            # Only show feedback form if:
+            # 1. All sets are logged
+            # 2. This is the last exercise for its muscle group
+            # 3. Feedback hasn't been submitted yet
+            if all_sets_logged and is_last_for_muscle_group and not feedback_exists:
+                muscle_group_display = muscle_group if muscle_group else ex_name
                 st.markdown(
-                    """
+                    f"""
                     <div class="feedback-container">
-                        <div class="feedback-title">💪 How did this exercise feel?</div>
+                        <div class="feedback-title">💪 How did {muscle_group_display} feel?</div>
                         <div class="feedback-description">Rate your experience (1-5 scale)</div>
                     </div>
                     """,
@@ -666,10 +688,14 @@ def main():
 
                 # Submit button
                 if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
-                    save_feedback(db, session.id, we.id, soreness, pump, workload)
+                    if muscle_group:
+                        save_muscle_group_feedback(db, session.id, muscle_group, soreness, pump, workload)
+                    else:
+                        # Fallback to per-exercise feedback if no muscle group
+                        save_feedback(db, session.id, we.id, soreness, pump, workload)
                     st.rerun()
 
-            elif all_sets_logged and feedback_exists:
+            elif all_sets_logged and is_last_for_muscle_group and feedback_exists:
                 # Show completion indicator
                 st.markdown(
                     """
