@@ -19,10 +19,10 @@ EXERCISE_MUSCLE_GROUPS = {
     "Cable Tricep Pushdown": "Triceps",
     "Overhead Cable Extension": "Triceps",
     
-    # Pull exercises - Back
-    "Lat Pulldown": "Back",
-    "Cable Row": "Back",
-    "Straight-arm Pulldown": "Back",
+    # Pull exercises - Lats
+    "Lat Pulldown": "Lats",
+    "Cable Row": "Lats",
+    "Straight-arm Pulldown": "Lats",
     
     # Pull exercises - Biceps
     "Cable Curl": "Biceps",

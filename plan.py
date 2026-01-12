@@ -1,6 +1,36 @@
 # plan.py
 from __future__ import annotations
 
+# ----------------- EXERCISE MUSCLE GROUPS -----------------
+
+EXERCISE_MUSCLE_GROUPS = {
+    # Leg exercises
+    "Leg Extension": "Quads",
+    "Sissy Squat": "Quads",
+    "Leg Curl": "Hamstrings",
+    "Hip Thrust + Glute Lunges": "Glutes",
+    
+    # Push exercises - Chest
+    "Incline DB Bench Press": "Chest",
+    "Single-arm Chest Fly": "Chest",
+    
+    # Push exercises - Triceps
+    "Cable Tricep Pushdown": "Triceps",
+    "Overhead Cable Extension": "Triceps",
+    
+    # Pull exercises - Lats
+    "Lat Pulldown": "Lats",
+    "Cable Row": "Lats",
+    "Straight-arm Pulldown": "Lats",
+    
+    # Pull exercises - Biceps
+    "Cable Curl": "Biceps",
+    "Incline DB Curl": "Biceps",
+    
+    # Shoulders
+    "Dumbbell Lateral Raise": "Shoulders",
+}
+
 # ----------------- ROTATION CONFIG -----------------
 
 LEG_ROTATION = [
