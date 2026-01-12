@@ -82,7 +82,8 @@ class Feedback(Base):
 
     id = Column(Integer, primary_key=True)
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
-    workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
+    workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=True)
+    muscle_group = Column(String, nullable=True)
 
     soreness = Column(Integer)
     pump = Column(Integer)

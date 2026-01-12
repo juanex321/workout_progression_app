@@ -148,3 +148,93 @@ def save_feedback(
         db.add(feedback)
 
     db.commit()
+
+
+def is_last_exercise_for_muscle_group(
+    db, workout_exercise: WorkoutExercise, session_exercises: list[str]
+) -> bool:
+    """
+    Check if the given workout_exercise is the last exercise for its muscle group
+    in the current session.
+    
+    Args:
+        db: Database session
+        workout_exercise: The WorkoutExercise to check
+        session_exercises: Ordered list of exercise names for the session
+    
+    Returns:
+        True if this is the last exercise for its muscle group, False otherwise
+    """
+    # Get the exercise and its muscle group
+    exercise = workout_exercise.exercise
+    if not exercise.muscle_group:
+        # If no muscle group is set, treat each exercise independently
+        return True
+    
+    muscle_group = exercise.muscle_group
+    exercise_name = exercise.name
+    
+    # Find the index of this exercise in the session
+    try:
+        current_index = session_exercises.index(exercise_name)
+    except ValueError:
+        # Exercise not in session list, treat as last
+        return True
+    
+    # Check if any later exercises have the same muscle group
+    for later_ex_name in session_exercises[current_index + 1:]:
+        later_exercise = db.query(Exercise).filter(Exercise.name.ilike(later_ex_name)).first()
+        if later_exercise and later_exercise.muscle_group == muscle_group:
+            # Found a later exercise with the same muscle group
+            return False
+    
+    # No later exercises with the same muscle group found
+    return True
+
+
+def check_muscle_group_feedback_exists(db, session_id: int, muscle_group: str) -> bool:
+    """
+    Check if feedback already exists for this muscle group in this session.
+    """
+    feedback = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.muscle_group == muscle_group,
+        )
+        .first()
+    )
+    return feedback is not None
+
+
+def save_muscle_group_feedback(
+    db, session_id: int, muscle_group: str, soreness: int, pump: int, workload: int
+) -> None:
+    """
+    Save feedback to the database for a given session and muscle group.
+    If feedback already exists, update it. Otherwise, create new feedback.
+    """
+    existing_feedback = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.muscle_group == muscle_group,
+        )
+        .first()
+    )
+
+    if existing_feedback:
+        existing_feedback.soreness = soreness
+        existing_feedback.pump = pump
+        existing_feedback.workload = workload
+    else:
+        feedback = Feedback(
+            session_id=session_id,
+            muscle_group=muscle_group,
+            soreness=soreness,
+            pump=pump,
+            workload=workload,
+        )
+        db.add(feedback)
+
+    db.commit()
