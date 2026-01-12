@@ -2,35 +2,7 @@
 Script to update muscle groups for all exercises in the database.
 """
 from db import get_session, Exercise
-
-# Define muscle groups for each exercise
-EXERCISE_MUSCLE_GROUPS = {
-    # Leg exercises
-    "Leg Extension": "Quads",
-    "Sissy Squat": "Quads",
-    "Leg Curl": "Hamstrings",
-    "Hip Thrust + Glute Lunges": "Glutes",
-    
-    # Push exercises - Chest
-    "Incline DB Bench Press": "Chest",
-    "Single-arm Chest Fly": "Chest",
-    
-    # Push exercises - Triceps
-    "Cable Tricep Pushdown": "Triceps",
-    "Overhead Cable Extension": "Triceps",
-    
-    # Pull exercises - Lats
-    "Lat Pulldown": "Lats",
-    "Cable Row": "Lats",
-    "Straight-arm Pulldown": "Lats",
-    
-    # Pull exercises - Biceps
-    "Cable Curl": "Biceps",
-    "Incline DB Curl": "Biceps",
-    
-    # Shoulders
-    "Dumbbell Lateral Raise": "Shoulders",
-}
+from plan import EXERCISE_MUSCLE_GROUPS
 
 def main():
     with get_session() as db:

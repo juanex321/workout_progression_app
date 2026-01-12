@@ -3,6 +3,9 @@ from __future__ import annotations
 
 # ----------------- EXERCISE MUSCLE GROUPS -----------------
 
+# Maps exercise names to their primary muscle groups.
+# Used by the feedback system to determine when to show feedback prompts.
+# Feedback is only shown after the last exercise for each muscle group in a session.
 EXERCISE_MUSCLE_GROUPS = {
     # Leg exercises
     "Leg Extension": "Quads",
