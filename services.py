@@ -79,7 +79,7 @@ def load_existing_sets(db, session_id: int, workout_exercise_id: int) -> list[Se
 
 def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
     """
-    rows: iterable of dict-like rows with set_number, weight, reps, done(optional)
+    rows: iterable of dict-like rows with set_number, weight, reps, done(optional), rir(optional)
     Deletes and replaces all sets for that exercise in that session.
     """
     db.query(Set).filter(
@@ -90,13 +90,16 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
     for row in rows:
         if "done" in row and not row["done"]:
             continue
+        # Handle both "done" and "logged" keys for compatibility
+        if "logged" in row and not row["logged"]:
+            continue
         s = Set(
             session_id=session_id,
             workout_exercise_id=workout_exercise_id,
             set_number=int(row["set_number"]),
             weight=float(row["weight"]),
             reps=int(row["reps"]),
-            rir=None,
+            rir=float(row.get("rir")) if row.get("rir") is not None else None,
         )
         db.add(s)
 
