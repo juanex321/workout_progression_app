@@ -14,6 +14,9 @@ MIN_SETS = 1
 MAX_SETS_MAIN = 10          # upper cap for normal exercises
 MAX_SETS_FINISHER = 3       # upper cap for 1-set finishers
 
+MIN_TARGET_REPS = 8
+MAX_TARGET_REPS = 15
+
 # names of finisher-style movements that should stay low-volume
 FINISHER_NAMES = {
     "Single-arm Chest Fly",
@@ -141,6 +144,69 @@ def should_deload(db: OrmSession, we: WorkoutExercise) -> bool:
     return False
 
 
+def adjust_reps_based_on_performance(
+    db: OrmSession, we: WorkoutExercise, last_sets: List[Set] | None
+) -> int:
+    """
+    Auto-increase reps by 1 when consistently hitting target (up to max 15 reps).
+    
+    Args:
+        db: Database session
+        we: WorkoutExercise object
+        last_sets: Sets from the last session
+        
+    Returns:
+        Updated target_reps
+    """
+    target_reps = we.target_reps or 10
+    
+    # Don't adjust if no previous data
+    if not last_sets:
+        return target_reps
+    
+    # Check if all sets hit or exceeded target
+    all_hit_target = all((s.reps or 0) >= target_reps for s in last_sets)
+    
+    # If all sets hit target and we're below max, increment reps
+    if all_hit_target and target_reps < MAX_TARGET_REPS:
+        target_reps += 1
+        we.target_reps = target_reps
+        db.add(we)
+        db.commit()
+    
+    return target_reps
+
+
+def should_suggest_weight_increase(
+    db: OrmSession, we: WorkoutExercise, last_sets: List[Set] | None
+) -> bool:
+    """
+    Suggest weight increase when hitting 15 reps with high volume (informational only).
+    
+    Args:
+        db: Database session
+        we: WorkoutExercise object
+        last_sets: Sets from the last session
+        
+    Returns:
+        True if weight increase should be suggested
+    """
+    target_reps = we.target_reps or 10
+    
+    if not last_sets:
+        return False
+    
+    # Suggest weight increase if:
+    # 1. At max reps (15)
+    # 2. All sets hit the target
+    # 3. High volume (4+ sets)
+    all_hit_target = all((s.reps or 0) >= target_reps for s in last_sets)
+    at_max_reps = target_reps >= MAX_TARGET_REPS
+    high_volume = len(last_sets) >= 4
+    
+    return all_hit_target and at_max_reps and high_volume
+
+
 # ------- main API -------
 
 def recommend_weights_and_reps(
@@ -149,38 +215,50 @@ def recommend_weights_and_reps(
     """
     Main entry used by app.py.
 
-    1. Adjust target_sets based on recent feedback (volume up/down).
-    2. Compute next weight based on last session performance.
-    3. If deload is indicated → drop weight to ~55%.
-    4. Return rows ready for the Streamlit data editor.
+    Progression hierarchy:
+    1. Adjust target_sets based on recent feedback (primary progression).
+    2. Adjust target_reps based on performance (secondary progression).
+    3. Keep weight the same as last session (manual changes only).
+    4. If deload is indicated → drop weight to ~55%.
+    5. Return rows ready for the Streamlit data editor.
     """
-    # 1) volume adjustment
+    # 1) volume adjustment (primary progression)
     target_sets = adjust_sets_based_on_feedback(db, we)
-    target_reps = we.target_reps or 10
-
-    # 2) base load logic from last session
+    
+    # 2) get last session data
     _, last_sets = get_last_session_sets(db, we.id)
-
+    
+    # 3) rep adjustment (secondary progression)
+    target_reps = adjust_reps_based_on_performance(db, we, last_sets)
+    
+    # 4) weight logic - copy from last session (NO auto-increment)
     if not last_sets:
         next_weight = DEFAULT_BASE_WEIGHT
     else:
-        all_hit_target = all((s.reps or 0) >= target_reps for s in last_sets)
+        # Simply copy the last weight - user manually increases when ready
         last_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
-        next_weight = last_weight + 5 if all_hit_target else last_weight
-
-    # 3) deload?
+        next_weight = last_weight
+    
+    # 5) deload override
     if should_deload(db, we):
         next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
-
-    # 4) build plan rows (checkboxes start unchecked)
+    
+    # 6) check if we should suggest weight increase (informational only)
+    suggest_weight = should_suggest_weight_increase(db, we, last_sets)
+    
+    # 7) build plan rows
     rows: list[dict] = []
     for i in range(1, int(target_sets) + 1):
-        rows.append(
-            {
-                "set_number": i,
-                "weight": round(float(next_weight), 1),
-                "reps": int(target_reps),
-                "done": False,
-            }
-        )
+        row = {
+            "set_number": i,
+            "weight": round(float(next_weight), 1),
+            "reps": int(target_reps),
+            "done": False,
+        }
+        # Add UI hint flag to first row if weight increase suggested
+        # This flag is for informational display only and not persisted
+        if i == 1 and suggest_weight:
+            row["_suggest_weight_increase"] = True
+        rows.append(row)
+    
     return rows

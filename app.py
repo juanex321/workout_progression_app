@@ -25,6 +25,12 @@ from services import (
     check_muscle_group_feedback_exists,
     save_muscle_group_feedback,
 )
+from rir_progression import (
+    get_rir_for_muscle_group,
+    get_rir_badge_style,
+    get_rir_description,
+    get_feedback_summary,
+)
 
 # ----------------- UI HELPERS -----------------
 
@@ -223,6 +229,71 @@ def inject_css():
         .stCaption {
             margin-bottom: 0.75rem !important;
             font-size: 13px !important;
+        }
+
+        /* RIR badges */
+        .badge-deload {
+            background: rgba(52,152,219,0.20);
+            color: rgba(52,152,219,1);
+        }
+        .badge-moderate {
+            background: rgba(46,204,113,0.20);
+            color: rgba(46,204,113,1);
+        }
+        .badge-hard {
+            background: rgba(241,196,15,0.20);
+            color: rgba(243,156,18,1);
+        }
+        .badge-very-hard {
+            background: rgba(230,126,34,0.20);
+            color: rgba(230,126,34,1);
+        }
+        .badge-failure {
+            background: rgba(231,76,60,0.20);
+            color: rgba(231,76,60,1);
+        }
+
+        /* RIR info box */
+        .rir-info-box {
+            background: rgba(100, 100, 100, 0.08);
+            border-radius: 10px;
+            padding: 0.9rem;
+            margin-bottom: 0.8rem;
+            border: 1px solid rgba(100, 100, 100, 0.15);
+        }
+        
+        .rir-info-box.deload {
+            background: rgba(52,152,219,0.12);
+            border-color: rgba(52,152,219,0.3);
+        }
+        
+        .rir-info-box.overreach {
+            background: rgba(231,76,60,0.12);
+            border-color: rgba(231,76,60,0.3);
+        }
+        
+        .rir-info-box.hard {
+            background: rgba(243,156,18,0.12);
+            border-color: rgba(243,156,18,0.3);
+        }
+        
+        .rir-title {
+            font-size: 15px;
+            font-weight: 700;
+            margin-bottom: 0.3rem;
+        }
+        
+        .rir-description {
+            font-size: 12px;
+            opacity: 0.85;
+            margin-bottom: 0.2rem;
+        }
+        
+        .rir-feedback-summary {
+            font-size: 11px;
+            opacity: 0.7;
+            font-style: italic;
+            margin-top: 0.3rem;
         }
 
         /* Tablet breakpoint (900px) */
@@ -491,6 +562,7 @@ def main():
                             set_number=s.set_number,
                             weight=int(round(s.weight)),
                             reps=int(s.reps),
+                            rir=s.rir,
                             logged=True,
                         )
                         for s in existing_sets
@@ -501,6 +573,7 @@ def main():
                             set_number=int(r["set_number"]),
                             weight=int(round(float(r["weight"]))),
                             reps=int(r["reps"]),
+                            rir=None,
                             logged=False,
                         )
                         for r in rec_rows
@@ -519,7 +592,7 @@ def main():
                 last_r = draft[-1]["reps"] if draft else 10
                 start_n = len(draft) + 1
                 for i in range(start_n, planned_sets + 1):
-                    draft.append(dict(set_number=i, weight=last_w, reps=last_r, logged=False))
+                    draft.append(dict(set_number=i, weight=last_w, reps=last_r, rir=None, logged=False))
             elif len(draft) > planned_sets:
                 while len(draft) > planned_sets and not draft[-1]["logged"]:
                     draft.pop()
@@ -550,6 +623,42 @@ def main():
                         if st.session_state[planned_key] < max_sets:
                             st.session_state[planned_key] += 1
                             st.rerun()
+
+            # -------- RIR info box --------
+            # Get RIR for this muscle group
+            muscle_group = we.exercise.muscle_group
+
+            if muscle_group:
+                target_rir, phase, analysis = get_rir_for_muscle_group(db, muscle_group)
+                feedback_summary = get_feedback_summary(db, muscle_group)
+            else:
+                target_rir = 2  # Default moderate
+                phase = "Moderate Intensity"
+                feedback_summary = "No muscle group assigned"
+
+            badge_class, emoji = get_rir_badge_style(target_rir)
+            rir_desc = get_rir_description(target_rir)
+
+            # Determine box styling
+            box_class = ""
+            if target_rir >= 4:
+                box_class = "deload"
+            elif target_rir == 0:
+                box_class = "overreach"
+            elif target_rir <= 1:
+                box_class = "hard"
+
+            st.markdown(
+                f"""
+                <div class="rir-info-box {box_class}">
+                    <div class="rir-title">{emoji} Target Effort: RIR {target_rir}</div>
+                    <div class="rir-description">{rir_desc}</div>
+                    <div class="rir-description">{phase}</div>
+                    <div class="rir-feedback-summary">Recent: {feedback_summary}</div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
             st.caption("Edit weight/reps, then press **Log** for each completed set.")
 
@@ -600,6 +709,7 @@ def main():
                         if st.button("Log", key=f"log_{row_key_prefix}"):
                             row["weight"] = int(st.session_state[w_key])
                             row["reps"] = int(st.session_state[r_key])
+                            row["rir"] = target_rir  # Store the target RIR
                             row["logged"] = True
                             save_sets(db, session.id, we.id, draft)
                             st.session_state[draft_key] = draft
@@ -608,6 +718,7 @@ def main():
                         if st.button("Update", key=f"upd_{row_key_prefix}"):
                             row["weight"] = int(st.session_state[w_key])
                             row["reps"] = int(st.session_state[r_key])
+                            row["rir"] = target_rir  # Store the target RIR
                             save_sets(db, session.id, we.id, draft)
                             st.session_state[draft_key] = draft
                             st.rerun()
@@ -644,7 +755,7 @@ def main():
                     f"""
                     <div class="feedback-container">
                         <div class="feedback-title">💪 How did {muscle_group_display} feel?</div>
-                        <div class="feedback-description">Rate your experience (1-5 scale)</div>
+                        <div class="feedback-description">This feedback will adjust your next session intensity</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
@@ -700,7 +811,7 @@ def main():
                 st.markdown(
                     """
                     <div class="feedback-success">
-                        ✅ Feedback submitted - Thank you!
+                        ✅ Feedback submitted - Next session intensity adjusted!
                     </div>
                     """,
                     unsafe_allow_html=True,
