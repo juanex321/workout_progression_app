@@ -88,10 +88,8 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
     ).delete()
 
     for row in rows:
-        if "done" in row and not row["done"]:
-            continue
-        # Handle both "done" and "logged" keys for compatibility
-        if "logged" in row and not row["logged"]:
+        # Skip incomplete sets
+        if ("done" in row and not row["done"]) or ("logged" in row and not row["logged"]):
             continue
         s = Set(
             session_id=session_id,

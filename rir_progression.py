@@ -8,7 +8,7 @@ based on actual muscle feedback data rather than a fixed schedule.
 
 from typing import List, Tuple, Optional
 from sqlalchemy.orm import Session as OrmSession
-from db import Feedback, Session, Set
+from db import Feedback, Session, Set, Exercise, WorkoutExercise
 
 # ------- RIR CONSTANTS -------
 
@@ -35,6 +35,11 @@ WORKLOAD_HIGH = 3.8
 LOOKBACK_SESSIONS = 3
 CONSECUTIVE_HIGH_THRESHOLD = 2
 CONSECUTIVE_LOW_THRESHOLD = 3
+
+# Feedback analysis thresholds
+HIGH_STRESS_WORKLOAD = 4
+HIGH_STRESS_SORENESS = 4
+HIGH_STRESS_WORKLOAD_MIN = 3
 
 
 # ------- HELPER FUNCTIONS -------
@@ -103,8 +108,8 @@ def analyze_feedback_trend(feedback_list: List[Feedback]) -> dict:
     for f in feedback_list:
         # High stress: high workload (4+) or (high soreness + high workload)
         is_high_stress = (
-            (f.workload or 0) >= 4 or
-            ((f.soreness or 0) >= 4 and (f.workload or 0) >= 3)
+            (f.workload or 0) >= HIGH_STRESS_WORKLOAD or
+            ((f.soreness or 0) >= HIGH_STRESS_SORENESS and (f.workload or 0) >= HIGH_STRESS_WORKLOAD_MIN)
         )
         
         # Low stress: low workload and low soreness and low pump
@@ -221,8 +226,6 @@ def get_last_rir_for_muscle(db: OrmSession, muscle_group: str) -> Optional[int]:
         return None
     
     # Get most recent set for this muscle group
-    from db import Exercise, WorkoutExercise
-    
     recent_set = (
         db.query(Set)
         .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)

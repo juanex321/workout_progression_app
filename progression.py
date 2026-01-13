@@ -255,7 +255,8 @@ def recommend_weights_and_reps(
             "reps": int(target_reps),
             "done": False,
         }
-        # Add flag to first row if weight increase suggested
+        # Add UI hint flag to first row if weight increase suggested
+        # This flag is for informational display only and not persisted
         if i == 1 and suggest_weight:
             row["_suggest_weight_increase"] = True
         rows.append(row)
