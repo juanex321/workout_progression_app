@@ -1,10 +1,30 @@
 from db import init_db, get_session, Program, Workout, Exercise, WorkoutExercise
+from plan import EXERCISE_MUSCLE_GROUPS
 
 def main():
     init_db()
     with get_session() as db:
+        # Pre-create all exercises from the workout rotation
+        exercises_created = 0
+        for exercise_name, muscle_group in EXERCISE_MUSCLE_GROUPS.items():
+            existing_exercise = (
+                db.query(Exercise)
+                .filter(Exercise.name.ilike(exercise_name))
+                .first()
+            )
+            if not existing_exercise:
+                exercise = Exercise(name=exercise_name, muscle_group=muscle_group)
+                db.add(exercise)
+                exercises_created += 1
+        
+        if exercises_created > 0:
+            db.commit()
+            print(f"Created {exercises_created} new exercises.")
+        else:
+            print("All exercises already exist.")
+        
         if db.query(Program).count() > 0:
-            print("DB already seeded.")
+            print("Program already seeded.")
             return
 
         prog = Program(name="Full Body IV")
@@ -19,11 +39,9 @@ def main():
         db.add(w)
         db.flush()
 
-        # Example exercises for that day
-        leg_ext = Exercise(name="Leg Extension", muscle_group="Quads")
-        lat_raise = Exercise(name="Dumbbell Lateral Raise", muscle_group="Shoulders")
-        db.add_all([leg_ext, lat_raise])
-        db.flush()
+        # Get exercises for the example workout
+        leg_ext = db.query(Exercise).filter(Exercise.name.ilike("Leg Extension")).first()
+        lat_raise = db.query(Exercise).filter(Exercise.name.ilike("Dumbbell Lateral Raise")).first()
 
         we1 = WorkoutExercise(
             workout_id=w.id,
@@ -41,7 +59,7 @@ def main():
         )
         db.add_all([we1, we2])
         db.commit()
-        print("Seeded DB.")
+        print("Seeded program and workout.")
 
 
 if __name__ == "__main__":

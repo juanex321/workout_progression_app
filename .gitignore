@@ -5,9 +5,6 @@ __pycache__/
 *.pyd
 .Python
 
-# Database - exclude workout data from version control
-workout.db
-
 # Virtual environments
 venv/
 env/
