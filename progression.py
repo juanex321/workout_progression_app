@@ -37,13 +37,14 @@ def get_last_session_sets(
     db: OrmSession, workout_exercise_id: int
 ) -> Tuple[int | None, List[Set] | None]:
     """
-    Return (session_id, [Set, ...]) for the most recent session of this exercise.
+    Return (session_id, [Set, ...]) for the most recent completed session of this exercise.
     """
     q = (
         db.query(Set)
         .join(Session, Set.session_id == Session.id)
         .filter(Set.workout_exercise_id == workout_exercise_id)
-        .order_by(Session.date.desc(), Set.set_number.asc())
+        .filter(Session.completed == 1)  # Only look at completed sessions
+        .order_by(Session.session_number.desc(), Set.set_number.asc())
     )
     sets = q.all()
     if not sets:

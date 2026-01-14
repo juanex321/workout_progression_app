@@ -15,7 +15,9 @@ from db import (
 from progression import recommend_weights_and_reps, is_finisher, MAX_SETS_FINISHER, MAX_SETS_MAIN
 from plan import get_session_exercises
 from services import (
-    get_or_create_today_session,
+    get_current_session,
+    get_session_by_number,
+    complete_session,
     get_or_create_workout_exercise,
     load_existing_sets,
     save_sets,
@@ -483,8 +485,8 @@ def main():
     )
     inject_css()
 
-    if "rotation_index" not in st.session_state:
-        st.session_state["rotation_index"] = 0
+    if "current_session_number" not in st.session_state:
+        st.session_state["current_session_number"] = None
 
     with get_session() as db:
         programs = db.query(Program).all()
@@ -504,22 +506,31 @@ def main():
             return
         tracking_workout = workouts[0]
 
-        session = get_or_create_today_session(db, tracking_workout.id)
+        # Load current session or the session specified in session state
+        if st.session_state["current_session_number"] is None:
+            session = get_current_session(db, tracking_workout.id)
+            st.session_state["current_session_number"] = session.session_number
+        else:
+            session = get_session_by_number(db, tracking_workout.id, st.session_state["current_session_number"])
+            if session is None:
+                # Session doesn't exist, fall back to current
+                session = get_current_session(db, tracking_workout.id)
+                st.session_state["current_session_number"] = session.session_number
 
         # -------- Header (responsive) --------
         col_prev, col_mid, col_next = st.columns([1.0, 2.5, 1.0])
 
         with col_prev:
-            if st.button("◀ Prev", key="prev_session") and st.session_state["rotation_index"] > 0:
-                st.session_state["rotation_index"] -= 1
+            can_go_prev = session.session_number > 1
+            if st.button("◀ Prev", key="prev_session", disabled=not can_go_prev):
+                st.session_state["current_session_number"] = session.session_number - 1
                 st.rerun()
 
         with col_mid:
-            sess_num = st.session_state["rotation_index"] + 1
             st.markdown(
                 f"""
                 <div class="header-container">
-                  <div class="session-info">Session {sess_num} • {session.date}</div>
+                  <div class="session-info">Session {session.session_number} • {session.date}</div>
                   <div class="program-name">{prog.name}</div>
                 </div>
                 """,
@@ -527,15 +538,17 @@ def main():
             )
 
         with col_next:
-            if st.button("Next ▶", key="next_session"):
-                st.session_state["rotation_index"] += 1
+            # Check if there's a next session available
+            next_session = get_session_by_number(db, tracking_workout.id, session.session_number + 1)
+            can_go_next = next_session is not None
+            if st.button("Next ▶", key="next_session", disabled=not can_go_next):
+                st.session_state["current_session_number"] = session.session_number + 1
                 st.rerun()
 
         st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
 
-        # Exercises for this session
-        session_index = st.session_state["rotation_index"]
-        exercises_for_session = get_session_exercises(session_index)
+        # Exercises for this session based on rotation_index stored in the session
+        exercises_for_session = get_session_exercises(session.rotation_index)
 
         for order_idx, ex_name in enumerate(exercises_for_session):
             we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
@@ -804,12 +817,31 @@ def main():
 
         st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
         
-        # Center the finish button
-        _, center_col, _ = st.columns([1, 2, 1])
-        with center_col:
-            if st.button("✅ Finish Workout", key="finish_workout"):
-                st.session_state["rotation_index"] += 1
-                st.rerun()
+        # Only show finish button if viewing the current incomplete session
+        current_session = get_current_session(db, tracking_workout.id)
+        is_current_session = (session.id == current_session.id)
+        
+        if is_current_session and session.completed == 0:
+            # Center the finish button
+            _, center_col, _ = st.columns([1, 2, 1])
+            with center_col:
+                if st.button("✅ Finish Workout", key="finish_workout"):
+                    # Complete the current session and create next
+                    next_session = complete_session(db, session.id)
+                    st.session_state["current_session_number"] = next_session.session_number
+                    st.rerun()
+        elif session.completed == 1:
+            # Show completion indicator for completed sessions
+            st.markdown(
+                """
+                <div style="text-align: center; padding: 1rem; background: rgba(46,204,113,0.15); border-radius: 8px; border: 1px solid rgba(46,204,113,0.3);">
+                    <div style="font-size: 16px; color: rgba(46,204,113,1); font-weight: 600;">
+                        ✅ Session Completed
+                    </div>
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
 
 if __name__ == "__main__":
     main()

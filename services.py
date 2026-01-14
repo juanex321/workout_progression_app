@@ -8,21 +8,86 @@ from db import Session as DbSession, WorkoutExercise, Exercise, Set, Feedback
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
-def get_or_create_today_session(db, workout_id: int) -> DbSession:
-    today = date.today()
+def get_current_session(db, workout_id: int) -> DbSession:
+    """
+    Get the current (most recent incomplete) session, or create a new one if all are complete.
+    """
+    # Try to get the most recent incomplete session
     sess = (
         db.query(DbSession)
-        .filter(DbSession.workout_id == workout_id, DbSession.date == today)
+        .filter(DbSession.workout_id == workout_id, DbSession.completed == 0)
+        .order_by(DbSession.session_number.desc())
         .first()
     )
     if sess:
         return sess
 
-    sess = DbSession(workout_id=workout_id, date=today)
+    # All sessions are complete, create the next one
+    last_session = (
+        db.query(DbSession)
+        .filter(DbSession.workout_id == workout_id)
+        .order_by(DbSession.session_number.desc())
+        .first()
+    )
+    
+    if last_session:
+        next_session_number = last_session.session_number + 1
+        # Import get_session_exercises here to avoid circular import
+        from plan import get_session_exercises
+        total_workouts = 6  # Based on the rotation pattern (3 leg rotations * 2 push/pull = 6)
+        next_rotation_index = (last_session.rotation_index + 1) % total_workouts
+    else:
+        next_session_number = 1
+        next_rotation_index = 0
+
+    sess = DbSession(
+        workout_id=workout_id,
+        session_number=next_session_number,
+        rotation_index=next_rotation_index,
+        completed=0,
+        date=date.today()
+    )
     db.add(sess)
     db.commit()
     db.refresh(sess)
     return sess
+
+
+def get_session_by_number(db, workout_id: int, session_number: int) -> Optional[DbSession]:
+    """
+    Get a specific session by its session number.
+    """
+    return (
+        db.query(DbSession)
+        .filter(DbSession.workout_id == workout_id, DbSession.session_number == session_number)
+        .first()
+    )
+
+
+def complete_session(db, session_id: int) -> DbSession:
+    """
+    Mark a session as complete and create the next session.
+    Returns the newly created next session.
+    """
+    sess = db.query(DbSession).filter(DbSession.id == session_id).first()
+    if not sess:
+        raise ValueError(f"Session {session_id} not found")
+    
+    # Mark current session as complete
+    sess.completed = 1
+    db.add(sess)
+    db.commit()
+    
+    # Create next session
+    return get_current_session(db, sess.workout_id)
+
+
+def get_or_create_today_session(db, workout_id: int) -> DbSession:
+    """
+    DEPRECATED: Use get_current_session() instead.
+    This function is kept for backward compatibility during migration.
+    """
+    return get_current_session(db, workout_id)
 
 
 def get_or_create_workout_exercise(db, workout, ex_name: str, order_index: int) -> WorkoutExercise:
