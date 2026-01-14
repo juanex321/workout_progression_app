@@ -157,7 +157,7 @@ class Feedback(Base):
     workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=True)
     muscle_group = Column(String, nullable=True)
     volume_rating = Column(String, nullable=False)
-    timestamp = Column(DateTime, nullable=False, default=func.now())
+    created_at = Column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")
 
