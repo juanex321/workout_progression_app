@@ -53,10 +53,6 @@ if DATABASE_URL.startswith('postgresql'):
         pool_recycle=300,  # Recycle connections every 5 min (matches Neon timeout)
         pool_size=1,  # Minimal pool for serverless
         max_overflow=2,
-        connect_args={
-            "connect_timeout": 10,  # 10 second connection timeout
-            "options": "-c statement_timeout=30000",  # 30 second query timeout
-        },
     )
 else:
     engine = create_engine(
