@@ -1,4 +1,6 @@
 streamlit
 pandas
 SQLAlchemy
+psycopg2-binary
+python-dotenv
 alembic==1.13.1
