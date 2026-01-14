@@ -33,3 +33,6 @@ db_backups/
 
 # Alembic
 alembic/__pycache__/
+
+# Streamlit secrets (contains database credentials)
+.streamlit/secrets.toml

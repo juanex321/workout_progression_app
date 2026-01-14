@@ -1,17 +1,21 @@
 """
 Automatic database backup utility.
 Creates timestamped backups before any schema changes.
+Only works for SQLite databases (local development).
 """
 import shutil
 from datetime import datetime
 from pathlib import Path
-from db import DB_PATH
+from db import DATABASE_URL
 
+# Only backup SQLite databases
+DB_PATH = Path("workout.db")
 BACKUP_DIR = Path("db_backups")
 
 def create_backup(reason="manual"):
     """
     Create a timestamped backup of the database.
+    Only works for SQLite databases.
     
     Args:
         reason: Why the backup is being created (e.g., "migration", "manual")
@@ -19,6 +23,11 @@ def create_backup(reason="manual"):
     Returns:
         Path to the backup file
     """
+    # Only backup SQLite databases
+    if not DATABASE_URL.startswith('sqlite'):
+        print(f"⚠️  Backup only works for SQLite databases. Current database: {DATABASE_URL.split('@')[0] if '@' in DATABASE_URL else DATABASE_URL}")
+        return None
+    
     if not DB_PATH.exists():
         print(f"⚠️  No database file found at {DB_PATH}")
         return None
