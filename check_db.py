@@ -8,7 +8,25 @@ def check_database():
     """Check database connection and show statistics."""
     print(f"\n🔍 Database Health Check")
     print(f"{'=' * 50}")
-    print(f"Database URL: {DATABASE_URL.split('@')[0] + '@***' if '@' in DATABASE_URL else DATABASE_URL}")
+    
+    # Mask credentials in database URL for security
+    if '@' in DATABASE_URL:
+        # Format: postgresql://user:pass@host:port/db
+        parts = DATABASE_URL.split('://')
+        if len(parts) == 2:
+            protocol = parts[0]
+            rest = parts[1]
+            if '@' in rest:
+                creds, location = rest.split('@', 1)
+                masked_url = f"{protocol}://***:***@{location}"
+            else:
+                masked_url = DATABASE_URL
+        else:
+            masked_url = DATABASE_URL
+    else:
+        masked_url = DATABASE_URL
+    
+    print(f"Database URL: {masked_url}")
     
     if DATABASE_URL.startswith('postgresql'):
         print("✅ Using PostgreSQL (data will persist)")
