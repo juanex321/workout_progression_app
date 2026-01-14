@@ -33,7 +33,7 @@ def migrate():
     Base.metadata.create_all(postgres_engine)
     
     # Migrate data
-    from db import Program, Workout, Exercise, WorkoutExercise, Session, Set, Feedback, DraftSet
+    from db import Program, Workout, Exercise, WorkoutExercise, Session, Set, Feedback
     
     print("\n🔄 Starting migration...\n")
     
@@ -86,14 +86,7 @@ def migrate():
         for feedback in feedbacks:
             target.merge(feedback)
         target.commit()
-        
-        # Migrate DraftSets
-        draft_sets = source.query(DraftSet).all()
-        print(f"Migrating {len(draft_sets)} DraftSets...")
-        for draft_set in draft_sets:
-            target.merge(draft_set)
-        target.commit()
-        
+
         print("\n✅ Migration complete!")
         print(f"\n📊 Migrated:")
         print(f"  - {len(programs)} Programs")
@@ -103,7 +96,6 @@ def migrate():
         print(f"  - {len(sessions)} Sessions")
         print(f"  - {len(sets)} Sets")
         print(f"  - {len(feedbacks)} Feedback entries")
-        print(f"  - {len(draft_sets)} DraftSets")
 
 if __name__ == "__main__":
     migrate()

@@ -125,8 +125,8 @@ class Set(Base):
     set_number = Column(Integer, nullable=False)
     weight = Column(Float, nullable=True)
     reps = Column(Integer, nullable=True)
-    reps_in_reserve = Column(Integer, nullable=True)
-    timestamp = Column(DateTime, nullable=False, default=func.now())
+    rir = Column(Integer, nullable=True)
+    logged_at = Column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="sets")
 
@@ -137,7 +137,9 @@ class Feedback(Base):
     session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=True)
     muscle_group = Column(String, nullable=True)
-    volume_rating = Column(String, nullable=False)
+    soreness = Column(Integer, nullable=True)
+    pump = Column(Integer, nullable=True)
+    workload = Column(Integer, nullable=True)
     created_at = Column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")
