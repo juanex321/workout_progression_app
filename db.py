@@ -1,2 +1,1 @@
-port = db_secrets.get('port', 5432)
-url = f"postgresql://{db_secrets.username}:{db_secrets.password}@{db_secrets.host}:{port}/{db_secrets.database}?sslmode=require"
+url = f"postgresql://{db_secrets['username']}:{db_secrets['password']}@{db_secrets['host']}:{db_secrets.get('port', 5432)}/{db_secrets['database']}?sslmode=require"
