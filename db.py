@@ -2,7 +2,6 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, date
-from urllib.parse import quote_plus
 
 from sqlalchemy import (
     Column,
@@ -20,37 +19,19 @@ from sqlalchemy.orm import declarative_base, relationship, sessionmaker
 
 def get_database_url():
     """Get database URL based on environment."""
+    # First, try Streamlit secrets with DATABASE_URL (simplest approach)
     try:
         import streamlit as st
-        if hasattr(st, 'secrets') and 'connections' in st.secrets and 'workout_db' in st.secrets['connections']:
-            db_secrets = st.secrets['connections']['workout_db']
-
-            # URL-encode username and password to handle special characters
-            raw_username = db_secrets['username']
-            raw_password = db_secrets['password']
-            host = db_secrets['host']
-            port = db_secrets.get('port', 5432)
-            database = db_secrets['database']
-
-            # Debug: write to stderr which always shows in logs
-            import sys
-            sys.stderr.write(f"DEBUG: username='{raw_username}', len={len(raw_username)}\n")
-            sys.stderr.write(f"DEBUG: password len={len(raw_password)}, first4='{raw_password[:4]}'\n")
-            sys.stderr.write(f"DEBUG: host='{host}'\n")
-            sys.stderr.write(f"DEBUG: database='{database}'\n")
-            sys.stderr.flush()
-
-            username = quote_plus(raw_username)
-            password = quote_plus(raw_password)
-
-            url = f"postgresql://{username}:{password}@{host}:{port}/{database}?sslmode=require"
-            print("🌐 Using PostgreSQL database (Streamlit Cloud)")
+        if hasattr(st, 'secrets') and 'DATABASE_URL' in st.secrets:
+            url = st.secrets['DATABASE_URL']
+            if url.startswith('postgres://'):
+                url = url.replace('postgres://', 'postgresql://', 1)
+            print("🌐 Using PostgreSQL database (Streamlit Cloud - DATABASE_URL)")
             return url
     except Exception as e:
-        print(f"ℹ️  Not using Streamlit secrets: {e}")
-        import traceback
-        traceback.print_exc()
-    
+        print(f"ℹ️  DATABASE_URL not in Streamlit secrets: {e}")
+
+    # Second, try environment variable
     if 'DATABASE_URL' in os.environ:
         url = os.environ['DATABASE_URL']
         if url.startswith('postgres://'):
