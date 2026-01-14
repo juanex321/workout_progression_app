@@ -128,6 +128,7 @@ class Session(Base):
     id = Column(Integer, primary_key=True)
     workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
     session_number = Column(Integer, nullable=False)
+    rotation_index = Column(Integer, nullable=False, default=0)
     date = Column(Date, nullable=False, default=date.today)
     completed = Column(Integer, nullable=False, default=0)
 
