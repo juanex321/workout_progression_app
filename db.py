@@ -28,15 +28,15 @@ def get_database_url():
     # Check if running on Streamlit Cloud (has streamlit secrets)
     try:
         import streamlit as st
-        if hasattr(st, 'secrets') and 'connections' in st.secrets and 'workout_db' in st.secrets.connections:
+        if hasattr(st, 'secrets') and 'connections' in st.secrets and 'workout_db' in st.secrets['connections']:
             # Running on Streamlit Cloud with configured database
-            db_secrets = st.secrets.connections.workout_db
+            db_secrets = st.secrets['connections']['workout_db']
             # Build PostgreSQL connection string
-            url = f"postgresql://{db_secrets.username}:{db_secrets.password}@{db_secrets.host}:{db_secrets.port}/{db_secrets.database}"
+            url = f"postgresql://{db_secrets['username']}:{db_secrets['password']}@{db_secrets['host']}:{db_secrets.get('port', 5432)}/{db_secrets['database']}"
             print("🌐 Using PostgreSQL database (Streamlit Cloud)")
             return url
     except Exception as e:
-        print(f"Not using Streamlit secrets: {e}")
+        print(f"ℹ️  Not using Streamlit secrets: {e}")
     
     # Check for DATABASE_URL environment variable (for other cloud platforms)
     if 'DATABASE_URL' in os.environ:
@@ -44,7 +44,7 @@ def get_database_url():
         # Fix for some platforms that use postgres:// instead of postgresql://
         if url.startswith('postgres://'):
             url = url.replace('postgres://', 'postgresql://', 1)
-        print(f"🌐 Using PostgreSQL from DATABASE_URL environment variable")
+        print(f"🌐 Using PostgreSQL from DATABASE_URL")
         return url
     
     # Default: Use SQLite for local development
