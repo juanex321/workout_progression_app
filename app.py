@@ -75,11 +75,70 @@ def inject_css():
             font-size: 15px;
         }
 
-        /* Exercise headers */
+        /* Muscle group header styling */
+        .muscle-group-header {
+            background: rgba(100, 100, 100, 0.12);
+            border-radius: 12px;
+            padding: 1rem;
+            margin-bottom: 1rem;
+            margin-top: 1.5rem;
+            border-left: 4px solid rgba(100, 100, 100, 0.3);
+        }
+
+        .muscle-group-title {
+            font-size: 18px;
+            font-weight: 800;
+            margin-bottom: 0.3rem;
+            color: rgba(255, 255, 255, 0.95);
+        }
+
+        .muscle-group-exercises {
+            font-size: 13px;
+            opacity: 0.8;
+            margin-bottom: 0.3rem;
+            color: rgba(255, 255, 255, 0.85);
+        }
+
+        .muscle-group-feedback {
+            font-size: 11px;
+            opacity: 0.65;
+            font-style: italic;
+            color: rgba(255, 255, 255, 0.75);
+        }
+
+        /* Add colored border based on RIR level */
+        .muscle-group-header.rir-deload {
+            border-left-color: rgba(52,152,219,0.8);
+        }
+
+        .muscle-group-header.rir-moderate {
+            border-left-color: rgba(46,204,113,0.8);
+        }
+
+        .muscle-group-header.rir-hard {
+            border-left-color: rgba(243,156,18,0.8);
+        }
+
+        .muscle-group-header.rir-very-hard {
+            border-left-color: rgba(230,126,34,0.8);
+        }
+
+        .muscle-group-header.rir-failure {
+            border-left-color: rgba(231,76,60,0.8);
+        }
+
+        /* Exercise headers - less prominent since it's in muscle header */
         h2 {
             font-size: 1.5rem !important;
             margin-bottom: 0.3rem !important;
             margin-top: 0 !important;
+        }
+
+        h3 {
+            font-size: 1.2rem !important;
+            margin-bottom: 0.5rem !important;
+            margin-top: 0.5rem !important;
+            opacity: 0.9;
         }
 
         /* Set row container for better grouping */
@@ -338,6 +397,18 @@ def inject_css():
                 margin-bottom: 0.2rem !important;
             }
 
+            h3 {
+                font-size: 1.1rem !important;
+            }
+
+            .muscle-group-title {
+                font-size: 16px;
+            }
+            
+            .muscle-group-exercises {
+                font-size: 12px;
+            }
+
             .session-info {
                 font-size: 16px;
             }
@@ -475,6 +546,206 @@ def number_input_int(key: str, default_value: int, min_value: int, step: int):
         label_visibility="collapsed",
     )
 
+
+def display_muscle_group_header(db, muscle_group: str, exercises: list, session):
+    """
+    Display a single header for a muscle group with all exercises listed.
+    
+    Args:
+        muscle_group: Name of the muscle group (e.g., "Quads", "Chest")
+        exercises: List of (WorkoutExercise, order_idx) tuples for this muscle
+        session: Current session
+    """
+    # Get RIR for this muscle group (shown once)
+    target_rir, phase, analysis = get_rir_for_muscle_group(db, muscle_group)
+    feedback_summary = get_feedback_summary(db, muscle_group)
+    
+    badge_class, emoji = get_rir_badge_style(target_rir)
+    
+    # Build exercise summary (e.g., "Leg Extension (4 sets) • Sissy Squat (1 set)")
+    exercise_summaries = []
+    for we, _ in exercises:
+        ex_name = we.exercise.name
+        target_sets = we.target_sets or 4
+        exercise_summaries.append(f"{ex_name} ({target_sets} sets)")
+    
+    exercises_text = " • ".join(exercise_summaries)
+    
+    # Determine the RIR CSS class for colored border
+    rir_class = ""
+    if target_rir >= 4:
+        rir_class = "rir-deload"
+    elif target_rir == 3:
+        rir_class = "rir-moderate"
+    elif target_rir == 2:
+        rir_class = "rir-hard"
+    elif target_rir == 1:
+        rir_class = "rir-very-hard"
+    else:
+        rir_class = "rir-failure"
+    
+    # Display compact muscle group header
+    st.markdown(
+        f"""
+        <div class="muscle-group-header {rir_class}">
+            <div class="muscle-group-title">{emoji} {muscle_group} • RIR {target_rir} - {phase}</div>
+            <div class="muscle-group-exercises">{exercises_text}</div>
+            <div class="muscle-group-feedback">Recent: {feedback_summary}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def display_exercise_sets(db, session, we, order_idx, target_rir):
+    """
+    Display just the exercise name, set controls, and set rows.
+    No RIR box, no instructions (those are in the muscle group header).
+    
+    Args:
+        db: Database session
+        session: Current workout session
+        we: WorkoutExercise object
+        order_idx: Order index in the session
+        target_rir: Target RIR for this muscle group
+    """
+    existing_sets = load_existing_sets(db, session.id, we.id)
+    rec_rows = recommend_weights_and_reps(db, we)
+    
+    draft_key = f"draft_{session.id}_{we.id}"
+    planned_key = f"planned_{session.id}_{we.id}"
+    
+    # Initialize draft once
+    if draft_key not in st.session_state:
+        if existing_sets:
+            draft = [
+                dict(
+                    set_number=s.set_number,
+                    weight=int(round(s.weight)),
+                    reps=int(s.reps),
+                    rir=s.rir,
+                    logged=True,
+                )
+                for s in existing_sets
+            ]
+        else:
+            draft = [
+                dict(
+                    set_number=int(r["set_number"]),
+                    weight=int(round(float(r["weight"]))),
+                    reps=int(r["reps"]),
+                    rir=None,
+                    logged=False,
+                )
+                for r in rec_rows
+            ]
+        st.session_state[draft_key] = draft
+
+    if planned_key not in st.session_state:
+        st.session_state[planned_key] = len(st.session_state[draft_key])
+
+    draft = st.session_state[draft_key]
+
+    planned_sets = max(1, int(st.session_state[planned_key]))
+
+    if len(draft) < planned_sets:
+        last_w = draft[-1]["weight"] if draft else 0
+        last_r = draft[-1]["reps"] if draft else 10
+        start_n = len(draft) + 1
+        for i in range(start_n, planned_sets + 1):
+            draft.append(dict(set_number=i, weight=last_w, reps=last_r, rir=None, logged=False))
+    elif len(draft) > planned_sets:
+        while len(draft) > planned_sets and not draft[-1]["logged"]:
+            draft.pop()
+        st.session_state[planned_key] = len(draft)
+        planned_sets = len(draft)
+
+    st.session_state[draft_key] = draft
+
+    # -------- Compact exercise header with +/- controls --------
+    ex_name = we.exercise.name
+    max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
+    
+    h1, h2 = st.columns([2.5, 1.5])
+    with h1:
+        # Smaller, less prominent exercise name (it's in the muscle group header too)
+        st.markdown(f"### {ex_name}")
+    with h2:
+        c1, c2, c3 = st.columns([1.0, 1.0, 1.0])
+        with c1:
+            if st.button("−", key=f"minus_{we.id}"):
+                if st.session_state[planned_key] > 1:
+                    st.session_state[planned_key] -= 1
+                    st.rerun()
+        with c2:
+            st.markdown(
+                f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
+                unsafe_allow_html=True,
+            )
+        with c3:
+            if st.button("+", key=f"plus_{we.id}"):
+                if st.session_state[planned_key] < max_sets:
+                    st.session_state[planned_key] += 1
+                    st.rerun()
+
+    # -------- Set rows (NO caption/instructions) --------
+    for i, row in enumerate(draft, start=1):
+        row_key_prefix = f"{session.id}_{we.id}_{i}"
+        w_key = f"w_{row_key_prefix}"
+        r_key = f"r_{row_key_prefix}"
+
+        if w_key not in st.session_state:
+            st.session_state[w_key] = int(row["weight"])
+        if r_key not in st.session_state:
+            st.session_state[r_key] = int(row["reps"])
+
+        # Simplified input row: Weight, Reps, Button (with checkmark for logged sets)
+        cols = st.columns([1.2, 0.9, 0.8])
+
+        with cols[0]:
+            number_input_int(
+                key=w_key,
+                default_value=int(row["weight"]),
+                min_value=0,
+                step=5,
+            )
+
+        with cols[1]:
+            number_input_int(
+                key=r_key,
+                default_value=int(row["reps"]),
+                min_value=1,
+                step=1,
+            )
+
+        with cols[2]:
+            if not row["logged"]:
+                if st.button("Log", key=f"log_{row_key_prefix}"):
+                    row["weight"] = int(st.session_state[w_key])
+                    row["reps"] = int(st.session_state[r_key])
+                    row["rir"] = target_rir  # Store the target RIR
+                    row["logged"] = True
+                    save_sets(db, session.id, we.id, draft)
+                    st.session_state[draft_key] = draft
+                    st.rerun()
+            else:
+                # Show a subtle checkmark for logged sets
+                button_label = "✓"
+                if st.button(button_label, key=f"upd_{row_key_prefix}"):
+                    row["weight"] = int(st.session_state[w_key])
+                    row["reps"] = int(st.session_state[r_key])
+                    row["rir"] = target_rir  # Store the target RIR
+                    save_sets(db, session.id, we.id, draft)
+                    st.session_state[draft_key] = draft
+                    st.rerun()
+
+        # Minimal spacing between sets
+        st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
+
+    # Add small spacing after exercise
+    st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
+
+
 # ----------------- MAIN APP -----------------
 
 def main():
@@ -527,10 +798,15 @@ def main():
                 st.rerun()
 
         with col_mid:
+            # Show completion status if this is a completed session
+            status = ""
+            if session.completed == 1:
+                status = " ✅"
+            
             st.markdown(
                 f"""
                 <div class="header-container">
-                  <div class="session-info">Session {session.session_number} • {session.date}</div>
+                  <div class="session-info">Session {session.session_number}{status}</div>
                   <div class="program-name">{prog.name}</div>
                 </div>
                 """,
@@ -550,214 +826,63 @@ def main():
         # Exercises for this session based on rotation_index stored in the session
         exercises_for_session = get_session_exercises(session.rotation_index)
 
+        # Group exercises by muscle group
+        from collections import defaultdict
+        
+        muscle_groups = defaultdict(list)
         for order_idx, ex_name in enumerate(exercises_for_session):
             we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
             db.commit()
+            # Use muscle group if available, otherwise use exercise name as its own group
+            muscle_group = we.exercise.muscle_group if we.exercise.muscle_group else we.exercise.name
+            muscle_groups[muscle_group].append((we, order_idx))
 
-            existing_sets = load_existing_sets(db, session.id, we.id)
-            rec_rows = recommend_weights_and_reps(db, we)
-
-            draft_key = f"draft_{session.id}_{we.id}"
-            planned_key = f"planned_{session.id}_{we.id}"
-
-            # Initialize draft once
-            if draft_key not in st.session_state:
-                if existing_sets:
-                    draft = [
-                        dict(
-                            set_number=s.set_number,
-                            weight=int(round(s.weight)),
-                            reps=int(s.reps),
-                            rir=s.rir,
-                            logged=True,
-                        )
-                        for s in existing_sets
-                    ]
-                else:
-                    draft = [
-                        dict(
-                            set_number=int(r["set_number"]),
-                            weight=int(round(float(r["weight"]))),
-                            reps=int(r["reps"]),
-                            rir=None,
-                            logged=False,
-                        )
-                        for r in rec_rows
-                    ]
-                st.session_state[draft_key] = draft
-
-            if planned_key not in st.session_state:
-                st.session_state[planned_key] = len(st.session_state[draft_key])
-
-            draft = st.session_state[draft_key]
-
-            planned_sets = max(1, int(st.session_state[planned_key]))
-
-            if len(draft) < planned_sets:
-                last_w = draft[-1]["weight"] if draft else 0
-                last_r = draft[-1]["reps"] if draft else 10
-                start_n = len(draft) + 1
-                for i in range(start_n, planned_sets + 1):
-                    draft.append(dict(set_number=i, weight=last_w, reps=last_r, rir=None, logged=False))
-            elif len(draft) > planned_sets:
-                while len(draft) > planned_sets and not draft[-1]["logged"]:
-                    draft.pop()
-                st.session_state[planned_key] = len(draft)
-                planned_sets = len(draft)
-
-            st.session_state[draft_key] = draft
-
-            # -------- Exercise header row with +/- --------
-            max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
-            h1, h2 = st.columns([2.5, 1.5])
-            with h1:
-                st.markdown(f"## {ex_name}")
-            with h2:
-                c1, c2, c3 = st.columns([1.0, 1.0, 1.0])
-                with c1:
-                    if st.button("−", key=f"minus_{we.id}"):
-                        if st.session_state[planned_key] > 1:
-                            st.session_state[planned_key] -= 1
-                            st.rerun()
-                with c2:
-                    st.markdown(
-                        f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
-                        unsafe_allow_html=True,
-                    )
-                with c3:
-                    if st.button("+", key=f"plus_{we.id}"):
-                        if st.session_state[planned_key] < max_sets:
-                            st.session_state[planned_key] += 1
-                            st.rerun()
-
-            # -------- RIR info box --------
-            # Get RIR for this muscle group
-            muscle_group = we.exercise.muscle_group
-
-            if muscle_group:
-                target_rir, phase, analysis = get_rir_for_muscle_group(db, muscle_group)
-                feedback_summary = get_feedback_summary(db, muscle_group)
-            else:
-                target_rir = 2  # Default moderate
-                phase = "Moderate Intensity"
-                feedback_summary = "No muscle group assigned"
-
-            badge_class, emoji = get_rir_badge_style(target_rir)
-            rir_desc = get_rir_description(target_rir)
-
-            # Determine box styling
-            box_class = ""
-            if target_rir >= 4:
-                box_class = "deload"
-            elif target_rir == 0:
-                box_class = "overreach"
-            elif target_rir <= 1:
-                box_class = "hard"
-
-            st.markdown(
-                f"""
-                <div class="rir-info-box {box_class}">
-                    <div class="rir-title">{emoji} Target Effort: RIR {target_rir}</div>
-                    <div class="rir-description">{rir_desc}</div>
-                    <div class="rir-description">{phase}</div>
-                    <div class="rir-feedback-summary">Recent: {feedback_summary}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
-            st.caption("Edit weight/reps, then press **Log** for each completed set.")
-
-            # -------- Set rows --------
-            for i, row in enumerate(draft, start=1):
-                row_key_prefix = f"{session.id}_{we.id}_{i}"
-                w_key = f"w_{row_key_prefix}"
-                r_key = f"r_{row_key_prefix}"
-
-                if w_key not in st.session_state:
-                    st.session_state[w_key] = int(row["weight"])
-                if r_key not in st.session_state:
-                    st.session_state[r_key] = int(row["reps"])
-
-                # Simplified input row: Weight, Reps, Button (with checkmark for logged sets)
-                cols = st.columns([1.2, 0.9, 0.8])
-
-                with cols[0]:
-                    number_input_int(
-                        key=w_key,
-                        default_value=int(row["weight"]),
-                        min_value=0,
-                        step=5,
-                    )
-
-                with cols[1]:
-                    number_input_int(
-                        key=r_key,
-                        default_value=int(row["reps"]),
-                        min_value=1,
-                        step=1,
-                    )
-
-                with cols[2]:
-                    if not row["logged"]:
-                        if st.button("Log", key=f"log_{row_key_prefix}"):
-                            row["weight"] = int(st.session_state[w_key])
-                            row["reps"] = int(st.session_state[r_key])
-                            row["rir"] = target_rir  # Store the target RIR
-                            row["logged"] = True
-                            save_sets(db, session.id, we.id, draft)
-                            st.session_state[draft_key] = draft
-                            st.rerun()
-                    else:
-                        # Show a subtle checkmark for logged sets
-                        button_label = "✓"
-                        if st.button(button_label, key=f"upd_{row_key_prefix}"):
-                            row["weight"] = int(st.session_state[w_key])
-                            row["reps"] = int(st.session_state[r_key])
-                            row["rir"] = target_rir  # Store the target RIR
-                            save_sets(db, session.id, we.id, draft)
-                            st.session_state[draft_key] = draft
-                            st.rerun()
-
-                # Minimal spacing between sets
-                st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
-
+        # Display grouped by muscle
+        for muscle_group, exercises in muscle_groups.items():
+            # Show muscle group header ONCE
+            display_muscle_group_header(db, muscle_group, exercises, session)
+            
+            # Get RIR for this muscle group (used for all exercises in the group)
+            target_rir, _, _ = get_rir_for_muscle_group(db, muscle_group)
+            
+            # Show all exercises for this muscle group
+            for we, order_idx in exercises:
+                display_exercise_sets(db, session, we, order_idx, target_rir)
+            
             # -------- Feedback form --------
-            # Check if all sets are logged
-            all_sets_logged = all(row["logged"] for row in draft)
-            
-            # Get the muscle group for this exercise
-            muscle_group = we.exercise.muscle_group
-            
-            # Check if this is the last exercise for this muscle group
-            is_last_for_muscle_group = is_last_exercise_for_muscle_group(
-                db, we, exercises_for_session, session.id
-            )
+            # Check if all sets are logged for all exercises in this muscle group
+            all_sets_logged = True
+            for we, _ in exercises:
+                draft_key = f"draft_{session.id}_{we.id}"
+                if draft_key in st.session_state:
+                    draft = st.session_state[draft_key]
+                    if not all(row["logged"] for row in draft):
+                        all_sets_logged = False
+                        break
+                else:
+                    all_sets_logged = False
+                    break
             
             # Check if feedback exists for this muscle group
-            if muscle_group:
-                feedback_exists = check_muscle_group_feedback_exists(db, session.id, muscle_group)
-            else:
-                # Fallback to per-exercise feedback if no muscle group
-                feedback_exists = check_feedback_exists(db, session.id, we.id)
+            feedback_exists = check_muscle_group_feedback_exists(db, session.id, muscle_group)
 
             # Only show feedback form if:
-            # 1. All sets are logged
-            # 2. This is the last exercise for its muscle group
-            # 3. Feedback hasn't been submitted yet
-            if all_sets_logged and is_last_for_muscle_group and not feedback_exists:
-                muscle_group_display = muscle_group if muscle_group else ex_name
+            # 1. All sets are logged for all exercises in this muscle group
+            # 2. Feedback hasn't been submitted yet
+            if all_sets_logged and not feedback_exists:
                 st.markdown(
                     f"""
                     <div class="feedback-container">
-                        <div class="feedback-title">💪 How did {muscle_group_display} feel?</div>
+                        <div class="feedback-title">💪 How did {muscle_group} feel?</div>
                         <div class="feedback-description">This feedback will adjust your next session intensity</div>
                     </div>
                     """,
                     unsafe_allow_html=True,
                 )
 
-                feedback_key_prefix = f"feedback_{session.id}_{we.id}"
+                # Use first exercise in the group for the feedback key
+                first_we = exercises[0][0]
+                feedback_key_prefix = f"feedback_{session.id}_{first_we.id}_{muscle_group}"
 
                 # Rating inputs with emojis for visual appeal
                 st.markdown("**😓 Soreness / Fatigue**")
@@ -795,14 +920,10 @@ def main():
 
                 # Submit button
                 if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
-                    if muscle_group:
-                        save_muscle_group_feedback(db, session.id, muscle_group, soreness, pump, workload)
-                    else:
-                        # Fallback to per-exercise feedback if no muscle group
-                        save_feedback(db, session.id, we.id, soreness, pump, workload)
+                    save_muscle_group_feedback(db, session.id, muscle_group, soreness, pump, workload)
                     st.rerun()
 
-            elif all_sets_logged and is_last_for_muscle_group and feedback_exists:
+            elif all_sets_logged and feedback_exists:
                 # Show completion indicator
                 st.markdown(
                     """
