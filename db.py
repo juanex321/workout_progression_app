@@ -24,25 +24,24 @@ def get_database_url():
         import streamlit as st
         if hasattr(st, 'secrets') and 'connections' in st.secrets and 'workout_db' in st.secrets['connections']:
             db_secrets = st.secrets['connections']['workout_db']
-            # Debug: print what keys are available
-            print(f"🔍 Available secret keys: {list(db_secrets.keys())}")
 
             # URL-encode username and password to handle special characters
             raw_username = db_secrets['username']
             raw_password = db_secrets['password']
-
-            # Debug: show lengths and partial values (safe for debugging)
-            print(f"🔍 Username: '{raw_username}' (len={len(raw_username)})")
-            print(f"🔍 Password length: {len(raw_password)}, starts with: '{raw_password[:4]}...'")
-
-            username = quote_plus(raw_username)
-            password = quote_plus(raw_password)
             host = db_secrets['host']
             port = db_secrets.get('port', 5432)
             database = db_secrets['database']
 
-            print(f"🔍 Host: {host}")
-            print(f"🔍 Database: {database}")
+            # Debug: write to stderr which always shows in logs
+            import sys
+            sys.stderr.write(f"DEBUG: username='{raw_username}', len={len(raw_username)}\n")
+            sys.stderr.write(f"DEBUG: password len={len(raw_password)}, first4='{raw_password[:4]}'\n")
+            sys.stderr.write(f"DEBUG: host='{host}'\n")
+            sys.stderr.write(f"DEBUG: database='{database}'\n")
+            sys.stderr.flush()
+
+            username = quote_plus(raw_username)
+            password = quote_plus(raw_password)
 
             url = f"postgresql://{username}:{password}@{host}:{port}/{database}?sslmode=require"
             print("🌐 Using PostgreSQL database (Streamlit Cloud)")
