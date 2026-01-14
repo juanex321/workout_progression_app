@@ -96,11 +96,6 @@ def inject_css():
             margin-bottom: 0.4rem;
         }
 
-        .set-label {
-            font-weight: 600;
-            font-size: 14px;
-        }
-
         /* Compact horizontal layout for inputs */
         div[data-testid="stHorizontalBlock"] {
             flex-wrap: nowrap !important;
@@ -128,10 +123,12 @@ def inject_css():
         div[data-testid="stNumberInput"] input {
             width: 100% !important;
             min-width: 0 !important;
-            padding: 0.5rem 0.5rem !important;
-            font-size: 15px !important;
-            height: 40px !important;
+            padding: 0.6rem 0.5rem !important;
+            font-size: 26px !important;
+            font-weight: 700 !important;
+            height: 50px !important;
             box-sizing: border-box !important;
+            text-align: center !important;
         }
 
         /* Hide number input spinners */
@@ -151,7 +148,7 @@ def inject_css():
             border-radius: 8px !important;
             font-size: 14px !important;
             font-weight: 600 !important;
-            height: 40px !important;
+            height: 50px !important;
             box-sizing: border-box !important;
             display: flex !important;
             align-items: center !important;
@@ -163,25 +160,25 @@ def inject_css():
             overflow: visible !important;
         }
 
-        /* Badges */
+        /* Badges - minimal checkmark styling */
         .badge {
             display: inline-block;
-            padding: 3px 10px;
-            border-radius: 999px;
-            font-size: 11px;
-            font-weight: 700;
+            padding: 2px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            font-weight: 600;
             white-space: nowrap;
             overflow: hidden;
             text-overflow: ellipsis;
             max-width: 100%;
         }
         .badge-ok {
-            background: rgba(46,204,113,0.20);
+            background: transparent;
             color: rgba(46,204,113,1);
         }
         .badge-no {
-            background: rgba(52,152,219,0.20);
-            color: rgba(52,152,219,1);
+            background: transparent;
+            color: rgba(150,150,150,0.5);
         }
 
         /* Feedback form */
@@ -376,16 +373,18 @@ def inject_css():
             }
 
             div[data-testid="stNumberInput"] input {
-                padding: 0.3rem 0.2rem !important;
-                font-size: 12px !important;
-                height: 34px !important;
+                padding: 0.4rem 0.3rem !important;
+                font-size: 18px !important;
+                font-weight: 700 !important;
+                height: 44px !important;
                 width: 100% !important;
+                text-align: center !important;
             }
 
             .stButton > button {
-                padding: 0.3rem 0.3rem !important;
-                font-size: 11px !important;
-                height: 34px !important;
+                padding: 0.4rem 0.4rem !important;
+                font-size: 12px !important;
+                height: 44px !important;
                 white-space: nowrap !important;
                 width: 100% !important;
             }
@@ -396,17 +395,13 @@ def inject_css():
             }
 
             .badge {
-                font-size: 9px;
-                padding: 2px 6px;
-                max-width: 60px;
+                font-size: 8px;
+                padding: 1px 4px;
+                max-width: 40px;
             }
 
             .exercise-gap {
                 height: 0.75rem;
-            }
-
-            .set-label {
-                font-size: 13px;
             }
 
             .stCaption {
@@ -435,8 +430,10 @@ def inject_css():
             }
 
             div[data-testid="stNumberInput"] input {
-                font-size: 13px !important;
+                font-size: 16px !important;
+                font-weight: 700 !important;
                 padding: 0.35rem 0.2rem !important;
+                text-align: center !important;
             }
 
             .stButton > button {
@@ -445,13 +442,9 @@ def inject_css():
             }
 
             .badge {
-                font-size: 8px;
-                padding: 2px 5px;
-                max-width: 50px;
-            }
-
-            .set-label {
-                font-size: 12px;
+                font-size: 7px;
+                padding: 1px 3px;
+                max-width: 30px;
             }
         }
         </style>
@@ -673,20 +666,8 @@ def main():
                 if r_key not in st.session_state:
                     st.session_state[r_key] = int(row["reps"])
 
-                # Set header with label and badge
-                label_col, badge_col = st.columns([1.2, 2.0])
-                with label_col:
-                    st.markdown(f"<div class='set-label'>Set {i}</div>", unsafe_allow_html=True)
-                with badge_col:
-                    badge = "badge-ok" if row["logged"] else "badge-no"
-                    badge_text = "Logged ✅" if row["logged"] else "Not logged"
-                    st.markdown(
-                        f"<span class='badge {badge}'>{badge_text}</span>",
-                        unsafe_allow_html=True,
-                    )
-
-                # Input row: Weight, Reps, Button
-                cols = st.columns([1.2, 0.9, 0.7])
+                # Simplified input row: Weight, Reps, Button (with checkmark for logged sets)
+                cols = st.columns([1.2, 0.9, 0.8])
 
                 with cols[0]:
                     number_input_int(
@@ -715,7 +696,9 @@ def main():
                             st.session_state[draft_key] = draft
                             st.rerun()
                     else:
-                        if st.button("Update", key=f"upd_{row_key_prefix}"):
+                        # Show a subtle checkmark for logged sets
+                        button_label = "✓"
+                        if st.button(button_label, key=f"upd_{row_key_prefix}"):
                             row["weight"] = int(st.session_state[w_key])
                             row["reps"] = int(st.session_state[r_key])
                             row["rir"] = target_rir  # Store the target RIR
@@ -724,7 +707,7 @@ def main():
                             st.rerun()
 
                 # Minimal spacing between sets
-                st.markdown("<div style='height:8px;'></div>", unsafe_allow_html=True)
+                st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
 
             # -------- Feedback form --------
             # Check if all sets are logged
