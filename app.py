@@ -24,7 +24,6 @@ from services import (
     save_sets,
     check_feedback_exists,
     save_feedback,
-    is_last_exercise_for_muscle_group,
     check_muscle_group_feedback_exists,
     save_muscle_group_feedback,
 )
@@ -880,9 +879,8 @@ def main():
                     unsafe_allow_html=True,
                 )
 
-                # Use first exercise in the group for the feedback key
-                first_we = exercises[0][0]
-                feedback_key_prefix = f"feedback_{session.id}_{first_we.id}_{muscle_group}"
+                # Use muscle group for the feedback key to ensure stability
+                feedback_key_prefix = f"feedback_{session.id}_{muscle_group.replace(' ', '_')}"
 
                 # Rating inputs with emojis for visual appeal
                 st.markdown("**😓 Soreness / Fatigue**")
