@@ -71,6 +71,9 @@ class Session(Base):
     __tablename__ = "sessions"
     id = Column(Integer, primary_key=True)
     workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
+    session_number = Column(Integer, nullable=False, default=1)
+    rotation_index = Column(Integer, nullable=False, default=0)
+    completed = Column(Integer, nullable=False, default=0)  # 0 = incomplete, 1 = complete
     date = Column(Date, nullable=False, default=date.today)
 
     sets = relationship("Set", back_populates="session")
