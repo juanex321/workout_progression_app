@@ -1,3 +1,4 @@
 streamlit
 pandas
 SQLAlchemy
+alembic==1.13.1

@@ -26,3 +26,10 @@ Thumbs.db
 
 # Database
 workout.db
+workout.db-journal
+
+# Database backups (keep locally, don't commit)
+db_backups/
+
+# Alembic
+alembic/__pycache__/

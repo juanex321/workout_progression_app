@@ -125,12 +125,36 @@ class DraftSet(Base):
     updated_at = Column(DateTime, server_default=func.now(), onupdate=func.now())
 
 
-def init_db():
+def init_db(create_backup_first=True):
+    """
+    Initialize database tables ONLY if they don't exist.
+    Does NOT modify existing tables (preserves data).
+    
+    Args:
+        create_backup_first: If True, creates a safety backup before initialization
+    """
+    # If database exists and backup requested, create a backup before any operations
+    if create_backup_first and DB_PATH.exists():
+        try:
+            # Import here to avoid circular import
+            import backup_db
+            print("📦 Existing database found - creating safety backup...")
+            backup_db.create_backup(reason="auto_safety")
+        except ImportError:
+            # backup_db not available yet (during initial module import)
+            pass
+        except Exception as e:
+            print(f"⚠️  Could not create backup: {e}")
+    
+    # Create tables only if they don't exist (won't modify existing tables)
     Base.metadata.create_all(bind=engine)
+    if create_backup_first:
+        print("✅ Database tables verified/created")
 
 
 # Make sure tables exist in Streamlit Cloud even if init_db.py isn't run
-init_db()
+# Don't create backup during module import to avoid circular dependencies
+init_db(create_backup_first=False)
 
 
 @contextmanager
