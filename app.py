@@ -1,5 +1,6 @@
 import streamlit as st
 from datetime import date
+from collections import defaultdict
 
 from db import (
     get_session,
@@ -827,13 +828,12 @@ def main():
         exercises_for_session = get_session_exercises(session.rotation_index)
 
         # Group exercises by muscle group
-        from collections import defaultdict
-        
         muscle_groups = defaultdict(list)
         for order_idx, ex_name in enumerate(exercises_for_session):
             we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
             db.commit()
             # Use muscle group if available, otherwise use exercise name as its own group
+            # This ensures exercises without muscle groups still display properly
             muscle_group = we.exercise.muscle_group if we.exercise.muscle_group else we.exercise.name
             muscle_groups[muscle_group].append((we, order_idx))
 
