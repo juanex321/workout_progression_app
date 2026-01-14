@@ -110,8 +110,10 @@ def get_or_create_workout_exercise(db, workout, ex_name: str, order_index: int) 
         db.add(exercise)
         db.flush()  # get exercise.id
 
+    from sqlalchemy.orm import joinedload
     we = (
         db.query(WorkoutExercise)
+        .options(joinedload(WorkoutExercise.exercise))
         .filter(
             WorkoutExercise.workout_id == workout.id,
             WorkoutExercise.exercise_id == exercise.id,
@@ -128,7 +130,12 @@ def get_or_create_workout_exercise(db, workout, ex_name: str, order_index: int) 
             target_sets=target_sets,
             target_reps=target_reps,
         )
+        we.exercise = exercise  # Attach exercise object
         db.add(we)
+
+    # Ensure exercise is attached even for existing records
+    if we.exercise is None:
+        we.exercise = exercise
 
     return we
 

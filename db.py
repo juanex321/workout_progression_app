@@ -15,6 +15,7 @@ from sqlalchemy import (
     create_engine,
 )
 from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.pool import NullPool
 
 
 def get_database_url():
@@ -49,10 +50,7 @@ DATABASE_URL = get_database_url()
 if DATABASE_URL.startswith('postgresql'):
     engine = create_engine(
         DATABASE_URL,
-        pool_pre_ping=True,
-        pool_recycle=300,  # Recycle connections every 5 min (matches Neon timeout)
-        pool_size=1,  # Minimal pool for serverless
-        max_overflow=2,
+        poolclass=NullPool,  # No connection pooling - better for serverless
     )
 else:
     engine = create_engine(

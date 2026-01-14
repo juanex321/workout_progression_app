@@ -11,6 +11,7 @@ from db import (
     Set,
     Exercise,
     Feedback,
+    SessionLocal,
 )
 
 from progression import recommend_weights_and_reps, is_finisher, MAX_SETS_FINISHER, MAX_SETS_MAIN
@@ -33,6 +34,23 @@ from rir_progression import (
     get_rir_description,
     get_feedback_summary,
 )
+
+
+# Cache static data that rarely changes
+@st.cache_data(ttl=300)  # Cache for 5 minutes
+def get_program_and_workout():
+    """Get program and workout - these rarely change."""
+    db = SessionLocal()
+    try:
+        prog = db.query(Program).first()
+        if not prog:
+            return None, None
+        workout = db.query(Workout).filter(Workout.program_id == prog.id).first()
+        if not workout:
+            return prog.id, None
+        return {"id": prog.id, "name": prog.name}, {"id": workout.id, "name": workout.name}
+    finally:
+        db.close()
 
 # ----------------- UI HELPERS -----------------
 
@@ -723,7 +741,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                     row["reps"] = int(st.session_state[r_key])
                     row["rir"] = target_rir  # Store the target RIR
                     row["logged"] = True
-                    save_sets(db, session.id, we.id, draft)
+                    # Keep data local - don't save to DB yet
                     st.session_state[draft_key] = draft
                     st.rerun()
             else:
@@ -733,7 +751,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                     row["weight"] = int(st.session_state[w_key])
                     row["reps"] = int(st.session_state[r_key])
                     row["rir"] = target_rir  # Store the target RIR
-                    save_sets(db, session.id, we.id, draft)
+                    # Keep data local - don't save to DB yet
                     st.session_state[draft_key] = draft
                     st.rerun()
 
@@ -757,23 +775,18 @@ def main():
     if "current_session_number" not in st.session_state:
         st.session_state["current_session_number"] = None
 
-    with get_session() as db:
-        programs = db.query(Program).all()
-        if not programs:
-            st.error("No programs found. Run init_db.py first.")
-            return
-        prog = programs[0]
+    # Use cached program/workout data
+    prog_data, workout_data = get_program_and_workout()
+    if not prog_data:
+        st.error("No programs found. Run init_db.py first.")
+        return
+    if not workout_data:
+        st.error("No workouts found for this program. Run init_db.py first.")
+        return
 
-        workouts = (
-            db.query(Workout)
-            .filter(Workout.program_id == prog.id)
-            .order_by(Workout.id.asc())
-            .all()
-        )
-        if not workouts:
-            st.error("No workouts found for this program. Run init_db.py first.")
-            return
-        tracking_workout = workouts[0]
+    with get_session() as db:
+        # Get the actual workout object for relationships
+        tracking_workout = db.query(Workout).filter(Workout.id == workout_data["id"]).first()
 
         # Load current session or the session specified in session state
         if st.session_state["current_session_number"] is None:
@@ -805,7 +818,7 @@ def main():
                 f"""
                 <div class="header-container">
                   <div class="session-info">Session {session.session_number}{status}</div>
-                  <div class="program-name">{prog.name}</div>
+                  <div class="program-name">{prog_data["name"]}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -915,8 +928,14 @@ def main():
                     label_visibility="collapsed",
                 )
 
-                # Submit button
+                # Submit button - saves all sets for this muscle group to DB
                 if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
+                    # Save all sets for exercises in this muscle group to DB
+                    for we, _ in exercises:
+                        draft_key = f"draft_{session.id}_{we.id}"
+                        if draft_key in st.session_state:
+                            save_sets(db, session.id, we.id, st.session_state[draft_key])
+                    # Save feedback
                     save_muscle_group_feedback(db, session.id, muscle_group, soreness, pump, workload)
                     st.rerun()
 
@@ -944,6 +963,12 @@ def main():
             _, center_col, _ = st.columns([1, 2, 1])
             with center_col:
                 if st.button("✅ Finish Workout", key="finish_workout"):
+                    # Save all unsaved sets to DB before completing
+                    for muscle_group, exercises in muscle_groups.items():
+                        for we, _ in exercises:
+                            draft_key = f"draft_{session.id}_{we.id}"
+                            if draft_key in st.session_state:
+                                save_sets(db, session.id, we.id, st.session_state[draft_key])
                     # Complete the current session and create next
                     next_session = complete_session(db, session.id)
                     st.session_state["current_session_number"] = next_session.session_number
