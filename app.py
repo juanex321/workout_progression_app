@@ -547,19 +547,17 @@ def number_input_int(key: str, default_value: int, min_value: int, step: int):
     )
 
 
-def display_muscle_group_header(db, muscle_group: str, exercises: list, session):
+def display_muscle_group_header(muscle_group: str, exercises: list, target_rir: int, phase: str, feedback_summary: str):
     """
     Display a single header for a muscle group with all exercises listed.
-    
+
     Args:
         muscle_group: Name of the muscle group (e.g., "Quads", "Chest")
         exercises: List of (WorkoutExercise, order_idx) tuples for this muscle
-        session: Current session
+        target_rir: Target RIR for this muscle group
+        phase: Phase description (e.g., "Moderate Intensity")
+        feedback_summary: Summary of recent feedback
     """
-    # Get RIR for this muscle group (shown once)
-    target_rir, phase, analysis = get_rir_for_muscle_group(db, muscle_group)
-    feedback_summary = get_feedback_summary(db, muscle_group)
-    
     badge_class, emoji = get_rir_badge_style(target_rir)
     
     # Build exercise summary (e.g., "Leg Extension (4 sets) • Sissy Squat (1 set)")
@@ -830,19 +828,20 @@ def main():
         muscle_groups = defaultdict(list)
         for order_idx, ex_name in enumerate(exercises_for_session):
             we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
-            db.commit()
             # Use muscle group if available, otherwise use exercise name as its own group
             # This ensures exercises without muscle groups still display properly
             muscle_group = we.exercise.muscle_group if we.exercise.muscle_group else we.exercise.name
             muscle_groups[muscle_group].append((we, order_idx))
+        db.commit()  # Single commit after all exercises are loaded
 
         # Display grouped by muscle
         for muscle_group, exercises in muscle_groups.items():
+            # Get RIR once for this muscle group (used in header and exercises)
+            target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
+            feedback_summary = get_feedback_summary(db, muscle_group)
+
             # Show muscle group header ONCE
-            display_muscle_group_header(db, muscle_group, exercises, session)
-            
-            # Get RIR for this muscle group (used for all exercises in the group)
-            target_rir, _, _ = get_rir_for_muscle_group(db, muscle_group)
+            display_muscle_group_header(muscle_group, exercises, target_rir, phase, feedback_summary)
             
             # Show all exercises for this muscle group
             for we, order_idx in exercises:
