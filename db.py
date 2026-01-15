@@ -2,6 +2,7 @@ import os
 from contextlib import contextmanager
 from pathlib import Path
 from datetime import datetime, date
+from typing import Optional
 
 from sqlalchemy import (
     Column,
@@ -14,7 +15,7 @@ from sqlalchemy import (
     func,
     create_engine,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker
+from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Mapped, mapped_column
 from sqlalchemy.pool import NullPool
 
 
@@ -65,18 +66,18 @@ Base = declarative_base()
 
 class Program(Base):
     __tablename__ = "programs"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
 
     workouts = relationship("Workout", back_populates="program")
 
 
 class Workout(Base):
     __tablename__ = "workouts"
-    id = Column(Integer, primary_key=True)
-    program_id = Column(Integer, ForeignKey("programs.id"), nullable=False)
-    name = Column(String, nullable=False)
-    day_label = Column(String, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    program_id: Mapped[int] = mapped_column(Integer, ForeignKey("programs.id"), nullable=False)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    day_label: Mapped[str] = mapped_column(String, nullable=False)
 
     program = relationship("Program", back_populates="workouts")
     workout_exercises = relationship("WorkoutExercise", back_populates="workout")
@@ -84,21 +85,21 @@ class Workout(Base):
 
 class Exercise(Base):
     __tablename__ = "exercises"
-    id = Column(Integer, primary_key=True)
-    name = Column(String, nullable=False)
-    muscle_group = Column(String, nullable=True)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String, nullable=False)
+    muscle_group: Mapped[Optional[str]] = mapped_column(String, nullable=True)
 
     workout_exercises = relationship("WorkoutExercise", back_populates="exercise")
 
 
 class WorkoutExercise(Base):
     __tablename__ = "workout_exercises"
-    id = Column(Integer, primary_key=True)
-    workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
-    exercise_id = Column(Integer, ForeignKey("exercises.id"), nullable=False)
-    order_index = Column(Integer, nullable=False)
-    target_sets = Column(Integer, nullable=False)
-    target_reps = Column(Integer, nullable=False)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workout_id: Mapped[int] = mapped_column(Integer, ForeignKey("workouts.id"), nullable=False)
+    exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("exercises.id"), nullable=False)
+    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_sets: Mapped[int] = mapped_column(Integer, nullable=False)
+    target_reps: Mapped[int] = mapped_column(Integer, nullable=False)
 
     workout = relationship("Workout", back_populates="workout_exercises")
     exercise = relationship("Exercise", back_populates="workout_exercises")
@@ -106,12 +107,12 @@ class WorkoutExercise(Base):
 
 class Session(Base):
     __tablename__ = "sessions"
-    id = Column(Integer, primary_key=True)
-    workout_id = Column(Integer, ForeignKey("workouts.id"), nullable=False)
-    session_number = Column(Integer, nullable=False)
-    rotation_index = Column(Integer, nullable=False, default=0)
-    date = Column(Date, nullable=False, default=date.today)
-    completed = Column(Integer, nullable=False, default=0)
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    workout_id: Mapped[int] = mapped_column(Integer, ForeignKey("workouts.id"), nullable=False)
+    session_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    rotation_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
+    completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
 
     sets = relationship("Set", back_populates="session")
     feedbacks = relationship("Feedback", back_populates="session")
@@ -119,28 +120,28 @@ class Session(Base):
 
 class Set(Base):
     __tablename__ = "sets"
-    id = Column(Integer, primary_key=True)
-    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
-    workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
-    set_number = Column(Integer, nullable=False)
-    weight = Column(Float, nullable=True)
-    reps = Column(Integer, nullable=True)
-    rir = Column(Integer, nullable=True)
-    logged_at = Column(DateTime, nullable=False, default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
+    workout_exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
+    set_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
+    reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    rir: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="sets")
 
 
 class Feedback(Base):
     __tablename__ = "feedback"
-    id = Column(Integer, primary_key=True)
-    session_id = Column(Integer, ForeignKey("sessions.id"), nullable=False)
-    workout_exercise_id = Column(Integer, ForeignKey("workout_exercises.id"), nullable=True)
-    muscle_group = Column(String, nullable=True)
-    soreness = Column(Integer, nullable=True)
-    pump = Column(Integer, nullable=True)
-    workload = Column(Integer, nullable=True)
-    created_at = Column(DateTime, nullable=False, default=func.now())
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
+    workout_exercise_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("workout_exercises.id"), nullable=True)
+    muscle_group: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    soreness: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    pump: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    workload: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")
 
