@@ -77,20 +77,14 @@ def inject_css():
 
         /* Header section */
         .header-container {
-            margin-bottom: 1.5rem;
+            margin-bottom: 0.75rem;
         }
 
         .session-info {
             text-align: center;
             font-size: 22px;
             font-weight: 900;
-            margin-bottom: 4px;
-        }
-
-        .program-name {
-            text-align: center;
-            opacity: 0.75;
-            font-size: 15px;
+            margin-bottom: 0;
         }
 
         /* Muscle group header styling */
@@ -387,6 +381,10 @@ def inject_css():
             .session-info {
                 font-size: 20px;
             }
+
+            .header-container {
+                margin-bottom: 0.5rem;
+            }
         }
 
         /* Ensure columns container doesn't exceed viewport */
@@ -428,11 +426,11 @@ def inject_css():
             }
 
             .session-info {
-                font-size: 16px;
+                font-size: 18px;
             }
 
-            .program-name {
-                font-size: 12px;
+            .header-container {
+                margin-bottom: 0.4rem;
             }
 
             /* Force columns to display as rows on mobile */
@@ -513,7 +511,11 @@ def inject_css():
             }
 
             .session-info {
-                font-size: 15px;
+                font-size: 16px;
+            }
+
+            .header-container {
+                margin-bottom: 0.3rem;
             }
 
             div[data-testid="stHorizontalBlock"] {
@@ -604,7 +606,8 @@ def display_muscle_group_header(muscle_group: str, exercises: list, target_rir: 
     st.markdown(
         f"""
         <div class="muscle-group-header {rir_class}">
-            <div class="muscle-group-title">{emoji} {muscle_group} • RIR {target_rir} - {phase}</div>
+            <div class="muscle-group-title">{emoji} {muscle_group}</div>
+            <div class="muscle-group-exercises">RIR {target_rir} - {phase}</div>
             <div class="muscle-group-exercises">{exercises_text}</div>
             <div class="muscle-group-feedback">Recent: {feedback_summary}</div>
         </div>
@@ -678,31 +681,26 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
 
     st.session_state[draft_key] = draft
 
-    # -------- Compact exercise header with +/- controls --------
-    ex_name = we.exercise.name
+    # -------- Set controls without exercise name (shown in muscle group header) --------
     max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
-    
-    h1, h2 = st.columns([2.5, 1.5])
-    with h1:
-        # Smaller, less prominent exercise name (it's in the muscle group header too)
-        st.markdown(f"### {ex_name}")
-    with h2:
-        c1, c2, c3 = st.columns([1.0, 1.0, 1.0])
-        with c1:
-            if st.button("−", key=f"minus_{we.id}"):
-                if st.session_state[planned_key] > 1:
-                    st.session_state[planned_key] -= 1
-                    st.rerun()
-        with c2:
-            st.markdown(
-                f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
-                unsafe_allow_html=True,
-            )
-        with c3:
-            if st.button("+", key=f"plus_{we.id}"):
-                if st.session_state[planned_key] < max_sets:
-                    st.session_state[planned_key] += 1
-                    st.rerun()
+
+    # Display only the set controls in a compact row
+    c1, c2, c3 = st.columns([1.0, 1.0, 1.0])
+    with c1:
+        if st.button("−", key=f"minus_{we.id}"):
+            if st.session_state[planned_key] > 1:
+                st.session_state[planned_key] -= 1
+                st.rerun()
+    with c2:
+        st.markdown(
+            f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
+            unsafe_allow_html=True,
+        )
+    with c3:
+        if st.button("+", key=f"plus_{we.id}"):
+            if st.session_state[planned_key] < max_sets:
+                st.session_state[planned_key] += 1
+                st.rerun()
 
     # -------- Set rows (NO caption/instructions) --------
     for i, row in enumerate(draft, start=1):
@@ -813,12 +811,11 @@ def main():
             status = ""
             if session.completed == 1:
                 status = " ✅"
-            
+
             st.markdown(
                 f"""
                 <div class="header-container">
                   <div class="session-info">Session {session.session_number}{status}</div>
-                  <div class="program-name">{prog_data["name"]}</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
@@ -831,8 +828,6 @@ def main():
             if st.button("Next ▶", key="next_session", disabled=not can_go_next):
                 st.session_state["current_session_number"] = session.session_number + 1
                 st.rerun()
-
-        st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
 
         # Exercises for this session based on rotation_index stored in the session
         exercises_for_session = get_session_exercises(session.rotation_index)
