@@ -579,14 +579,13 @@ def display_muscle_group_header(muscle_group: str, exercises: list, target_rir: 
         feedback_summary: Summary of recent feedback
     """
     badge_class, emoji = get_rir_badge_style(target_rir)
-    
-    # Build exercise summary (e.g., "Leg Extension (4 sets) • Sissy Squat (1 set)")
+
+    # Build exercise summary (e.g., "Leg Extension • Sissy Squat")
     exercise_summaries = []
     for we, _ in exercises:
         ex_name = we.exercise.name
-        target_sets = we.target_sets or 4
-        exercise_summaries.append(f"{ex_name} ({target_sets} sets)")
-    
+        exercise_summaries.append(f"{ex_name}")
+
     exercises_text = " • ".join(exercise_summaries)
     
     # Determine the RIR CSS class for colored border
