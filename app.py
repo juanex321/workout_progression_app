@@ -94,7 +94,12 @@ def inject_css():
             padding: 1rem;
             margin-bottom: 1rem;
             margin-top: 1.5rem;
-            border-left: 4px solid rgba(100, 100, 100, 0.3);
+            border-left: 6px solid rgba(100, 100, 100, 0.3);
+        }
+
+        /* First muscle group has tighter spacing */
+        .muscle-group-header:first-of-type {
+            margin-top: 0.5rem;
         }
 
         .muscle-group-title {
@@ -118,25 +123,30 @@ def inject_css():
             color: rgba(255, 255, 255, 0.75);
         }
 
-        /* Add colored border based on RIR level */
+        /* Add colored border and background tint based on RIR level */
         .muscle-group-header.rir-deload {
-            border-left-color: rgba(52,152,219,0.8);
+            border-left-color: rgba(52,152,219,1);
+            background: rgba(52,152,219,0.08);
         }
 
         .muscle-group-header.rir-moderate {
-            border-left-color: rgba(46,204,113,0.8);
+            border-left-color: rgba(46,204,113,1);
+            background: rgba(46,204,113,0.08);
         }
 
         .muscle-group-header.rir-hard {
-            border-left-color: rgba(243,156,18,0.8);
+            border-left-color: rgba(243,156,18,1);
+            background: rgba(243,156,18,0.08);
         }
 
         .muscle-group-header.rir-very-hard {
-            border-left-color: rgba(230,126,34,0.8);
+            border-left-color: rgba(230,126,34,1);
+            background: rgba(230,126,34,0.08);
         }
 
         .muscle-group-header.rir-failure {
-            border-left-color: rgba(231,76,60,0.8);
+            border-left-color: rgba(231,76,60,1);
+            background: rgba(231,76,60,0.08);
         }
 
         /* Exercise headers - less prominent since it's in muscle header */
@@ -159,6 +169,12 @@ def inject_css():
             padding: 0.5rem;
             border-radius: 8px;
             background: rgba(0,0,0,0.02);
+            transition: background 0.2s ease;
+        }
+
+        /* Logged sets have darker background */
+        .set-row.logged {
+            background: rgba(0,0,0,0.15);
         }
 
         /* Set label and badge row */
@@ -227,10 +243,29 @@ def inject_css():
             align-items: center !important;
             justify-content: center !important;
             overflow: visible !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+            transition: all 0.2s ease !important;
         }
-        
+
+        .stButton > button:hover {
+            box-shadow: 0 3px 6px rgba(0,0,0,0.3) !important;
+            transform: translateY(-1px);
+        }
+
+        .stButton > button:active {
+            transform: translateY(0);
+            box-shadow: 0 1px 2px rgba(0,0,0,0.2) !important;
+        }
+
         .stButton {
             overflow: visible !important;
+        }
+
+        /* Compact styling for +/- buttons on weight/reps */
+        .stButton > button {
+            font-size: 18px !important;
+            font-weight: 700 !important;
         }
 
         /* Badges - minimal checkmark styling */
@@ -441,31 +476,51 @@ def inject_css():
                 gap: 0.3rem !important;
                 width: 100% !important;
             }
-            
+
             div[data-testid="stHorizontalBlock"] > div {
                 flex: 1 1 auto !important;
                 min-width: 0 !important;
                 max-width: none !important;
             }
-            
-            /* Adjust flex basis for weight/reps/button columns */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
+
+            /* Adjust flex for new 7-column layout: - | Weight | + | - | Reps | + | Log */
+            /* Make +/- buttons compact */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(3),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(4),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(6) {
+                flex: 0.4 0 0 !important;
+                min-width: 36px !important;
+            }
+
+            /* Weight input */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
                 flex: 1.2 1 0 !important;
             }
-            
-            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
-                flex: 0.9 1 0 !important;
+
+            /* Reps input */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(5) {
+                flex: 1.0 1 0 !important;
             }
-            
-            div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
-                flex: 0.7 1 0 !important;
+
+            /* Log button */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(7) {
+                flex: 0.8 1 0 !important;
+            }
+
+            /* Exercise name and set counter row - make exercise name wrap better */
+            h3 {
+                font-size: 1.0rem !important;
+                line-height: 1.2 !important;
+                word-wrap: break-word !important;
+                overflow-wrap: break-word !important;
             }
 
             div[data-testid="stNumberInput"] input {
                 padding: 0.4rem 0.3rem !important;
                 font-size: 18px !important;
                 font-weight: 700 !important;
-                height: 44px !important;
+                height: 48px !important;
                 width: 100% !important;
                 text-align: center !important;
             }
@@ -473,9 +528,10 @@ def inject_css():
             .stButton > button {
                 padding: 0.4rem 0.4rem !important;
                 font-size: 12px !important;
-                height: 44px !important;
+                height: 48px !important;
                 white-space: nowrap !important;
                 width: 100% !important;
+                min-height: 48px !important;
             }
 
             .set-row {
@@ -705,10 +761,20 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
         if r_key not in st.session_state:
             st.session_state[r_key] = int(row["reps"])
 
-        # Simplified input row: Weight, Reps, Button (with checkmark for logged sets)
-        cols = st.columns([1.2, 0.9, 0.8])
+        # Add logged class to row if logged
+        row_class = "logged" if row["logged"] else ""
+        st.markdown(f"<div class='set-row {row_class}'>", unsafe_allow_html=True)
 
+        # Layout: - | Weight | + | - | Reps | + | Log
+        cols = st.columns([0.5, 1.2, 0.5, 0.5, 1.0, 0.5, 0.8])
+
+        # Weight controls
         with cols[0]:
+            if st.button("−", key=f"w_minus_{row_key_prefix}"):
+                st.session_state[w_key] = max(0, st.session_state[w_key] - 5)
+                st.rerun()
+
+        with cols[1]:
             number_input_int(
                 key=w_key,
                 default_value=int(row["weight"]),
@@ -716,7 +782,18 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                 step=5,
             )
 
-        with cols[1]:
+        with cols[2]:
+            if st.button("+", key=f"w_plus_{row_key_prefix}"):
+                st.session_state[w_key] = st.session_state[w_key] + 5
+                st.rerun()
+
+        # Reps controls
+        with cols[3]:
+            if st.button("−", key=f"r_minus_{row_key_prefix}"):
+                st.session_state[r_key] = max(1, st.session_state[r_key] - 1)
+                st.rerun()
+
+        with cols[4]:
             number_input_int(
                 key=r_key,
                 default_value=int(row["reps"]),
@@ -724,7 +801,13 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                 step=1,
             )
 
-        with cols[2]:
+        with cols[5]:
+            if st.button("+", key=f"r_plus_{row_key_prefix}"):
+                st.session_state[r_key] = st.session_state[r_key] + 1
+                st.rerun()
+
+        # Log button
+        with cols[6]:
             if not row["logged"]:
                 if st.button("Log", key=f"log_{row_key_prefix}"):
                     row["weight"] = int(st.session_state[w_key])
@@ -745,8 +828,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                     st.session_state[draft_key] = draft
                     st.rerun()
 
-        # Minimal spacing between sets
-        st.markdown("<div style='height:2px;'></div>", unsafe_allow_html=True)
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # Add small spacing after exercise
     st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
