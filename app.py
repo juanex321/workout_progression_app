@@ -163,27 +163,6 @@ def inject_css():
             opacity: 0.9;
         }
 
-        /* Set row container for better grouping */
-        .set-row {
-            margin-bottom: 0.5rem;
-            padding: 0.5rem;
-            border-radius: 8px;
-            background: rgba(0,0,0,0.02);
-            transition: background 0.2s ease;
-        }
-
-        /* Logged sets have darker background */
-        .set-row.logged {
-            background: rgba(0,0,0,0.15);
-        }
-
-        /* Set label and badge row */
-        .set-header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 0.4rem;
-        }
 
         /* Compact horizontal layout for inputs */
         div[data-testid="stHorizontalBlock"] {
@@ -201,16 +180,34 @@ def inject_css():
             max-width: 100% !important;
         }
 
-        /* Integrated button + input styling */
-        /* Remove gap between weight/reps controls */
-        .set-row div[data-testid="stHorizontalBlock"] {
+        /* Integrated set counter styling */
+        .set-counter-group {
+            display: inline-block;
+        }
+
+        .set-counter-group div[data-testid="stHorizontalBlock"] {
             gap: 0 !important;
         }
 
-        /* Style buttons to integrate with inputs */
-        .set-row div[data-testid="column"]:has(button) + div[data-testid="column"]:has(input),
-        .set-row div[data-testid="column"]:has(input) + div[data-testid="column"]:has(button) {
-            margin-left: 0 !important;
+        /* Left button - rounded left corners */
+        .set-counter-group div[data-testid="stHorizontalBlock"] > div:first-child .stButton > button {
+            border-radius: 8px 0 0 8px !important;
+            border-right: 1px solid rgba(255,255,255,0.05) !important;
+        }
+
+        /* Center display - no rounded corners */
+        .set-counter-group div[data-testid="stHorizontalBlock"] > div:nth-child(2) > div {
+            background: rgba(100, 100, 100, 0.2) !important;
+            border-radius: 0 !important;
+            border-top: 1px solid rgba(255,255,255,0.1) !important;
+            border-bottom: 1px solid rgba(255,255,255,0.1) !important;
+            height: 50px !important;
+        }
+
+        /* Right button - rounded right corners */
+        .set-counter-group div[data-testid="stHorizontalBlock"] > div:last-child .stButton > button {
+            border-radius: 0 8px 8px 0 !important;
+            border-left: 1px solid rgba(255,255,255,0.05) !important;
         }
 
         /* Number inputs - more compact */
@@ -274,45 +271,10 @@ def inject_css():
             overflow: visible !important;
         }
 
-        /* Compact styling for +/- buttons on weight/reps */
-        .stButton > button {
+        /* Compact styling for set counter +/- buttons */
+        .set-counter-group .stButton > button {
             font-size: 18px !important;
             font-weight: 700 !important;
-        }
-
-        /* Integrated input group styling - buttons merge with inputs */
-        .set-row .stButton > button {
-            border-radius: 0 !important;
-            border-right: none !important;
-            margin: 0 !important;
-        }
-
-        /* Left buttons - rounded left corners (weight and reps minus) */
-        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button,
-        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(5) .stButton > button {
-            border-radius: 8px 0 0 8px !important;
-            border-right: 1px solid rgba(255,255,255,0.05) !important;
-        }
-
-        /* Right buttons - rounded right corners (weight and reps plus) */
-        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button,
-        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(7) .stButton > button {
-            border-radius: 0 8px 8px 0 !important;
-            border-left: 1px solid rgba(255,255,255,0.05) !important;
-            border-right: 1px solid rgba(255,255,255,0.1) !important;
-        }
-
-        /* Input fields in integrated groups - no rounded corners */
-        .set-row div[data-testid="stNumberInput"] input {
-            border-radius: 0 !important;
-            border-left: 1px solid rgba(255,255,255,0.05) !important;
-            border-right: 1px solid rgba(255,255,255,0.05) !important;
-        }
-
-        /* Log button keeps normal styling */
-        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(9) .stButton > button {
-            border-radius: 8px !important;
-            border: 1px solid rgba(255,255,255,0.1) !important;
         }
 
         /* Badges - minimal checkmark styling */
@@ -524,47 +486,23 @@ def inject_css():
                 width: 100% !important;
             }
 
-            /* Remove gap for integrated controls on mobile */
-            .set-row div[data-testid="stHorizontalBlock"] {
-                gap: 0 !important;
-            }
-
             div[data-testid="stHorizontalBlock"] > div {
                 flex: 1 1 auto !important;
                 min-width: 0 !important;
                 max-width: none !important;
             }
 
-            /* Adjust flex for new 9-column layout: - | Weight | + | gap | - | Reps | + | gap | Log */
-            /* Make +/- buttons compact */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(1),
-            div[data-testid="stHorizontalBlock"] > div:nth-child(3),
-            div[data-testid="stHorizontalBlock"] > div:nth-child(5),
-            div[data-testid="stHorizontalBlock"] > div:nth-child(7) {
-                flex: 0.4 0 0 !important;
-                min-width: 36px !important;
-            }
-
-            /* Weight input */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+            /* Adjust flex basis for weight/reps/button columns */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(1) {
                 flex: 1.2 1 0 !important;
             }
 
-            /* Reps input */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(6) {
-                flex: 1.0 1 0 !important;
+            div[data-testid="stHorizontalBlock"] > div:nth-child(2) {
+                flex: 0.9 1 0 !important;
             }
 
-            /* Gap columns */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(4),
-            div[data-testid="stHorizontalBlock"] > div:nth-child(8) {
-                flex: 0.2 0 0 !important;
-                min-width: 4px !important;
-            }
-
-            /* Log button */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(9) {
-                flex: 0.8 1 0 !important;
+            div[data-testid="stHorizontalBlock"] > div:nth-child(3) {
+                flex: 0.7 1 0 !important;
             }
 
             /* Exercise name and set counter row - make exercise name wrap better */
@@ -591,11 +529,6 @@ def inject_css():
                 white-space: nowrap !important;
                 width: 100% !important;
                 min-height: 48px !important;
-            }
-
-            .set-row {
-                padding: 0.3rem;
-                margin-bottom: 0.3rem;
             }
 
             .badge {
@@ -635,11 +568,6 @@ def inject_css():
 
             div[data-testid="stHorizontalBlock"] {
                 gap: 0.1rem !important;
-            }
-
-            /* Integrated controls on small mobile */
-            .set-row div[data-testid="stHorizontalBlock"] {
-                gap: 0 !important;
             }
 
             div[data-testid="stNumberInput"] input {
@@ -794,25 +722,31 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
     max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
     ex_name = we.exercise.name
 
-    # Display exercise name inline with set controls
-    ex_col, c1, c2, c3 = st.columns([2.5, 1.0, 1.0, 1.0])
+    # Display exercise name inline with integrated set controls
+    ex_col, set_controls = st.columns([3.0, 2.0])
     with ex_col:
         st.markdown(f"### {ex_name}")
-    with c1:
-        if st.button("−", key=f"minus_{we.id}"):
-            if st.session_state[planned_key] > 1:
-                st.session_state[planned_key] -= 1
-                st.rerun()
-    with c2:
-        st.markdown(
-            f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
-            unsafe_allow_html=True,
-        )
-    with c3:
-        if st.button("+", key=f"plus_{we.id}"):
-            if st.session_state[planned_key] < max_sets:
-                st.session_state[planned_key] += 1
-                st.rerun()
+
+    # Integrated set counter with +/- buttons
+    with set_controls:
+        st.markdown("<div class='set-counter-group'>", unsafe_allow_html=True)
+        sc1, sc2, sc3 = st.columns([1.0, 1.5, 1.0])
+        with sc1:
+            if st.button("−", key=f"minus_{we.id}"):
+                if st.session_state[planned_key] > 1:
+                    st.session_state[planned_key] -= 1
+                    st.rerun()
+        with sc2:
+            st.markdown(
+                f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
+                unsafe_allow_html=True,
+            )
+        with sc3:
+            if st.button("+", key=f"plus_{we.id}"):
+                if st.session_state[planned_key] < max_sets:
+                    st.session_state[planned_key] += 1
+                    st.rerun()
+        st.markdown("</div>", unsafe_allow_html=True)
 
     # -------- Set rows (NO caption/instructions) --------
     for i, row in enumerate(draft, start=1):
@@ -825,21 +759,14 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
         if r_key not in st.session_state:
             st.session_state[r_key] = int(row["reps"])
 
-        # Add logged class to row if logged
-        row_class = "logged" if row["logged"] else ""
-        st.markdown(f"<div class='set-row {row_class}'>", unsafe_allow_html=True)
+        # Simplified input row: Weight, Reps, Button
+        # Apply darker background for logged sets
+        if row["logged"]:
+            st.markdown("<div style='background: rgba(0,0,0,0.15); border-radius: 8px; padding: 0.3rem; margin-bottom: 0.3rem;'>", unsafe_allow_html=True)
 
-        # Layout: - | Weight | + | gap | - | Reps | + | gap | Log
-        # Using 0.2 for small gaps between groups
-        cols = st.columns([0.5, 1.2, 0.5, 0.2, 0.5, 1.0, 0.5, 0.2, 0.8])
+        cols = st.columns([1.2, 0.9, 0.8])
 
-        # Weight controls
         with cols[0]:
-            if st.button("−", key=f"w_minus_{row_key_prefix}"):
-                st.session_state[w_key] = max(0, st.session_state[w_key] - 5)
-                st.rerun()
-
-        with cols[1]:
             number_input_int(
                 key=w_key,
                 default_value=int(row["weight"]),
@@ -847,20 +774,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                 step=5,
             )
 
-        with cols[2]:
-            if st.button("+", key=f"w_plus_{row_key_prefix}"):
-                st.session_state[w_key] = st.session_state[w_key] + 5
-                st.rerun()
-
-        # cols[3] is a gap
-
-        # Reps controls
-        with cols[4]:
-            if st.button("−", key=f"r_minus_{row_key_prefix}"):
-                st.session_state[r_key] = max(1, st.session_state[r_key] - 1)
-                st.rerun()
-
-        with cols[5]:
+        with cols[1]:
             number_input_int(
                 key=r_key,
                 default_value=int(row["reps"]),
@@ -868,15 +782,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                 step=1,
             )
 
-        with cols[6]:
-            if st.button("+", key=f"r_plus_{row_key_prefix}"):
-                st.session_state[r_key] = st.session_state[r_key] + 1
-                st.rerun()
-
-        # cols[7] is a gap
-
-        # Log button
-        with cols[8]:
+        with cols[2]:
             if not row["logged"]:
                 if st.button("Log", key=f"log_{row_key_prefix}"):
                     row["weight"] = int(st.session_state[w_key])
@@ -897,7 +803,12 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                     st.session_state[draft_key] = draft
                     st.rerun()
 
-        st.markdown("</div>", unsafe_allow_html=True)
+        # Close the logged row wrapper if it was opened
+        if row["logged"]:
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            # Minimal spacing between sets for non-logged rows
+            st.markdown("<div style='height:0.3rem;'></div>", unsafe_allow_html=True)
 
     # Add small spacing after exercise
     st.markdown("<div style='height:1rem;'></div>", unsafe_allow_html=True)
