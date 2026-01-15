@@ -702,12 +702,13 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
     with set_controls:
         set_input_key = f"set_count_{we.id}"
 
+        # Initialize only if not already in session state
         if set_input_key not in st.session_state:
             st.session_state[set_input_key] = st.session_state[planned_key]
 
+        # Don't pass value parameter when using key - let Streamlit manage it
         new_sets = st.number_input(
             label="",
-            value=st.session_state[set_input_key],
             key=set_input_key,
             min_value=1,
             max_value=max_sets,
