@@ -180,35 +180,6 @@ def inject_css():
             max-width: 100% !important;
         }
 
-        /* Integrated set counter styling */
-        .set-counter-group {
-            display: inline-block;
-        }
-
-        .set-counter-group div[data-testid="stHorizontalBlock"] {
-            gap: 0 !important;
-        }
-
-        /* Left button - rounded left corners */
-        .set-counter-group div[data-testid="stHorizontalBlock"] > div:first-child .stButton > button {
-            border-radius: 8px 0 0 8px !important;
-            border-right: 1px solid rgba(255,255,255,0.05) !important;
-        }
-
-        /* Center display - no rounded corners */
-        .set-counter-group div[data-testid="stHorizontalBlock"] > div:nth-child(2) > div {
-            background: rgba(100, 100, 100, 0.2) !important;
-            border-radius: 0 !important;
-            border-top: 1px solid rgba(255,255,255,0.1) !important;
-            border-bottom: 1px solid rgba(255,255,255,0.1) !important;
-            height: 50px !important;
-        }
-
-        /* Right button - rounded right corners */
-        .set-counter-group div[data-testid="stHorizontalBlock"] > div:last-child .stButton > button {
-            border-radius: 0 8px 8px 0 !important;
-            border-left: 1px solid rgba(255,255,255,0.05) !important;
-        }
 
         /* Number inputs - more compact */
         div[data-testid="stNumberInput"],
@@ -722,31 +693,32 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
     max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
     ex_name = we.exercise.name
 
-    # Display exercise name inline with integrated set controls
+    # Display exercise name inline with set controls
     ex_col, set_controls = st.columns([3.0, 2.0])
     with ex_col:
         st.markdown(f"### {ex_name}")
 
-    # Integrated set counter with +/- buttons
+    # Set counter using number input (same style as weight/reps)
     with set_controls:
-        st.markdown("<div class='set-counter-group'>", unsafe_allow_html=True)
-        sc1, sc2, sc3 = st.columns([1.0, 1.5, 1.0])
-        with sc1:
-            if st.button("−", key=f"minus_{we.id}"):
-                if st.session_state[planned_key] > 1:
-                    st.session_state[planned_key] -= 1
-                    st.rerun()
-        with sc2:
-            st.markdown(
-                f"<div style='text-align:center; font-size:18px; font-weight:700; padding-top:8px;'>{st.session_state[planned_key]}</div>",
-                unsafe_allow_html=True,
-            )
-        with sc3:
-            if st.button("+", key=f"plus_{we.id}"):
-                if st.session_state[planned_key] < max_sets:
-                    st.session_state[planned_key] += 1
-                    st.rerun()
-        st.markdown("</div>", unsafe_allow_html=True)
+        set_input_key = f"set_count_{we.id}"
+
+        if set_input_key not in st.session_state:
+            st.session_state[set_input_key] = st.session_state[planned_key]
+
+        new_sets = st.number_input(
+            label="",
+            value=st.session_state[set_input_key],
+            key=set_input_key,
+            min_value=1,
+            max_value=max_sets,
+            step=1,
+            format="%d",
+            label_visibility="collapsed",
+        )
+
+        if new_sets != st.session_state[planned_key]:
+            st.session_state[planned_key] = new_sets
+            st.rerun()
 
     # -------- Set rows (NO caption/instructions) --------
     for i, row in enumerate(draft, start=1):
