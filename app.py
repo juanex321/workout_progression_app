@@ -94,7 +94,7 @@ def inject_css():
             padding: 1rem;
             margin-bottom: 1rem;
             margin-top: 1.5rem;
-            border-left: 6px solid rgba(100, 100, 100, 0.3);
+            border: 3px solid rgba(100, 100, 100, 0.3);
         }
 
         /* First muscle group has tighter spacing */
@@ -124,29 +124,34 @@ def inject_css():
         }
 
         /* Add colored border and background tint based on RIR level */
+        /* RIR 4+ (Deload) - Blue */
         .muscle-group-header.rir-deload {
-            border-left-color: rgba(52,152,219,1);
-            background: rgba(52,152,219,0.08);
+            border-color: rgba(52,152,219,1);
+            background: rgba(52,152,219,0.12);
         }
 
+        /* RIR 3 (Moderate) - Light Green */
         .muscle-group-header.rir-moderate {
-            border-left-color: rgba(46,204,113,1);
+            border-color: rgba(46,204,113,0.7);
             background: rgba(46,204,113,0.08);
         }
 
+        /* RIR 2 (Hard) - Green */
         .muscle-group-header.rir-hard {
-            border-left-color: rgba(243,156,18,1);
-            background: rgba(243,156,18,0.08);
+            border-color: rgba(46,204,113,1);
+            background: rgba(46,204,113,0.12);
         }
 
+        /* RIR 1 (Very Hard) - Orange */
         .muscle-group-header.rir-very-hard {
-            border-left-color: rgba(230,126,34,1);
-            background: rgba(230,126,34,0.08);
+            border-color: rgba(255,165,0,1);
+            background: rgba(255,165,0,0.12);
         }
 
+        /* RIR 0 (Failure) - Red */
         .muscle-group-header.rir-failure {
-            border-left-color: rgba(231,76,60,1);
-            background: rgba(231,76,60,0.08);
+            border-color: rgba(231,76,60,1);
+            background: rgba(231,76,60,0.12);
         }
 
         /* Exercise headers - less prominent since it's in muscle header */
