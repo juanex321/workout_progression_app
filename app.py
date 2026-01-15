@@ -87,19 +87,27 @@ def inject_css():
             margin-bottom: 0;
         }
 
-        /* Muscle group header styling */
-        .muscle-group-header {
-            background: rgba(100, 100, 100, 0.12);
+        /* Muscle group wrapper - wraps entire muscle group section */
+        .muscle-group-wrapper {
             border-radius: 12px;
             padding: 1rem;
-            margin-bottom: 1rem;
+            margin-bottom: 1.5rem;
             margin-top: 1.5rem;
             border: 3px solid rgba(100, 100, 100, 0.3);
+            background: rgba(100, 100, 100, 0.05);
         }
 
         /* First muscle group has tighter spacing */
-        .muscle-group-header:first-of-type {
+        .muscle-group-wrapper:first-of-type {
             margin-top: 0.5rem;
+        }
+
+        /* Muscle group header styling - now without border */
+        .muscle-group-header {
+            background: rgba(100, 100, 100, 0.08);
+            border-radius: 8px;
+            padding: 0.8rem;
+            margin-bottom: 1rem;
         }
 
         .muscle-group-title {
@@ -125,33 +133,33 @@ def inject_css():
 
         /* Add colored border and background tint based on RIR level */
         /* RIR 4+ (Deload) - Blue */
-        .muscle-group-header.rir-deload {
+        .muscle-group-wrapper.rir-deload {
             border-color: rgba(52,152,219,1);
-            background: rgba(52,152,219,0.12);
+            background: rgba(52,152,219,0.08);
         }
 
         /* RIR 3 (Moderate) - Light Green */
-        .muscle-group-header.rir-moderate {
+        .muscle-group-wrapper.rir-moderate {
             border-color: rgba(46,204,113,0.7);
-            background: rgba(46,204,113,0.08);
+            background: rgba(46,204,113,0.05);
         }
 
         /* RIR 2 (Hard) - Green */
-        .muscle-group-header.rir-hard {
+        .muscle-group-wrapper.rir-hard {
             border-color: rgba(46,204,113,1);
-            background: rgba(46,204,113,0.12);
+            background: rgba(46,204,113,0.08);
         }
 
         /* RIR 1 (Very Hard) - Orange */
-        .muscle-group-header.rir-very-hard {
+        .muscle-group-wrapper.rir-very-hard {
             border-color: rgba(255,165,0,1);
-            background: rgba(255,165,0,0.12);
+            background: rgba(255,165,0,0.08);
         }
 
         /* RIR 0 (Failure) - Red */
-        .muscle-group-header.rir-failure {
+        .muscle-group-wrapper.rir-failure {
             border-color: rgba(231,76,60,1);
-            background: rgba(231,76,60,0.12);
+            background: rgba(231,76,60,0.08);
         }
 
         /* Exercise headers - less prominent since it's in muscle header */
@@ -591,6 +599,28 @@ def number_input_int(key: str, default_value: int, min_value: int, step: int):
     )
 
 
+def get_rir_css_class(target_rir: int) -> str:
+    """
+    Get the CSS class for the RIR level.
+
+    Args:
+        target_rir: Target RIR for this muscle group
+
+    Returns:
+        CSS class name for the RIR level
+    """
+    if target_rir >= 4:
+        return "rir-deload"
+    elif target_rir == 3:
+        return "rir-moderate"
+    elif target_rir == 2:
+        return "rir-hard"
+    elif target_rir == 1:
+        return "rir-very-hard"
+    else:
+        return "rir-failure"
+
+
 def display_muscle_group_header(muscle_group: str, target_rir: int, phase: str, feedback_summary: str):
     """
     Display a single header for a muscle group.
@@ -601,25 +631,12 @@ def display_muscle_group_header(muscle_group: str, target_rir: int, phase: str, 
         phase: Phase description (e.g., "Moderate Intensity")
         feedback_summary: Summary of recent feedback
     """
-    badge_class, emoji = get_rir_badge_style(target_rir)
+    _, emoji = get_rir_badge_style(target_rir)
 
-    # Determine the RIR CSS class for colored border
-    rir_class = ""
-    if target_rir >= 4:
-        rir_class = "rir-deload"
-    elif target_rir == 3:
-        rir_class = "rir-moderate"
-    elif target_rir == 2:
-        rir_class = "rir-hard"
-    elif target_rir == 1:
-        rir_class = "rir-very-hard"
-    else:
-        rir_class = "rir-failure"
-
-    # Display compact muscle group header (without exercise names)
+    # Display compact muscle group header (without wrapper)
     st.markdown(
         f"""
-        <div class="muscle-group-header {rir_class}">
+        <div class="muscle-group-header">
             <div class="muscle-group-title">{emoji} {muscle_group}</div>
             <div class="muscle-group-exercises">RIR {target_rir} - {phase}</div>
             <div class="muscle-group-feedback">Recent: {feedback_summary}</div>
@@ -880,9 +897,15 @@ def main():
             target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
             feedback_summary = get_feedback_summary(db, muscle_group)
 
+            # Get RIR CSS class for the wrapper
+            rir_class = get_rir_css_class(target_rir)
+
+            # Open wrapper with colored border
+            st.markdown(f'<div class="muscle-group-wrapper {rir_class}">', unsafe_allow_html=True)
+
             # Show muscle group header ONCE
             display_muscle_group_header(muscle_group, target_rir, phase, feedback_summary)
-            
+
             # Show all exercises for this muscle group
             for we, order_idx in exercises:
                 display_exercise_sets(db, session, we, order_idx, target_rir)
@@ -976,6 +999,9 @@ def main():
                     """,
                     unsafe_allow_html=True,
                 )
+
+            # Close wrapper
+            st.markdown('</div>', unsafe_allow_html=True)
 
             st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
 
