@@ -567,27 +567,18 @@ def number_input_int(key: str, default_value: int, min_value: int, step: int):
     )
 
 
-def display_muscle_group_header(muscle_group: str, exercises: list, target_rir: int, phase: str, feedback_summary: str):
+def display_muscle_group_header(muscle_group: str, target_rir: int, phase: str, feedback_summary: str):
     """
-    Display a single header for a muscle group with all exercises listed.
+    Display a single header for a muscle group.
 
     Args:
         muscle_group: Name of the muscle group (e.g., "Quads", "Chest")
-        exercises: List of (WorkoutExercise, order_idx) tuples for this muscle
         target_rir: Target RIR for this muscle group
         phase: Phase description (e.g., "Moderate Intensity")
         feedback_summary: Summary of recent feedback
     """
     badge_class, emoji = get_rir_badge_style(target_rir)
 
-    # Build exercise summary (e.g., "Leg Extension • Sissy Squat")
-    exercise_summaries = []
-    for we, _ in exercises:
-        ex_name = we.exercise.name
-        exercise_summaries.append(f"{ex_name}")
-
-    exercises_text = " • ".join(exercise_summaries)
-    
     # Determine the RIR CSS class for colored border
     rir_class = ""
     if target_rir >= 4:
@@ -600,14 +591,13 @@ def display_muscle_group_header(muscle_group: str, exercises: list, target_rir: 
         rir_class = "rir-very-hard"
     else:
         rir_class = "rir-failure"
-    
-    # Display compact muscle group header
+
+    # Display compact muscle group header (without exercise names)
     st.markdown(
         f"""
         <div class="muscle-group-header {rir_class}">
             <div class="muscle-group-title">{emoji} {muscle_group}</div>
             <div class="muscle-group-exercises">RIR {target_rir} - {phase}</div>
-            <div class="muscle-group-exercises">{exercises_text}</div>
             <div class="muscle-group-feedback">Recent: {feedback_summary}</div>
         </div>
         """,
@@ -680,11 +670,14 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
 
     st.session_state[draft_key] = draft
 
-    # -------- Set controls without exercise name (shown in muscle group header) --------
+    # -------- Exercise name and set controls in one row --------
     max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
+    ex_name = we.exercise.name
 
-    # Display only the set controls in a compact row
-    c1, c2, c3 = st.columns([1.0, 1.0, 1.0])
+    # Display exercise name inline with set controls
+    ex_col, c1, c2, c3 = st.columns([2.5, 1.0, 1.0, 1.0])
+    with ex_col:
+        st.markdown(f"### {ex_name}")
     with c1:
         if st.button("−", key=f"minus_{we.id}"):
             if st.session_state[planned_key] > 1:
@@ -848,7 +841,7 @@ def main():
             feedback_summary = get_feedback_summary(db, muscle_group)
 
             # Show muscle group header ONCE
-            display_muscle_group_header(muscle_group, exercises, target_rir, phase, feedback_summary)
+            display_muscle_group_header(muscle_group, target_rir, phase, feedback_summary)
             
             # Show all exercises for this muscle group
             for we, order_idx in exercises:
