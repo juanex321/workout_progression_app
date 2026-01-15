@@ -201,6 +201,18 @@ def inject_css():
             max-width: 100% !important;
         }
 
+        /* Integrated button + input styling */
+        /* Remove gap between weight/reps controls */
+        .set-row div[data-testid="stHorizontalBlock"] {
+            gap: 0 !important;
+        }
+
+        /* Style buttons to integrate with inputs */
+        .set-row div[data-testid="column"]:has(button) + div[data-testid="column"]:has(input),
+        .set-row div[data-testid="column"]:has(input) + div[data-testid="column"]:has(button) {
+            margin-left: 0 !important;
+        }
+
         /* Number inputs - more compact */
         div[data-testid="stNumberInput"],
         div[data-testid="stNumberInput"] > div {
@@ -266,6 +278,41 @@ def inject_css():
         .stButton > button {
             font-size: 18px !important;
             font-weight: 700 !important;
+        }
+
+        /* Integrated input group styling - buttons merge with inputs */
+        .set-row .stButton > button {
+            border-radius: 0 !important;
+            border-right: none !important;
+            margin: 0 !important;
+        }
+
+        /* Left buttons - rounded left corners (weight and reps minus) */
+        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(1) .stButton > button,
+        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(5) .stButton > button {
+            border-radius: 8px 0 0 8px !important;
+            border-right: 1px solid rgba(255,255,255,0.05) !important;
+        }
+
+        /* Right buttons - rounded right corners (weight and reps plus) */
+        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(3) .stButton > button,
+        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(7) .stButton > button {
+            border-radius: 0 8px 8px 0 !important;
+            border-left: 1px solid rgba(255,255,255,0.05) !important;
+            border-right: 1px solid rgba(255,255,255,0.1) !important;
+        }
+
+        /* Input fields in integrated groups - no rounded corners */
+        .set-row div[data-testid="stNumberInput"] input {
+            border-radius: 0 !important;
+            border-left: 1px solid rgba(255,255,255,0.05) !important;
+            border-right: 1px solid rgba(255,255,255,0.05) !important;
+        }
+
+        /* Log button keeps normal styling */
+        .set-row div[data-testid="stHorizontalBlock"] > div:nth-child(9) .stButton > button {
+            border-radius: 8px !important;
+            border: 1px solid rgba(255,255,255,0.1) !important;
         }
 
         /* Badges - minimal checkmark styling */
@@ -477,18 +524,23 @@ def inject_css():
                 width: 100% !important;
             }
 
+            /* Remove gap for integrated controls on mobile */
+            .set-row div[data-testid="stHorizontalBlock"] {
+                gap: 0 !important;
+            }
+
             div[data-testid="stHorizontalBlock"] > div {
                 flex: 1 1 auto !important;
                 min-width: 0 !important;
                 max-width: none !important;
             }
 
-            /* Adjust flex for new 7-column layout: - | Weight | + | - | Reps | + | Log */
+            /* Adjust flex for new 9-column layout: - | Weight | + | gap | - | Reps | + | gap | Log */
             /* Make +/- buttons compact */
             div[data-testid="stHorizontalBlock"] > div:nth-child(1),
             div[data-testid="stHorizontalBlock"] > div:nth-child(3),
-            div[data-testid="stHorizontalBlock"] > div:nth-child(4),
-            div[data-testid="stHorizontalBlock"] > div:nth-child(6) {
+            div[data-testid="stHorizontalBlock"] > div:nth-child(5),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(7) {
                 flex: 0.4 0 0 !important;
                 min-width: 36px !important;
             }
@@ -499,12 +551,19 @@ def inject_css():
             }
 
             /* Reps input */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(5) {
+            div[data-testid="stHorizontalBlock"] > div:nth-child(6) {
                 flex: 1.0 1 0 !important;
             }
 
+            /* Gap columns */
+            div[data-testid="stHorizontalBlock"] > div:nth-child(4),
+            div[data-testid="stHorizontalBlock"] > div:nth-child(8) {
+                flex: 0.2 0 0 !important;
+                min-width: 4px !important;
+            }
+
             /* Log button */
-            div[data-testid="stHorizontalBlock"] > div:nth-child(7) {
+            div[data-testid="stHorizontalBlock"] > div:nth-child(9) {
                 flex: 0.8 1 0 !important;
             }
 
@@ -576,6 +635,11 @@ def inject_css():
 
             div[data-testid="stHorizontalBlock"] {
                 gap: 0.1rem !important;
+            }
+
+            /* Integrated controls on small mobile */
+            .set-row div[data-testid="stHorizontalBlock"] {
+                gap: 0 !important;
             }
 
             div[data-testid="stNumberInput"] input {
@@ -765,8 +829,9 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
         row_class = "logged" if row["logged"] else ""
         st.markdown(f"<div class='set-row {row_class}'>", unsafe_allow_html=True)
 
-        # Layout: - | Weight | + | - | Reps | + | Log
-        cols = st.columns([0.5, 1.2, 0.5, 0.5, 1.0, 0.5, 0.8])
+        # Layout: - | Weight | + | gap | - | Reps | + | gap | Log
+        # Using 0.2 for small gaps between groups
+        cols = st.columns([0.5, 1.2, 0.5, 0.2, 0.5, 1.0, 0.5, 0.2, 0.8])
 
         # Weight controls
         with cols[0]:
@@ -787,13 +852,15 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                 st.session_state[w_key] = st.session_state[w_key] + 5
                 st.rerun()
 
+        # cols[3] is a gap
+
         # Reps controls
-        with cols[3]:
+        with cols[4]:
             if st.button("−", key=f"r_minus_{row_key_prefix}"):
                 st.session_state[r_key] = max(1, st.session_state[r_key] - 1)
                 st.rerun()
 
-        with cols[4]:
+        with cols[5]:
             number_input_int(
                 key=r_key,
                 default_value=int(row["reps"]),
@@ -801,13 +868,15 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
                 step=1,
             )
 
-        with cols[5]:
+        with cols[6]:
             if st.button("+", key=f"r_plus_{row_key_prefix}"):
                 st.session_state[r_key] = st.session_state[r_key] + 1
                 st.rerun()
 
+        # cols[7] is a gap
+
         # Log button
-        with cols[6]:
+        with cols[8]:
             if not row["logged"]:
                 if st.button("Log", key=f"log_{row_key_prefix}"):
                     row["weight"] = int(st.session_state[w_key])
