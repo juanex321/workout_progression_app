@@ -1,0 +1,4 @@
+# Additional requirements for Reflex version
+# Install with: pip install -r requirements.txt -r reflex_app/requirements_reflex.txt
+
+reflex>=0.4.0
