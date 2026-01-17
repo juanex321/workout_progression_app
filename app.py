@@ -1,6 +1,5 @@
 import streamlit as st
 from datetime import date
-from collections import defaultdict
 
 from db import (
     get_session,
@@ -15,7 +14,6 @@ from db import (
 )
 
 from progression import recommend_weights_and_reps, is_finisher, MAX_SETS_FINISHER, MAX_SETS_MAIN
-from plan import get_session_exercises
 from services import (
     get_current_session,
     get_session_by_number,
@@ -51,6 +49,88 @@ def get_program_and_workout():
         return {"id": prog.id, "name": prog.name}, {"id": workout.id, "name": workout.name}
     finally:
         db.close()
+
+
+def load_workout_session_data(db, workout, session):
+    """
+    Load ALL data needed for a workout session ONCE at the start.
+
+    This implements the "load once, hold locally" pattern:
+    - All exercises, sets, recommendations are fetched once
+    - Stored in session state and never re-fetched during the workout
+    - Only re-loads when explicitly navigating or finishing
+
+    Returns a dict with all session data needed for rendering.
+    """
+    from plan import get_session_exercises
+
+    exercises_for_session = get_session_exercises(session.rotation_index)
+
+    # Group exercises by muscle group and load all data
+    muscle_groups_data = {}
+
+    for order_idx, ex_name in enumerate(exercises_for_session):
+        we = get_or_create_workout_exercise(db, workout, ex_name, order_idx)
+        muscle_group = we.exercise.muscle_group if we.exercise.muscle_group else we.exercise.name
+
+        # Initialize muscle group if not exists
+        if muscle_group not in muscle_groups_data:
+            muscle_groups_data[muscle_group] = {
+                "exercises": [],
+                "target_rir": None,
+                "phase": None,
+                "feedback_summary": None,
+            }
+
+        # Load existing sets for this exercise
+        existing_sets = load_existing_sets(db, session.id, we.id)
+
+        # Get recommendations (this is computed once, not on every render!)
+        rec_rows = recommend_weights_and_reps(db, we)
+
+        # Build exercise data
+        exercise_data = {
+            "we_id": we.id,
+            "name": we.exercise.name,
+            "order_idx": order_idx,
+            "existing_sets": [
+                {
+                    "set_number": s.set_number,
+                    "weight": int(round(s.weight or 0)),
+                    "reps": int(s.reps or 0),
+                    "rir": s.rir,
+                    "logged": True,
+                }
+                for s in existing_sets
+            ],
+            "recommendations": rec_rows,
+            "is_finisher": is_finisher(we),
+        }
+
+        muscle_groups_data[muscle_group]["exercises"].append(exercise_data)
+
+        # Load RIR data once per muscle group (only if not already set)
+        if muscle_groups_data[muscle_group]["target_rir"] is None:
+            target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
+            feedback_summary = get_feedback_summary(db, muscle_group)
+            muscle_groups_data[muscle_group]["target_rir"] = target_rir
+            muscle_groups_data[muscle_group]["phase"] = phase
+            muscle_groups_data[muscle_group]["feedback_summary"] = feedback_summary
+
+    db.commit()  # Single commit after all exercises are loaded
+
+    # Check feedback status for each muscle group
+    for muscle_group in muscle_groups_data:
+        muscle_groups_data[muscle_group]["feedback_exists"] = check_muscle_group_feedback_exists(
+            db, session.id, muscle_group
+        )
+
+    return {
+        "session_id": session.id,
+        "session_number": session.session_number,
+        "completed": session.completed,
+        "muscle_groups": dict(muscle_groups_data),
+    }
 
 # ----------------- UI HELPERS -----------------
 
@@ -641,33 +721,37 @@ def display_muscle_group_header(muscle_group: str, target_rir: int, phase: str, 
     )
 
 
-def display_exercise_sets(db, session, we, order_idx, target_rir):
+def display_exercise_sets(session_id, exercise_data, target_rir):
     """
     Display just the exercise name, set controls, and set rows.
     No RIR box, no instructions (those are in the muscle group header).
-    
+
+    IMPORTANT: This function reads ONLY from session state and pre-loaded data.
+    No database queries are made during rendering.
+
     Args:
-        db: Database session
-        session: Current workout session
-        we: WorkoutExercise object
-        order_idx: Order index in the session
+        session_id: Current workout session ID
+        exercise_data: Pre-loaded exercise data dict from load_workout_session_data()
         target_rir: Target RIR for this muscle group
     """
-    existing_sets = load_existing_sets(db, session.id, we.id)
-    rec_rows = recommend_weights_and_reps(db, we)
-    
-    draft_key = f"draft_{session.id}_{we.id}"
-    planned_key = f"planned_{session.id}_{we.id}"
-    
-    # Initialize draft once
+    we_id = exercise_data["we_id"]
+    existing_sets = exercise_data["existing_sets"]
+    rec_rows = exercise_data["recommendations"]
+    ex_name = exercise_data["name"]
+    is_finisher_ex = exercise_data["is_finisher"]
+
+    draft_key = f"draft_{session_id}_{we_id}"
+    planned_key = f"planned_{session_id}_{we_id}"
+
+    # Initialize draft once from pre-loaded data (no DB query!)
     if draft_key not in st.session_state:
         if existing_sets:
             draft = [
                 dict(
-                    set_number=s.set_number,
-                    weight=int(round(s.weight)),
-                    reps=int(s.reps),
-                    rir=s.rir,
+                    set_number=s["set_number"],
+                    weight=s["weight"],
+                    reps=s["reps"],
+                    rir=s["rir"],
                     logged=True,
                 )
                 for s in existing_sets
@@ -707,8 +791,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
     st.session_state[draft_key] = draft
 
     # -------- Exercise name and set controls in one row --------
-    max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
-    ex_name = we.exercise.name
+    max_sets = MAX_SETS_FINISHER if is_finisher_ex else MAX_SETS_MAIN
 
     # Display exercise name inline with set controls
     ex_col, set_controls = st.columns([3.0, 2.0])
@@ -717,7 +800,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
 
     # Set counter using number input (same style as weight/reps)
     with set_controls:
-        set_input_key = f"set_count_{we.id}"
+        set_input_key = f"set_count_{we_id}"
 
         # Initialize only if not already in session state
         if set_input_key not in st.session_state:
@@ -740,7 +823,7 @@ def display_exercise_sets(db, session, we, order_idx, target_rir):
 
     # -------- Set rows (NO caption/instructions) --------
     for i, row in enumerate(draft, start=1):
-        row_key_prefix = f"{session.id}_{we.id}_{i}"
+        row_key_prefix = f"{session_id}_{we_id}_{i}"
         w_key = f"w_{row_key_prefix}"
         r_key = f"r_{row_key_prefix}"
 
@@ -826,6 +909,20 @@ def main():
         st.error("No workouts found for this program. Run init_db.py first.")
         return
 
+    # =========================================================================
+    # STRICT SESSION SYNC CONTROL
+    # =========================================================================
+    # Data is loaded ONCE at session start and held in local state.
+    # NO syncing, fetching, or recomputing during the workout.
+    # Only explicit user actions (Log, Feedback, Finish) trigger DB writes.
+    # =========================================================================
+
+    # Key for tracking which session's data is loaded
+    workout_data_key = "workout_session_data"
+
+    # Determine if we need to load/reload session data
+    needs_data_load = False
+
     with get_session() as db:
         # Get the actual workout object for relationships
         tracking_workout = db.query(Workout).filter(Workout.id == workout_data["id"]).first()
@@ -834,196 +931,221 @@ def main():
         if st.session_state["current_session_number"] is None:
             session = get_current_session(db, tracking_workout.id)
             st.session_state["current_session_number"] = session.session_number
+            needs_data_load = True
         else:
             session = get_session_by_number(db, tracking_workout.id, st.session_state["current_session_number"])
             if session is None:
                 # Session doesn't exist, fall back to current
                 session = get_current_session(db, tracking_workout.id)
                 st.session_state["current_session_number"] = session.session_number
+                needs_data_load = True
 
-        # -------- Header (responsive) --------
-        col_prev, col_mid, col_next = st.columns([1.0, 2.5, 1.0])
+        # Check if loaded data matches current session (or if never loaded)
+        if workout_data_key not in st.session_state:
+            needs_data_load = True
+        elif st.session_state[workout_data_key]["session_id"] != session.id:
+            needs_data_load = True
 
-        with col_prev:
-            can_go_prev = session.session_number > 1
-            if st.button("◀ Prev", key="prev_session", disabled=not can_go_prev):
-                st.session_state["current_session_number"] = session.session_number - 1
-                st.rerun()
+        # Load session data ONCE (only if needed)
+        if needs_data_load:
+            st.session_state[workout_data_key] = load_workout_session_data(db, tracking_workout, session)
 
-        with col_mid:
-            # Show completion status if this is a completed session
-            status = ""
-            if session.completed == 1:
-                status = " ✅"
+        # Get pre-loaded data (NO DB queries from here on during normal rendering!)
+        session_data = st.session_state[workout_data_key]
 
-            st.markdown(
-                f"""
-                <div class="header-container">
-                  <div class="session-info">Session {session.session_number}{status}</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+        # Check if there's a next session available (for navigation buttons)
+        next_session_exists = get_session_by_number(db, tracking_workout.id, session_data["session_number"] + 1) is not None
 
-        with col_next:
-            # Check if there's a next session available
-            next_session = get_session_by_number(db, tracking_workout.id, session.session_number + 1)
-            can_go_next = next_session is not None
-            if st.button("Next ▶", key="next_session", disabled=not can_go_next):
-                st.session_state["current_session_number"] = session.session_number + 1
-                st.rerun()
+    # =========================================================================
+    # FROM HERE ON: NO DATABASE QUERIES DURING NORMAL RENDERING
+    # All display reads from session_data (pre-loaded local state)
+    # =========================================================================
 
-        # Exercises for this session based on rotation_index stored in the session
-        exercises_for_session = get_session_exercises(session.rotation_index)
+    session_id = session_data["session_id"]
+    session_number = session_data["session_number"]
+    session_completed = session_data["completed"]
+    muscle_groups = session_data["muscle_groups"]
 
-        # Group exercises by muscle group
-        muscle_groups = defaultdict(list)
-        for order_idx, ex_name in enumerate(exercises_for_session):
-            we = get_or_create_workout_exercise(db, tracking_workout, ex_name, order_idx)
-            # Use muscle group if available, otherwise use exercise name as its own group
-            # This ensures exercises without muscle groups still display properly
-            muscle_group = we.exercise.muscle_group if we.exercise.muscle_group else we.exercise.name
-            muscle_groups[muscle_group].append((we, order_idx))
-        db.commit()  # Single commit after all exercises are loaded
+    # -------- Header (responsive) --------
+    col_prev, col_mid, col_next = st.columns([1.0, 2.5, 1.0])
 
-        # Display grouped by muscle
-        for muscle_group, exercises in muscle_groups.items():
-            # Get RIR once for this muscle group (used in header and exercises)
-            target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
-            feedback_summary = get_feedback_summary(db, muscle_group)
+    with col_prev:
+        can_go_prev = session_number > 1
+        if st.button("◀ Prev", key="prev_session", disabled=not can_go_prev):
+            st.session_state["current_session_number"] = session_number - 1
+            # Clear loaded data to force reload on next render
+            if workout_data_key in st.session_state:
+                del st.session_state[workout_data_key]
+            st.rerun()
 
-            # Show muscle group header ONCE
-            display_muscle_group_header(muscle_group, target_rir, phase, feedback_summary)
+    with col_mid:
+        # Show completion status if this is a completed session
+        status = ""
+        if session_completed == 1:
+            status = " ✅"
 
-            # Show all exercises for this muscle group
-            for we, order_idx in exercises:
-                display_exercise_sets(db, session, we, order_idx, target_rir)
-            
-            # -------- Feedback form --------
-            # Check if all sets are logged for all exercises in this muscle group
-            all_sets_logged = True
-            for we, _ in exercises:
-                draft_key = f"draft_{session.id}_{we.id}"
-                if draft_key in st.session_state:
-                    draft = st.session_state[draft_key]
-                    if not all(row["logged"] for row in draft):
-                        all_sets_logged = False
-                        break
-                else:
+        st.markdown(
+            f"""
+            <div class="header-container">
+              <div class="session-info">Session {session_number}{status}</div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
+
+    with col_next:
+        can_go_next = next_session_exists
+        if st.button("Next ▶", key="next_session", disabled=not can_go_next):
+            st.session_state["current_session_number"] = session_number + 1
+            # Clear loaded data to force reload on next render
+            if workout_data_key in st.session_state:
+                del st.session_state[workout_data_key]
+            st.rerun()
+
+    # Display grouped by muscle (reading from pre-loaded local data)
+    for muscle_group, mg_data in muscle_groups.items():
+        target_rir = mg_data["target_rir"]
+        phase = mg_data["phase"]
+        feedback_summary = mg_data["feedback_summary"]
+        exercises = mg_data["exercises"]
+        feedback_exists = mg_data["feedback_exists"]
+
+        # Show muscle group header ONCE
+        display_muscle_group_header(muscle_group, target_rir, phase, feedback_summary)
+
+        # Show all exercises for this muscle group
+        for exercise_data in exercises:
+            display_exercise_sets(session_id, exercise_data, target_rir)
+
+        # -------- Feedback form --------
+        # Check if all sets are logged for all exercises in this muscle group
+        all_sets_logged = True
+        for exercise_data in exercises:
+            draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+            if draft_key in st.session_state:
+                draft = st.session_state[draft_key]
+                if not all(row["logged"] for row in draft):
                     all_sets_logged = False
                     break
-            
-            # Check if feedback exists for this muscle group
-            feedback_exists = check_muscle_group_feedback_exists(db, session.id, muscle_group)
+            else:
+                all_sets_logged = False
+                break
 
-            # Only show feedback form if:
-            # 1. All sets are logged for all exercises in this muscle group
-            # 2. Feedback hasn't been submitted yet
-            if all_sets_logged and not feedback_exists:
-                st.markdown(
-                    f"""
-                    <div class="feedback-container">
-                        <div class="feedback-title">💪 How did {muscle_group} feel?</div>
-                        <div class="feedback-description">This feedback will adjust your next session intensity</div>
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-                # Use muscle group for the feedback key to ensure stability
-                feedback_key_prefix = f"feedback_{session.id}_{muscle_group.replace(' ', '_')}"
-
-                # Rating inputs with emojis for visual appeal
-                st.markdown("**😓 Soreness / Fatigue**")
-                st.caption("1 = No soreness • 5 = Very sore/fatigued")
-                soreness = st.slider(
-                    "Soreness",
-                    min_value=1,
-                    max_value=5,
-                    value=3,
-                    key=f"{feedback_key_prefix}_soreness",
-                    label_visibility="collapsed",
-                )
-
-                st.markdown("**💥 Pump**")
-                st.caption("1 = No pump • 5 = Incredible pump")
-                pump = st.slider(
-                    "Pump",
-                    min_value=1,
-                    max_value=5,
-                    value=3,
-                    key=f"{feedback_key_prefix}_pump",
-                    label_visibility="collapsed",
-                )
-
-                st.markdown("**⚡ Workload**")
-                st.caption("1 = Too easy • 3 = Just right • 5 = Too much")
-                workload = st.slider(
-                    "Workload",
-                    min_value=1,
-                    max_value=5,
-                    value=3,
-                    key=f"{feedback_key_prefix}_workload",
-                    label_visibility="collapsed",
-                )
-
-                # Submit button - saves all sets for this muscle group to DB
-                if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
-                    # Save all sets for exercises in this muscle group to DB
-                    for we, _ in exercises:
-                        draft_key = f"draft_{session.id}_{we.id}"
-                        if draft_key in st.session_state:
-                            save_sets(db, session.id, we.id, st.session_state[draft_key])
-                    # Save feedback
-                    save_muscle_group_feedback(db, session.id, muscle_group, soreness, pump, workload)
-                    st.rerun()
-
-            elif all_sets_logged and feedback_exists:
-                # Show completion indicator
-                st.markdown(
-                    """
-                    <div class="feedback-success">
-                        ✅ Feedback submitted - Next session intensity adjusted!
-                    </div>
-                    """,
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
-
-        st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
-        
-        # Only show finish button if viewing the current incomplete session
-        current_session = get_current_session(db, tracking_workout.id)
-        is_current_session = (session.id == current_session.id)
-        
-        if is_current_session and session.completed == 0:
-            # Center the finish button
-            _, center_col, _ = st.columns([1, 2, 1])
-            with center_col:
-                if st.button("✅ Finish Workout", key="finish_workout"):
-                    # Save all unsaved sets to DB before completing
-                    for muscle_group, exercises in muscle_groups.items():
-                        for we, _ in exercises:
-                            draft_key = f"draft_{session.id}_{we.id}"
-                            if draft_key in st.session_state:
-                                save_sets(db, session.id, we.id, st.session_state[draft_key])
-                    # Complete the current session and create next
-                    next_session = complete_session(db, session.id)
-                    st.session_state["current_session_number"] = next_session.session_number
-                    st.rerun()
-        elif session.completed == 1:
-            # Show completion indicator for completed sessions
+        # Only show feedback form if:
+        # 1. All sets are logged for all exercises in this muscle group
+        # 2. Feedback hasn't been submitted yet
+        if all_sets_logged and not feedback_exists:
             st.markdown(
-                """
-                <div style="text-align: center; padding: 1rem; background: rgba(46,204,113,0.15); border-radius: 8px; border: 1px solid rgba(46,204,113,0.3);">
-                    <div style="font-size: 16px; color: rgba(46,204,113,1); font-weight: 600;">
-                        ✅ Session Completed
-                    </div>
+                f"""
+                <div class="feedback-container">
+                    <div class="feedback-title">💪 How did {muscle_group} feel?</div>
+                    <div class="feedback-description">This feedback will adjust your next session intensity</div>
                 </div>
                 """,
                 unsafe_allow_html=True,
             )
+
+            # Use muscle group for the feedback key to ensure stability
+            feedback_key_prefix = f"feedback_{session_id}_{muscle_group.replace(' ', '_')}"
+
+            # Rating inputs with emojis for visual appeal
+            st.markdown("**😓 Soreness / Fatigue**")
+            st.caption("1 = No soreness • 5 = Very sore/fatigued")
+            soreness = st.slider(
+                "Soreness",
+                min_value=1,
+                max_value=5,
+                value=3,
+                key=f"{feedback_key_prefix}_soreness",
+                label_visibility="collapsed",
+            )
+
+            st.markdown("**💥 Pump**")
+            st.caption("1 = No pump • 5 = Incredible pump")
+            pump = st.slider(
+                "Pump",
+                min_value=1,
+                max_value=5,
+                value=3,
+                key=f"{feedback_key_prefix}_pump",
+                label_visibility="collapsed",
+            )
+
+            st.markdown("**⚡ Workload**")
+            st.caption("1 = Too easy • 3 = Just right • 5 = Too much")
+            workload = st.slider(
+                "Workload",
+                min_value=1,
+                max_value=5,
+                value=3,
+                key=f"{feedback_key_prefix}_workload",
+                label_visibility="collapsed",
+            )
+
+            # Submit button - EXPLICIT USER ACTION: saves to DB
+            if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
+                with get_session() as db:
+                    # Save all sets for exercises in this muscle group to DB
+                    for exercise_data in exercises:
+                        draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+                        if draft_key in st.session_state:
+                            save_sets(db, session_id, exercise_data['we_id'], st.session_state[draft_key])
+                    # Save feedback
+                    save_muscle_group_feedback(db, session_id, muscle_group, soreness, pump, workload)
+                # Clear loaded data to force reload (feedback status changed)
+                if workout_data_key in st.session_state:
+                    del st.session_state[workout_data_key]
+                st.rerun()
+
+        elif all_sets_logged and feedback_exists:
+            # Show completion indicator
+            st.markdown(
+                """
+                <div class="feedback-success">
+                    ✅ Feedback submitted - Next session intensity adjusted!
+                </div>
+                """,
+                unsafe_allow_html=True,
+            )
+
+        st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
+
+    st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
+
+    # Only show finish button if this is an incomplete session
+    # (We determine "current" by checking if completed == 0)
+    if session_completed == 0:
+        # Center the finish button
+        _, center_col, _ = st.columns([1, 2, 1])
+        with center_col:
+            if st.button("✅ Finish Workout", key="finish_workout"):
+                # EXPLICIT USER ACTION: save and commit to DB
+                with get_session() as db:
+                    # Save all unsaved sets to DB before completing
+                    for muscle_group, mg_data in muscle_groups.items():
+                        for exercise_data in mg_data["exercises"]:
+                            draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+                            if draft_key in st.session_state:
+                                save_sets(db, session_id, exercise_data['we_id'], st.session_state[draft_key])
+                    # Complete the current session and create next
+                    next_session = complete_session(db, session_id)
+                    st.session_state["current_session_number"] = next_session.session_number
+                # Clear loaded data to force reload
+                if workout_data_key in st.session_state:
+                    del st.session_state[workout_data_key]
+                st.rerun()
+    elif session_completed == 1:
+        # Show completion indicator for completed sessions
+        st.markdown(
+            """
+            <div style="text-align: center; padding: 1rem; background: rgba(46,204,113,0.15); border-radius: 8px; border: 1px solid rgba(46,204,113,0.3);">
+                <div style="font-size: 16px; color: rgba(46,204,113,1); font-weight: 600;">
+                    ✅ Session Completed
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
 
 if __name__ == "__main__":
     main()

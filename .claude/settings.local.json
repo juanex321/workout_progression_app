@@ -3,7 +3,8 @@
     "allow": [
       "Bash(grep:*)",
       "Bash(python -c:*)",
-      "Bash(dir:*)"
+      "Bash(dir:*)",
+      "Bash(python -m py_compile:*)"
     ]
   }
 }

@@ -17,6 +17,12 @@ MAX_SETS_FINISHER = 3       # upper cap for 1-set finishers
 MIN_TARGET_REPS = 8
 MAX_TARGET_REPS = 15
 
+# Fatigue model: rep drop-off per set after the first
+# This models realistic performance decline across sets
+# Set 1 = target_reps, Set 2 = target_reps - 1, Set 3 = target_reps - 2, etc.
+FATIGUE_REP_DROP_PER_SET = 1
+MIN_REPS_FLOOR = 5  # Never recommend fewer than this many reps
+
 # names of finisher-style movements that should stay low-volume
 FINISHER_NAMES = {
     "Single-arm Chest Fly",
@@ -149,32 +155,36 @@ def adjust_reps_based_on_performance(
     db: OrmSession, we: WorkoutExercise, last_sets: List[Set] | None
 ) -> int:
     """
-    Auto-increase reps by 1 when consistently hitting target (up to max 15 reps).
-    
+    Auto-increase reps by 1 when first set hits target (up to max 15 reps).
+
+    With fatigue modeling, only the FIRST set is the true performance reference.
+    If set 1 hits target_reps, the user is ready to progress.
+
     Args:
         db: Database session
         we: WorkoutExercise object
-        last_sets: Sets from the last session
-        
+        last_sets: Sets from the last session (sorted by set_number)
+
     Returns:
         Updated target_reps
     """
     target_reps = we.target_reps or 10
-    
+
     # Don't adjust if no previous data
     if not last_sets:
         return target_reps
-    
-    # Check if all sets hit or exceeded target
-    all_hit_target = all((s.reps or 0) >= target_reps for s in last_sets)
-    
-    # If all sets hit target and we're below max, increment reps
-    if all_hit_target and target_reps < MAX_TARGET_REPS:
+
+    # Get first set (the reference point for progression)
+    first_set = min(last_sets, key=lambda s: s.set_number)
+    first_set_reps = first_set.reps or 0
+
+    # If first set hit or exceeded target and we're below max, increment reps
+    if first_set_reps >= target_reps and target_reps < MAX_TARGET_REPS:
         target_reps += 1
         we.target_reps = target_reps
         db.add(we)
         db.commit()
-    
+
     return target_reps
 
 
@@ -182,30 +192,36 @@ def should_suggest_weight_increase(
     db: OrmSession, we: WorkoutExercise, last_sets: List[Set] | None
 ) -> bool:
     """
-    Suggest weight increase when hitting 15 reps with high volume (informational only).
-    
+    Suggest weight increase when hitting max reps on first set with high volume.
+
+    With fatigue modeling, only the FIRST set is the true performance reference.
+
     Args:
         db: Database session
         we: WorkoutExercise object
         last_sets: Sets from the last session
-        
+
     Returns:
         True if weight increase should be suggested
     """
     target_reps = we.target_reps or 10
-    
+
     if not last_sets:
         return False
-    
+
+    # Get first set (the reference point)
+    first_set = min(last_sets, key=lambda s: s.set_number)
+    first_set_reps = first_set.reps or 0
+
     # Suggest weight increase if:
     # 1. At max reps (15)
-    # 2. All sets hit the target
+    # 2. First set hit the target
     # 3. High volume (4+ sets)
-    all_hit_target = all((s.reps or 0) >= target_reps for s in last_sets)
+    first_set_hit_target = first_set_reps >= target_reps
     at_max_reps = target_reps >= MAX_TARGET_REPS
     high_volume = len(last_sets) >= 4
-    
-    return all_hit_target and at_max_reps and high_volume
+
+    return first_set_hit_target and at_max_reps and high_volume
 
 
 # ------- main API -------
@@ -247,13 +263,21 @@ def recommend_weights_and_reps(
     # 6) check if we should suggest weight increase (informational only)
     suggest_weight = should_suggest_weight_increase(db, we, last_sets)
     
-    # 7) build plan rows
+    # 7) build plan rows with fatigue model
+    # First set = target_reps (strongest/freshest)
+    # Subsequent sets = realistic decline based on fatigue
     rows: list[dict] = []
     for i in range(1, int(target_sets) + 1):
+        # Apply fatigue: each set after the first drops by FATIGUE_REP_DROP_PER_SET
+        sets_of_fatigue = i - 1  # 0 for first set, 1 for second, etc.
+        fatigued_reps = target_reps - (sets_of_fatigue * FATIGUE_REP_DROP_PER_SET)
+        # Never go below the floor
+        fatigued_reps = max(fatigued_reps, MIN_REPS_FLOOR)
+
         row = {
             "set_number": i,
             "weight": round(float(next_weight), 1),
-            "reps": int(target_reps),
+            "reps": int(fatigued_reps),
             "done": False,
         }
         # Add UI hint flag to first row if weight increase suggested
@@ -261,5 +285,5 @@ def recommend_weights_and_reps(
         if i == 1 and suggest_weight:
             row["_suggest_weight_increase"] = True
         rows.append(row)
-    
+
     return rows
