@@ -1,0 +1,3 @@
+@echo off
+set DATABASE_URL=postgresql://neondb_owner:npg_MyhCxI37PYSK@ep-orange-waterfall-ahjvwzy4-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require
+python -m reflex run
