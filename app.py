@@ -86,7 +86,8 @@ def load_workout_session_data(db, workout, session):
         existing_sets = load_existing_sets(db, session.id, we.id)
 
         # Get recommendations (this is computed once, not on every render!)
-        rec_rows = recommend_weights_and_reps(db, we)
+        # Pass muscle_group for proper deload detection (including finishers)
+        rec_rows = recommend_weights_and_reps(db, we, muscle_group)
 
         # Build exercise data
         exercise_data = {
@@ -1115,25 +1116,72 @@ def main():
     # Only show finish button if this is an incomplete session
     # (We determine "current" by checking if completed == 0)
     if session_completed == 0:
+        # Check if ALL sets are logged and ALL feedback is submitted
+        all_exercises_complete = True
+        all_feedback_submitted = True
+        missing_items = []
+
+        for muscle_group, mg_data in muscle_groups.items():
+            # Check feedback for this muscle group
+            if not mg_data["feedback_exists"]:
+                # Check if feedback should be required (all sets logged for this muscle group)
+                muscle_group_sets_logged = True
+                for exercise_data in mg_data["exercises"]:
+                    draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+                    if draft_key in st.session_state:
+                        draft = st.session_state[draft_key]
+                        if not all(row["logged"] for row in draft):
+                            muscle_group_sets_logged = False
+                            all_exercises_complete = False
+                            missing_items.append(f"{exercise_data['name']}: sets not logged")
+                    else:
+                        muscle_group_sets_logged = False
+                        all_exercises_complete = False
+                        missing_items.append(f"{exercise_data['name']}: not started")
+
+                # If all sets are logged but feedback not submitted
+                if muscle_group_sets_logged:
+                    all_feedback_submitted = False
+                    missing_items.append(f"{muscle_group}: feedback not submitted")
+            else:
+                # Feedback exists, but still check if all sets are logged
+                for exercise_data in mg_data["exercises"]:
+                    draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+                    if draft_key in st.session_state:
+                        draft = st.session_state[draft_key]
+                        if not all(row["logged"] for row in draft):
+                            all_exercises_complete = False
+                            missing_items.append(f"{exercise_data['name']}: sets not logged")
+                    else:
+                        all_exercises_complete = False
+                        missing_items.append(f"{exercise_data['name']}: not started")
+
+        can_finish = all_exercises_complete and all_feedback_submitted
+
         # Center the finish button
         _, center_col, _ = st.columns([1, 2, 1])
         with center_col:
-            if st.button("✅ Finish Workout", key="finish_workout"):
-                # EXPLICIT USER ACTION: save and commit to DB
-                with get_session() as db:
-                    # Save all unsaved sets to DB before completing
-                    for muscle_group, mg_data in muscle_groups.items():
-                        for exercise_data in mg_data["exercises"]:
-                            draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
-                            if draft_key in st.session_state:
-                                save_sets(db, session_id, exercise_data['we_id'], st.session_state[draft_key])
-                    # Complete the current session and create next
-                    next_session = complete_session(db, session_id)
-                    st.session_state["current_session_number"] = next_session.session_number
-                # Clear loaded data to force reload
-                if workout_data_key in st.session_state:
-                    del st.session_state[workout_data_key]
-                st.rerun()
+            if can_finish:
+                if st.button("✅ Finish Workout", key="finish_workout"):
+                    # EXPLICIT USER ACTION: save and commit to DB
+                    with get_session() as db:
+                        # Save all unsaved sets to DB before completing
+                        for muscle_group, mg_data in muscle_groups.items():
+                            for exercise_data in mg_data["exercises"]:
+                                draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+                                if draft_key in st.session_state:
+                                    save_sets(db, session_id, exercise_data['we_id'], st.session_state[draft_key])
+                        # Complete the current session and create next
+                        next_session = complete_session(db, session_id)
+                        st.session_state["current_session_number"] = next_session.session_number
+                    # Clear loaded data to force reload
+                    if workout_data_key in st.session_state:
+                        del st.session_state[workout_data_key]
+                    st.rerun()
+            else:
+                # Show disabled button with explanation
+                st.button("✅ Finish Workout", key="finish_workout_disabled", disabled=True)
+                st.caption("Complete all sets and submit feedback for each muscle group to finish.")
     elif session_completed == 1:
         # Show completion indicator for completed sessions
         st.markdown(

@@ -127,28 +127,24 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     return int(target_sets)
 
 
-def should_deload(db: OrmSession, we: WorkoutExercise) -> bool:
+def should_deload_by_muscle_group(db: OrmSession, muscle_group: str) -> bool:
     """
-    Simple auto-deload rule:
+    Check if a muscle group should deload based on recent feedback.
 
-    If in the last 3 feedback entries for this exercise:
-      - at least 2 have workload = 4 ("Too much"), OR
-      - workload >=3 AND soreness >=4 in at least 2 entries,
+    Uses the RIR progression system's deload detection.
+    Deload is triggered when feedback indicates excessive fatigue/overtraining.
 
-    then the NEXT session is treated as a deload (drop load ~55%).
+    Args:
+        db: Database session
+        muscle_group: Name of the muscle group
+
+    Returns:
+        True if deload is needed for this muscle group
     """
-    fb_list = get_recent_feedback(db, we.id, limit=3)
-    if len(fb_list) < 3:
-        return False
+    from rir_progression import get_rir_for_muscle_group, RIR_DELOAD
 
-    high_work = sum(1 for f in fb_list if (f.workload or 0) >= 4)
-    high_sore = sum(1 for f in fb_list if (f.soreness or 0) >= 4)
-
-    if high_work >= 2:
-        return True
-    if high_work >= 1 and high_sore >= 2:
-        return True
-    return False
+    target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
+    return target_rir >= RIR_DELOAD
 
 
 def adjust_reps_based_on_performance(
@@ -227,7 +223,7 @@ def should_suggest_weight_increase(
 # ------- main API -------
 
 def recommend_weights_and_reps(
-    db: OrmSession, we: WorkoutExercise
+    db: OrmSession, we: WorkoutExercise, muscle_group: str = None
 ) -> list[dict]:
     """
     Main entry used by app.py.
@@ -237,17 +233,30 @@ def recommend_weights_and_reps(
     2. Adjust target_reps based on performance (secondary progression).
     3. Keep weight the same as last session (manual changes only).
     4. If deload is indicated → drop weight to ~55%.
+       - For finishers during deload: reduce weight only, keep reps same.
     5. Return rows ready for the Streamlit data editor.
+
+    Args:
+        db: Database session
+        we: WorkoutExercise object
+        muscle_group: Name of the muscle group (for deload detection)
     """
+    # Get muscle group from exercise if not provided
+    if muscle_group is None:
+        muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
+
+    # Check if this is a finisher exercise
+    is_finisher_exercise = is_finisher(we)
+
     # 1) volume adjustment (primary progression)
     target_sets = adjust_sets_based_on_feedback(db, we)
-    
+
     # 2) get last session data
     _, last_sets = get_last_session_sets(db, we.id)
-    
-    # 3) rep adjustment (secondary progression)
+
+    # 3) rep adjustment (secondary progression) - but NOT during deload for finishers
     target_reps = adjust_reps_based_on_performance(db, we, last_sets)
-    
+
     # 4) weight logic - copy from last session (NO auto-increment)
     if not last_sets:
         next_weight = DEFAULT_BASE_WEIGHT
@@ -255,29 +264,36 @@ def recommend_weights_and_reps(
         # Simply copy the last weight - user manually increases when ready
         last_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
         next_weight = last_weight
-    
-    # 5) deload override
-    if should_deload(db, we):
+
+    # 5) deload override - applies to ALL exercises including finishers
+    deload_active = False
+    if muscle_group and should_deload_by_muscle_group(db, muscle_group):
+        deload_active = True
         next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
-    
+
     # 6) check if we should suggest weight increase (informational only)
     suggest_weight = should_suggest_weight_increase(db, we, last_sets)
-    
+
     # 7) build plan rows with fatigue model
     # First set = target_reps (strongest/freshest)
     # Subsequent sets = realistic decline based on fatigue
     rows: list[dict] = []
     for i in range(1, int(target_sets) + 1):
         # Apply fatigue: each set after the first drops by FATIGUE_REP_DROP_PER_SET
-        sets_of_fatigue = i - 1  # 0 for first set, 1 for second, etc.
-        fatigued_reps = target_reps - (sets_of_fatigue * FATIGUE_REP_DROP_PER_SET)
-        # Never go below the floor
-        fatigued_reps = max(fatigued_reps, MIN_REPS_FLOOR)
+        # BUT: for finishers during deload, keep reps the same (no fatigue drop)
+        if is_finisher_exercise and deload_active:
+            # Finishers during deload: keep target reps, no fatigue model
+            set_reps = target_reps
+        else:
+            sets_of_fatigue = i - 1  # 0 for first set, 1 for second, etc.
+            fatigued_reps = target_reps - (sets_of_fatigue * FATIGUE_REP_DROP_PER_SET)
+            # Never go below the floor
+            set_reps = max(fatigued_reps, MIN_REPS_FLOOR)
 
         row = {
             "set_number": i,
             "weight": round(float(next_weight), 1),
-            "reps": int(fatigued_reps),
+            "reps": int(set_reps),
             "done": False,
         }
         # Add UI hint flag to first row if weight increase suggested
