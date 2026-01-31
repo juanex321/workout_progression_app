@@ -308,6 +308,31 @@ def check_muscle_group_feedback_exists(db, session_id: int, muscle_group: str) -
     return feedback is not None
 
 
+def get_muscle_group_feedback(db, session_id: int, muscle_group: str):
+    """
+    Load existing feedback for a muscle group in a session.
+
+    Returns:
+        dict with soreness, pump, workload values or None if not found
+    """
+    feedback = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.muscle_group == muscle_group,
+        )
+        .first()
+    )
+
+    if feedback:
+        return {
+            "soreness": feedback.soreness or 3,
+            "pump": feedback.pump or 3,
+            "workload": feedback.workload or 3,
+        }
+    return None
+
+
 def save_muscle_group_feedback(
     db, session_id: int, muscle_group: str, soreness: int, pump: int, workload: int
 ) -> None:

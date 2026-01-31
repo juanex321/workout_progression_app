@@ -24,6 +24,7 @@ from services import (
     check_feedback_exists,
     save_feedback,
     check_muscle_group_feedback_exists,
+    get_muscle_group_feedback,
     save_muscle_group_feedback,
 )
 from rir_progression import (
@@ -120,11 +121,17 @@ def load_workout_session_data(db, workout, session):
 
     db.commit()  # Single commit after all exercises are loaded
 
-    # Check feedback status for each muscle group
+    # Check feedback status and load existing values for each muscle group
     for muscle_group in muscle_groups_data:
-        muscle_groups_data[muscle_group]["feedback_exists"] = check_muscle_group_feedback_exists(
-            db, session.id, muscle_group
-        )
+        feedback_exists = check_muscle_group_feedback_exists(db, session.id, muscle_group)
+        muscle_groups_data[muscle_group]["feedback_exists"] = feedback_exists
+
+        # Load existing feedback values if they exist
+        if feedback_exists:
+            feedback_values = get_muscle_group_feedback(db, session.id, muscle_group)
+            muscle_groups_data[muscle_group]["feedback_values"] = feedback_values
+        else:
+            muscle_groups_data[muscle_group]["feedback_values"] = None
 
     return {
         "session_id": session.id,
@@ -1010,6 +1017,7 @@ def main():
         feedback_summary = mg_data["feedback_summary"]
         exercises = mg_data["exercises"]
         feedback_exists = mg_data["feedback_exists"]
+        feedback_values = mg_data.get("feedback_values")  # May be None if not submitted
 
         # Show muscle group header ONCE
         display_muscle_group_header(muscle_group, target_rir, phase, feedback_summary)
@@ -1032,82 +1040,135 @@ def main():
                 all_sets_logged = False
                 break
 
-        # Only show feedback form if:
-        # 1. All sets are logged for all exercises in this muscle group
-        # 2. Feedback hasn't been submitted yet
-        if all_sets_logged and not feedback_exists:
-            st.markdown(
-                f"""
-                <div class="feedback-container">
-                    <div class="feedback-title">💪 How did {muscle_group} feel?</div>
-                    <div class="feedback-description">This feedback will adjust your next session intensity</div>
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
-
+        # Only show feedback if all sets are logged
+        if all_sets_logged:
             # Use muscle group for the feedback key to ensure stability
             feedback_key_prefix = f"feedback_{session_id}_{muscle_group.replace(' ', '_')}"
 
-            # Rating inputs with emojis for visual appeal
-            st.markdown("**😓 Soreness / Fatigue**")
-            st.caption("1 = No soreness • 5 = Very sore/fatigued")
-            soreness = st.slider(
-                "Soreness",
-                min_value=1,
-                max_value=5,
-                value=3,
-                key=f"{feedback_key_prefix}_soreness",
-                label_visibility="collapsed",
-            )
+            if feedback_exists and feedback_values:
+                # Feedback already submitted - show summary and allow editing
+                soreness_val = feedback_values["soreness"]
+                pump_val = feedback_values["pump"]
+                workload_val = feedback_values["workload"]
 
-            st.markdown("**💥 Pump**")
-            st.caption("1 = No pump • 5 = Incredible pump")
-            pump = st.slider(
-                "Pump",
-                min_value=1,
-                max_value=5,
-                value=3,
-                key=f"{feedback_key_prefix}_pump",
-                label_visibility="collapsed",
-            )
+                # Collapsed summary showing current values
+                st.markdown(
+                    f"""
+                    <div class="feedback-success" style="margin-bottom: 0.5rem;">
+                        ✅ Feedback: Soreness {soreness_val} • Pump {pump_val} • Workload {workload_val}
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
 
-            st.markdown("**⚡ Workload**")
-            st.caption("1 = Too easy • 3 = Just right • 5 = Too much")
-            workload = st.slider(
-                "Workload",
-                min_value=1,
-                max_value=5,
-                value=3,
-                key=f"{feedback_key_prefix}_workload",
-                label_visibility="collapsed",
-            )
+                # Expander to allow editing
+                with st.expander("📝 Edit Feedback"):
+                    st.caption("Adjust and re-submit if needed. Changes will update your next session.")
 
-            # Submit button - EXPLICIT USER ACTION: saves to DB
-            if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
-                with get_session() as db:
-                    # Save all sets for exercises in this muscle group to DB
-                    for exercise_data in exercises:
-                        draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
-                        if draft_key in st.session_state:
-                            save_sets(db, session_id, exercise_data['we_id'], st.session_state[draft_key])
-                    # Save feedback
-                    save_muscle_group_feedback(db, session_id, muscle_group, soreness, pump, workload)
-                # Clear loaded data to force reload (feedback status changed)
-                if workout_data_key in st.session_state:
-                    del st.session_state[workout_data_key]
-                st.rerun()
+                    # Rating inputs with emojis - initialized with saved values
+                    st.markdown("**😓 Soreness / Fatigue**")
+                    st.caption("1 = No soreness • 5 = Very sore/fatigued")
+                    soreness = st.slider(
+                        "Soreness",
+                        min_value=1,
+                        max_value=5,
+                        value=soreness_val,  # Initialize from saved value
+                        key=f"{feedback_key_prefix}_soreness_edit",
+                        label_visibility="collapsed",
+                    )
 
-        elif all_sets_logged and feedback_exists:
-            # Show completion indicator
-            st.markdown(
-                """
-                <div class="feedback-success">
-                    ✅ Feedback submitted - Next session intensity adjusted!
-                </div>
-                """,
-                unsafe_allow_html=True,
-            )
+                    st.markdown("**💥 Pump**")
+                    st.caption("1 = No pump • 5 = Incredible pump")
+                    pump = st.slider(
+                        "Pump",
+                        min_value=1,
+                        max_value=5,
+                        value=pump_val,  # Initialize from saved value
+                        key=f"{feedback_key_prefix}_pump_edit",
+                        label_visibility="collapsed",
+                    )
+
+                    st.markdown("**⚡ Workload**")
+                    st.caption("1 = Too easy • 3 = Just right • 5 = Too much")
+                    workload = st.slider(
+                        "Workload",
+                        min_value=1,
+                        max_value=5,
+                        value=workload_val,  # Initialize from saved value
+                        key=f"{feedback_key_prefix}_workload_edit",
+                        label_visibility="collapsed",
+                    )
+
+                    # Update button - EXPLICIT USER ACTION: updates DB
+                    if st.button("Update Feedback", key=f"{feedback_key_prefix}_update"):
+                        with get_session() as db:
+                            # Update feedback (save_muscle_group_feedback handles updates)
+                            save_muscle_group_feedback(db, session_id, muscle_group, soreness, pump, workload)
+                        # Clear loaded data to force reload
+                        if workout_data_key in st.session_state:
+                            del st.session_state[workout_data_key]
+                        st.rerun()
+
+            else:
+                # Feedback not yet submitted - show initial form
+                st.markdown(
+                    f"""
+                    <div class="feedback-container">
+                        <div class="feedback-title">💪 How did {muscle_group} feel?</div>
+                        <div class="feedback-description">This feedback will adjust your next session intensity</div>
+                    </div>
+                    """,
+                    unsafe_allow_html=True,
+                )
+
+                # Rating inputs with emojis for visual appeal - default to 3
+                st.markdown("**😓 Soreness / Fatigue**")
+                st.caption("1 = No soreness • 5 = Very sore/fatigued")
+                soreness = st.slider(
+                    "Soreness",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    key=f"{feedback_key_prefix}_soreness",
+                    label_visibility="collapsed",
+                )
+
+                st.markdown("**💥 Pump**")
+                st.caption("1 = No pump • 5 = Incredible pump")
+                pump = st.slider(
+                    "Pump",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    key=f"{feedback_key_prefix}_pump",
+                    label_visibility="collapsed",
+                )
+
+                st.markdown("**⚡ Workload**")
+                st.caption("1 = Too easy • 3 = Just right • 5 = Too much")
+                workload = st.slider(
+                    "Workload",
+                    min_value=1,
+                    max_value=5,
+                    value=3,
+                    key=f"{feedback_key_prefix}_workload",
+                    label_visibility="collapsed",
+                )
+
+                # Submit button - EXPLICIT USER ACTION: saves to DB
+                if st.button("Submit Feedback", key=f"{feedback_key_prefix}_submit"):
+                    with get_session() as db:
+                        # Save all sets for exercises in this muscle group to DB
+                        for exercise_data in exercises:
+                            draft_key = f"draft_{session_id}_{exercise_data['we_id']}"
+                            if draft_key in st.session_state:
+                                save_sets(db, session_id, exercise_data['we_id'], st.session_state[draft_key])
+                        # Save feedback
+                        save_muscle_group_feedback(db, session_id, muscle_group, soreness, pump, workload)
+                    # Clear loaded data to force reload (feedback status changed)
+                    if workout_data_key in st.session_state:
+                        del st.session_state[workout_data_key]
+                    st.rerun()
 
         st.markdown("<div class='exercise-gap'></div>", unsafe_allow_html=True)
 
