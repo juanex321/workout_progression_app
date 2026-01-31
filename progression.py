@@ -76,6 +76,24 @@ def get_recent_feedback(
     )
 
 
+def get_recent_muscle_group_feedback(
+    db: OrmSession, muscle_group: str, limit: int = 3
+) -> List[Feedback]:
+    """
+    Get recent feedback for a muscle group (not tied to specific exercises).
+
+    This is used for muscle-group-level feedback that applies to all exercises
+    in that muscle group.
+    """
+    return (
+        db.query(Feedback)
+        .filter(Feedback.muscle_group == muscle_group)
+        .order_by(Feedback.created_at.desc())
+        .limit(limit)
+        .all()
+    )
+
+
 def is_finisher(we: WorkoutExercise) -> bool:
     name = (we.exercise.name or "").strip()
     return name in FINISHER_NAMES
@@ -87,10 +105,20 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
 
     * If soreness, pump and workload have been LOW → +1 set (up to cap).
     * If soreness or workload have been HIGH      → -1 set (down to 1).
+
+    Now uses muscle group feedback (not exercise-specific feedback).
     """
     target_sets = we.target_sets or DEFAULT_TARGET_SETS
 
-    fb_list = get_recent_feedback(db, we.id, limit=3)
+    # Get muscle group from exercise
+    muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
+
+    if not muscle_group:
+        # No muscle group assigned, can't adjust based on feedback
+        return target_sets
+
+    # Get muscle group feedback (not exercise-specific)
+    fb_list = get_recent_muscle_group_feedback(db, muscle_group, limit=3)
     if not fb_list:
         return target_sets
 
@@ -101,7 +129,7 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
     changed = False
 
-    # “Under-stimulated” → add a set.
+    # "Under-stimulated" → add a set.
     if (
         avg_s <= 2
         and avg_p <= 2
@@ -111,7 +139,7 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
         target_sets += 1
         changed = True
 
-    # “Beaten up / too much” → remove a set.
+    # "Beaten up / too much" → remove a set.
     elif (
         (avg_s >= SORENESS_HIGH or avg_w >= WORKLOAD_HIGH)
         and target_sets > MIN_SETS
