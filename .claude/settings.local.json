@@ -6,7 +6,11 @@
       "Bash(dir:*)",
       "Bash(python -m py_compile:*)",
       "Bash(python audit_progression.py:*)",
-      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_MyhCxI37PYSK@ep-orange-waterfall-ahjvwzy4-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require\" python:*)"
+      "Bash(DATABASE_URL=\"postgresql://neondb_owner:npg_MyhCxI37PYSK@ep-orange-waterfall-ahjvwzy4-pooler.c-3.us-east-1.aws.neon.tech/neondb?sslmode=require\" python:*)",
+      "Bash(pip show:*)",
+      "Bash(python -m reflex run:*)",
+      "Bash(test:*)",
+      "Bash(ls:*)"
     ]
   }
 }

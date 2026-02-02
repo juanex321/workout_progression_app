@@ -20,29 +20,33 @@ from sqlalchemy.pool import NullPool
 
 
 def get_database_url():
-    """Get database URL based on environment."""
-    # First, try Streamlit secrets with DATABASE_URL (simplest approach)
+    """Get database URL based on environment (works with Streamlit, Reflex, or standalone)."""
+
+    # First, try environment variable (works everywhere)
+    if 'DATABASE_URL' in os.environ:
+        url = os.environ['DATABASE_URL']
+        if url.startswith('postgres://'):
+            url = url.replace('postgres://', 'postgresql://', 1)
+        print("Using PostgreSQL from DATABASE_URL environment variable")
+        return url
+
+    # Second, try Streamlit secrets (only when running in Streamlit)
     try:
         import streamlit as st
         if hasattr(st, 'secrets') and 'DATABASE_URL' in st.secrets:
             url = st.secrets['DATABASE_URL']
             if url.startswith('postgres://'):
                 url = url.replace('postgres://', 'postgresql://', 1)
-            print("🌐 Using PostgreSQL database (Streamlit Cloud - DATABASE_URL)")
+            print("Using PostgreSQL database from Streamlit secrets")
             return url
-    except Exception as e:
-        print(f"ℹ️  DATABASE_URL not in Streamlit secrets: {e}")
+    except (ImportError, Exception):
+        # Streamlit not available or secrets not accessible - that's fine
+        pass
 
-    # Second, try environment variable
-    if 'DATABASE_URL' in os.environ:
-        url = os.environ['DATABASE_URL']
-        if url.startswith('postgres://'):
-            url = url.replace('postgres://', 'postgresql://', 1)
-        print(f"🌐 Using PostgreSQL from DATABASE_URL")
-        return url
-    
-    DB_PATH = Path("workout.db")
-    print(f"💾 Using SQLite database: {DB_PATH}")
+    # Fall back to SQLite (local development)
+    # Use absolute path to ensure we find the database regardless of working directory
+    DB_PATH = Path(__file__).parent / "workout.db"
+    print(f"Using SQLite database: {DB_PATH}")
     return f"sqlite:///{DB_PATH}"
 
 
