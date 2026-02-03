@@ -26,6 +26,9 @@ from services import (
 )
 from plan import get_session_exercises
 
+# READ-ONLY MODE - Prevents database writes during testing
+READ_ONLY_MODE = True
+
 
 class SetData(rx.Base):
     """Data for a single set."""
@@ -82,9 +85,23 @@ class WorkoutState(rx.State):
     # UI state
     loading: bool = False
     error_message: str = ""
+    _initialized: bool = False
+
+    def _ensure_loaded(self):
+        """Ensure data is loaded on first access."""
+        if not self._initialized:
+            print("🔵 Initializing data for the first time")
+            self._initialized = True
+            self.load_session()
+
+    def on_load(self):
+        """Called when page loads - triggers initial data load."""
+        print("🔵 on_load called!")
+        self._ensure_loaded()
 
     def load_session(self, session_num: Optional[int] = None):
         """Load a specific session or the current one."""
+        print(f"🟢 load_session called with session_num={session_num}")
         self.loading = True
         self.error_message = ""
 
@@ -229,6 +246,11 @@ class WorkoutState(rx.State):
 
     def log_set(self, we_id: int, set_num: int):
         """Log a single set to the database."""
+        if READ_ONLY_MODE:
+            self.error_message = "⚠️ Read-only mode - changes not saved to database"
+            print("🔒 READ-ONLY MODE: log_set called but not executed")
+            return
+
         key = f"{we_id}:{set_num}"
 
         try:
@@ -296,6 +318,11 @@ class WorkoutState(rx.State):
 
     def submit_feedback(self, muscle_group: str):
         """Submit feedback for a muscle group."""
+        if READ_ONLY_MODE:
+            self.error_message = "⚠️ Read-only mode - feedback not saved to database"
+            print("🔒 READ-ONLY MODE: submit_feedback called but not executed")
+            return
+
         try:
             soreness = self.feedback_soreness.get(muscle_group, 3)
             pump = self.feedback_pump.get(muscle_group, 3)
@@ -328,6 +355,12 @@ class WorkoutState(rx.State):
         if self.session_number < self.max_session:
             self.load_session(self.session_number + 1)
         else:
+            # Can't create new sessions in read-only mode
+            if READ_ONLY_MODE:
+                self.error_message = "⚠️ Read-only mode - cannot create new sessions"
+                print("🔒 READ-ONLY MODE: Cannot create new session")
+                return
+
             # Create new session
             try:
                 with get_session() as db:
@@ -618,6 +651,14 @@ def index() -> rx.Component:
     """Main page."""
     return rx.container(
         rx.vstack(
+            # Debug button to manually load
+            rx.button(
+                "🔄 Load Data",
+                on_click=WorkoutState.on_load,
+                size="2",
+                margin_bottom="1rem"
+            ),
+
             # Error message
             rx.cond(
                 WorkoutState.error_message != "",
@@ -676,7 +717,36 @@ def index() -> rx.Component:
         ),
         max_width="900px",
         padding="2rem 1rem",
-        on_mount=WorkoutState.load_session,
+        on_mount=WorkoutState.on_load,
+    )
+
+
+# Simple test page for debugging
+class SimpleState(rx.State):
+    """Simple counter state for testing."""
+    count: int = 0
+
+    def increment(self):
+        """Increment counter."""
+        print(f"🔵 Increment called! Count is now: {self.count + 1}")
+        self.count += 1
+
+
+def test_page() -> rx.Component:
+    """Simple test page."""
+    return rx.container(
+        rx.vstack(
+            rx.heading("Event Handler Test", size="7"),
+            rx.text(f"Count: {SimpleState.count}", size="5"),
+            rx.button(
+                "Click Me!",
+                on_click=SimpleState.increment,
+                size="3",
+                color_scheme="blue"
+            ),
+            spacing="4",
+        ),
+        padding="2rem",
     )
 
 
@@ -687,4 +757,5 @@ app = rx.App(
         accent_color="grass",
     )
 )
-app.add_page(index, title="Workout Tracker")
+app.add_page(index, route="/", title="Workout Tracker")
+app.add_page(test_page, route="/test", title="Event Test")
