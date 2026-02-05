@@ -33,8 +33,11 @@ FINISHER_NAMES = {
 }
 
 # thresholds for interpreting feedback
-SORENESS_HIGH = 3      # 3–4 = pretty sore / still sore
-WORKLOAD_HIGH = 3      # 3–4 = pushed / too much
+# 1-2: fully recovered → +1 set
+# 3: recovered just in time → keep sets
+# 4-5: not fully recovered → -1 set (5 is almost certain)
+SORENESS_HIGH = 4      # ≥4 triggers set reduction
+WORKLOAD_HIGH = 4      # ≥4 indicates too much volume
 
 
 # ------- helpers -------
@@ -175,41 +178,51 @@ def should_deload_by_muscle_group(db: OrmSession, muscle_group: str) -> bool:
     return target_rir >= RIR_DELOAD
 
 
-def adjust_reps_based_on_performance(
-    db: OrmSession, we: WorkoutExercise, last_sets: List[Set] | None
+def calculate_reps_with_rir_progression(
+    we: WorkoutExercise, last_sets: List[Set] | None, current_rir: int
 ) -> int:
     """
-    Auto-increase reps by 1 when first set hits target (up to max 15 reps).
+    Calculate target reps based on last session's performance and RIR change.
 
-    With fatigue modeling, only the FIRST set is the true performance reference.
-    If set 1 hits target_reps, the user is ready to progress.
+    Progression logic:
+    - If last session was 8 reps at RIR 2, next session at RIR 2 = 9 reps (+1)
+    - If next session is RIR 1 (harder) = 10 reps (+2)
+    - If next session is RIR 3 (easier) = 8 reps (maintain)
+
+    Formula: target_reps = last_reps + 1 + (last_rir - current_rir)
+
+    This ensures the plan "tracks the user" while adjusting for intensity changes.
 
     Args:
-        db: Database session
         we: WorkoutExercise object
-        last_sets: Sets from the last session (sorted by set_number)
+        last_sets: Sets from the last session
+        current_rir: RIR for current session
 
     Returns:
-        Updated target_reps
+        Target reps for next session
     """
-    target_reps = we.target_reps or 10
-
-    # Don't adjust if no previous data
     if not last_sets:
-        return target_reps
+        # No history - use stored target or default
+        return we.target_reps or 10
 
-    # Get first set (the reference point for progression)
+    # Get first set from last session (strongest/freshest set)
     first_set = min(last_sets, key=lambda s: s.set_number)
-    first_set_reps = first_set.reps or 0
+    last_reps = int(first_set.reps or 10)
+    last_rir = first_set.rir if first_set.rir is not None else current_rir
 
-    # If first set hit or exceeded target and we're below max, increment reps
-    if first_set_reps >= target_reps and target_reps < MAX_TARGET_REPS:
-        target_reps += 1
-        we.target_reps = target_reps
-        db.add(we)
-        db.commit()
+    # Calculate RIR change (positive = getting harder, negative = getting easier)
+    rir_change = last_rir - current_rir
 
-    return target_reps
+    # Base progression (+1 rep) + RIR adjustment
+    target_reps = last_reps + 1 + rir_change
+
+    # Cap at max reps
+    target_reps = min(target_reps, MAX_TARGET_REPS)
+
+    # Floor at reasonable minimum
+    target_reps = max(target_reps, MIN_TARGET_REPS)
+
+    return int(target_reps)
 
 
 def should_suggest_weight_increase(
@@ -273,6 +286,13 @@ def recommend_weights_and_reps(
     if muscle_group is None:
         muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
 
+    # Get current RIR for this muscle group (used for rep calculation and deload)
+    from rir_progression import get_rir_for_muscle_group, RIR_DELOAD
+    if muscle_group:
+        current_rir, _, _ = get_rir_for_muscle_group(db, muscle_group)
+    else:
+        current_rir = 2  # Default moderate RIR if no muscle group
+
     # Check if this is a finisher exercise
     is_finisher_exercise = is_finisher(we)
 
@@ -282,8 +302,8 @@ def recommend_weights_and_reps(
     # 2) get last session data
     _, last_sets = get_last_session_sets(db, we.id)
 
-    # 3) rep adjustment (secondary progression) - but NOT during deload for finishers
-    target_reps = adjust_reps_based_on_performance(db, we, last_sets)
+    # 3) rep calculation based on last session + RIR progression
+    target_reps = calculate_reps_with_rir_progression(we, last_sets, current_rir)
 
     # 4) weight logic - copy from last session (NO auto-increment)
     if not last_sets:
@@ -295,7 +315,7 @@ def recommend_weights_and_reps(
 
     # 5) deload override - applies to ALL exercises including finishers
     deload_active = False
-    if muscle_group and should_deload_by_muscle_group(db, muscle_group):
+    if current_rir >= RIR_DELOAD:
         deload_active = True
         next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
 
