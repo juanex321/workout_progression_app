@@ -110,8 +110,15 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     * If soreness or workload have been HIGH      → -1 set (down to 1).
 
     Now uses muscle group feedback (not exercise-specific feedback).
+
+    IMPORTANT: Finishers ALWAYS stay at 1 set - no adjustments based on feedback.
+    If more volume is needed, add to core movements instead.
     """
     target_sets = we.target_sets or DEFAULT_TARGET_SETS
+
+    # CRITICAL: Finishers always stay at 1 set - skip all feedback adjustments
+    if is_finisher(we):
+        return target_sets
 
     # Get muscle group from exercise
     muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
