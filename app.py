@@ -13,7 +13,7 @@ from db import (
     SessionLocal,
 )
 
-from progression import recommend_weights_and_reps, is_finisher, MAX_SETS_FINISHER, MAX_SETS_MAIN
+from progression import recommend_weights_and_reps, is_finisher, FINISHER_TARGET_SETS, MAX_SETS_MAIN
 from services import (
     get_current_session,
     get_session_by_number,
@@ -799,7 +799,7 @@ def display_exercise_sets(session_id, exercise_data, target_rir):
     st.session_state[draft_key] = draft
 
     # -------- Exercise name and set controls in one row --------
-    max_sets = MAX_SETS_FINISHER if is_finisher_ex else MAX_SETS_MAIN
+    max_sets = FINISHER_TARGET_SETS if is_finisher_ex else MAX_SETS_MAIN
 
     # Display exercise name inline with set controls
     ex_col, set_controls = st.columns([3.0, 2.0])

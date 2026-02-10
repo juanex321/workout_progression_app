@@ -12,7 +12,7 @@ DEFAULT_BASE_WEIGHT = 50.0
 
 MIN_SETS = 1
 MAX_SETS_MAIN = 10          # upper cap for normal exercises
-MAX_SETS_FINISHER = 3       # upper cap for 1-set finishers
+FINISHER_TARGET_SETS = 1    # finishers are always 1 set
 
 MIN_TARGET_REPS = 8
 MAX_TARGET_REPS = 15
@@ -176,9 +176,14 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
 
     Finishers ALWAYS stay at their stored target (typically 1 set).
     """
-    # CRITICAL: Finishers always stay at stored target - skip all adjustments
+    # CRITICAL: Finishers are always 1 set - no exceptions
     if is_finisher(we):
-        return we.target_sets or DEFAULT_TARGET_SETS
+        # Fix stored value if it drifted
+        if we.target_sets != FINISHER_TARGET_SETS:
+            we.target_sets = FINISHER_TARGET_SETS
+            db.add(we)
+            db.commit()
+        return FINISHER_TARGET_SETS
 
     # Get muscle group from exercise
     muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None

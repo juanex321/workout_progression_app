@@ -24,6 +24,7 @@ from progression import (
     get_last_n_session_set_counts,
     MIN_SETS,
     MAX_SETS_MAIN,
+    FINISHER_TARGET_SETS,
     DEFAULT_BASE_WEIGHT,
 )
 from plan import DEFAULT_TARGET_SETS
@@ -228,15 +229,17 @@ def test_acceptance_never_below_floor():
     print(f"  PASS: At floor ({MIN_SETS}), adj=-1 -> stays at {MIN_SETS}")
 
 
-def test_acceptance_finisher_stays_at_target():
-    """ACCEPTANCE: Finishers always stay at stored target, ignoring feedback."""
-    we = make_mock_we(target_sets=1, exercise_name="Single-arm Chest Fly")
+def test_acceptance_finisher_stays_at_1():
+    """ACCEPTANCE: Finishers always stay at 1 set, even if DB says 3."""
+    # Even if target_sets drifted to 3, finishers must return 1
+    we = make_mock_we(target_sets=3, exercise_name="Single-arm Chest Fly")
     mock_db = MagicMock()
 
     with patch("progression.is_finisher", return_value=True):
         result = adjust_sets_based_on_feedback(mock_db, we)
-        assert result == 1, f"Expected 1 for finisher, got {result}"
-    print("  PASS: Finisher stays at stored target (1)")
+        assert result == FINISHER_TARGET_SETS, \
+            f"Expected {FINISHER_TARGET_SETS} for finisher, got {result}"
+    print(f"  PASS: Finisher always returns {FINISHER_TARGET_SETS} (even if DB says 3)")
 
 
 # ---- Run all tests ----
@@ -258,6 +261,6 @@ if __name__ == "__main__":
     test_acceptance_smoothing_with_adjustment()
     test_acceptance_never_exceeds_cap()
     test_acceptance_never_below_floor()
-    test_acceptance_finisher_stays_at_target()
+    test_acceptance_finisher_stays_at_1()
 
     print("\nOK: All tests passed!")
