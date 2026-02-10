@@ -11,7 +11,8 @@
       "Bash(python -m reflex run:*)",
       "Bash(test:*)",
       "Bash(ls:*)",
-      "Bash(timeout 15 streamlit run:*)"
+      "Bash(timeout 15 streamlit run:*)",
+      "Bash(timeout 12 streamlit run:*)"
     ]
   }
 }

@@ -67,6 +67,39 @@ def get_last_session_sets(
     return last_sid, sessions[last_sid]
 
 
+def get_last_n_session_set_counts(
+    db: OrmSession, workout_exercise_id: int, n: int = 2
+) -> List[int]:
+    """
+    Return the actual number of sets performed in the last N completed sessions.
+
+    Returns a list ordered most-recent-first: [S_last, S_prev, ...]
+    Empty list if no history.
+    """
+    q = (
+        db.query(Set)
+        .join(Session, Set.session_id == Session.id)
+        .filter(Set.workout_exercise_id == workout_exercise_id)
+        .filter(Session.completed == 1)
+        .order_by(Session.session_number.desc(), Set.set_number.asc())
+    )
+    sets = q.all()
+    if not sets:
+        return []
+
+    # Group by session, preserving order (most recent first)
+    sessions: dict[int, list[Set]] = {}
+    for s in sets:
+        sessions.setdefault(s.session_id, []).append(s)
+
+    # Return set counts for the last N sessions
+    counts = []
+    for sid in list(sessions.keys())[:n]:
+        counts.append(len(sessions[sid]))
+
+    return counts
+
+
 def get_recent_feedback(
     db: OrmSession, workout_exercise_id: int, limit: int = 3
 ) -> List[Feedback]:
@@ -102,67 +135,91 @@ def is_finisher(we: WorkoutExercise) -> bool:
     return name in FINISHER_NAMES
 
 
-def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
+def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
     """
-    Look at the last few feedback entries and gently move target_sets up or down.
+    Compute a set adjustment direction from recent muscle group feedback.
 
-    * If soreness, pump and workload have been LOW → +1 set (up to cap).
-    * If soreness or workload have been HIGH      → -1 set (down to 1).
-
-    Now uses muscle group feedback (not exercise-specific feedback).
-
-    IMPORTANT: Finishers ALWAYS stay at 1 set - no adjustments based on feedback.
-    If more volume is needed, add to core movements instead.
+    Returns:
+        +1 if under-stimulated (all feedback low)
+        -1 if overtrained (soreness or workload high)
+         0 if no change needed
     """
-    target_sets = we.target_sets or DEFAULT_TARGET_SETS
-
-    # CRITICAL: Finishers always stay at 1 set - skip all feedback adjustments
-    if is_finisher(we):
-        return target_sets
-
-    # Get muscle group from exercise
-    muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
-
-    if not muscle_group:
-        # No muscle group assigned, can't adjust based on feedback
-        return target_sets
-
-    # Get muscle group feedback (not exercise-specific)
     fb_list = get_recent_muscle_group_feedback(db, muscle_group, limit=3)
     if not fb_list:
-        return target_sets
+        return 0
 
     avg_s = sum(f.soreness or 0 for f in fb_list) / len(fb_list)
     avg_p = sum(f.pump or 0 for f in fb_list) / len(fb_list)
     avg_w = sum(f.workload or 0 for f in fb_list) / len(fb_list)
 
-    max_sets = MAX_SETS_FINISHER if is_finisher(we) else MAX_SETS_MAIN
-    changed = False
+    # "Under-stimulated" → +1
+    if avg_s <= 2 and avg_p <= 2 and avg_w <= 2:
+        return +1
 
-    # "Under-stimulated" → add a set.
-    if (
-        avg_s <= 2
-        and avg_p <= 2
-        and avg_w <= 2
-        and target_sets < max_sets
-    ):
-        target_sets += 1
-        changed = True
+    # "Beaten up / too much" → -1
+    if avg_s >= SORENESS_HIGH or avg_w >= WORKLOAD_HIGH:
+        return -1
 
-    # "Beaten up / too much" → remove a set.
-    elif (
-        (avg_s >= SORENESS_HIGH or avg_w >= WORKLOAD_HIGH)
-        and target_sets > MIN_SETS
-    ):
-        target_sets -= 1
-        changed = True
+    return 0
 
-    if changed:
-        we.target_sets = int(target_sets)
+
+def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
+    """
+    Determine target sets using session-to-session bounded progression.
+
+    Rules:
+    A) Base sets come from the last session's ACTUAL sets performed (not stored target).
+       If no history, use a conservative default.
+    B) Sets can only change by ±1 per session (hard limiter).
+    C) Optional smoothing: if 2 sessions of history exist, anchor to the average.
+    D) Feedback drives direction (+1/-1/0), but never more than ±1 from anchor.
+
+    Finishers ALWAYS stay at their stored target (typically 1 set).
+    """
+    # CRITICAL: Finishers always stay at stored target - skip all adjustments
+    if is_finisher(we):
+        return we.target_sets or DEFAULT_TARGET_SETS
+
+    # Get muscle group from exercise
+    muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
+
+    # Determine floor and cap
+    max_sets = MAX_SETS_MAIN
+    s_floor = MIN_SETS
+    s_cap = max_sets
+
+    # Rule A: Anchor to last session's actual sets performed
+    history = get_last_n_session_set_counts(db, we.id, n=2)
+
+    if not history:
+        # No history - use conservative default, no adjustment
+        return we.target_sets or DEFAULT_TARGET_SETS
+
+    s_last = history[0]
+
+    # Rule C: If 2 sessions available, smooth by averaging
+    if len(history) >= 2:
+        s_prev = history[1]
+        s_anchor = round((s_last + s_prev) / 2)
+    else:
+        s_anchor = s_last
+
+    # Rule D: Compute feedback-driven adjustment direction
+    if muscle_group:
+        adj = compute_feedback_adjustment(db, muscle_group)
+    else:
+        adj = 0  # No muscle group = no adjustment
+
+    # Rule B: Apply ±1 hard limiter and clamp to floor/cap
+    s_reco = max(s_floor, min(s_anchor + adj, s_cap))
+
+    # Persist the updated target
+    if s_reco != we.target_sets:
+        we.target_sets = int(s_reco)
         db.add(we)
         db.commit()
 
-    return int(target_sets)
+    return int(s_reco)
 
 
 def should_deload_by_muscle_group(db: OrmSession, muscle_group: str) -> bool:
