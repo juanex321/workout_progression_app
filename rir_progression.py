@@ -1,9 +1,25 @@
 # rir_progression.py
 """
-Feedback-driven RIR (Reps in Reserve) progression system.
+Session-count-based RIR (Reps in Reserve) progression system with mesocycle tracking.
 
-This module implements a dynamic RIR system that adjusts training intensity
-based on actual muscle feedback data rather than a fixed schedule.
+This module implements a linear RIR progression that advances intensity based on
+muscle-specific session count (sessions since last deload), with feedback used to
+trigger deloads when overtraining is detected.
+
+RIR Progression Schedule (per muscle group):
+- Sessions 1-4:  RIR 2 (building intensity post-deload)
+- Sessions 5-8:  RIR 1 (high intensity)
+- Sessions 9+:   RIR 0 (peak intensity / max effort)
+
+Deload Trigger:
+- When at RIR 0 AND feedback shows overtraining → Deload (RIR 4)
+- After deload session, cycle restarts at RIR 2
+
+Key features:
+- Each muscle group progresses independently based on its training frequency
+- 3-4 sessions per RIR level before progressing
+- Feedback drives SET progression (via progression.py)
+- Feedback triggers DELOAD when at peak intensity with poor recovery
 """
 
 from typing import List, Tuple, Optional
@@ -49,18 +65,18 @@ def get_recent_muscle_feedback(
 ) -> List[Feedback]:
     """
     Get recent feedback for a specific muscle group.
-    
+
     Args:
         db: Database session
         muscle_group: Name of the muscle group
         limit: Number of recent feedback entries to retrieve
-        
+
     Returns:
         List of Feedback objects, ordered by most recent first
     """
     if not muscle_group:
         return []
-    
+
     return (
         db.query(Feedback)
         .filter(Feedback.muscle_group == muscle_group)
@@ -68,6 +84,141 @@ def get_recent_muscle_feedback(
         .limit(limit)
         .all()
     )
+
+
+def count_completed_sessions_for_muscle_group(db: OrmSession, muscle_group: str) -> int:
+    """
+    Count the number of completed sessions for a specific muscle group.
+
+    This is used to determine the linear RIR progression phase.
+
+    Args:
+        db: Database session
+        muscle_group: Name of the muscle group
+
+    Returns:
+        Number of completed sessions for this muscle group
+    """
+    if not muscle_group:
+        return 0
+
+    # Count distinct completed sessions that have exercises from this muscle group
+    count = (
+        db.query(Session.id)
+        .join(Set, Session.id == Set.session_id)
+        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+        .filter(Exercise.muscle_group == muscle_group)
+        .filter(Session.completed == 1)
+        .distinct()
+        .count()
+    )
+
+    return count
+
+
+def get_sessions_since_last_deload(db: OrmSession, muscle_group: str) -> int:
+    """
+    Count sessions since the last deload (RIR >= 4) for this muscle group.
+
+    This tracks mesocycle position without requiring schema changes.
+    If no deload found in recent history, returns total session count.
+
+    The mesocycle structure:
+    - Deload session (RIR 4): Recovery
+    - Sessions 1-4: RIR 2 (building intensity)
+    - Sessions 5-8: RIR 1 (high intensity)
+    - Sessions 9+: RIR 0 (peak intensity until feedback triggers next deload)
+
+    Args:
+        db: Database session
+        muscle_group: Name of the muscle group
+
+    Returns:
+        Number of sessions since last deload (or total if no deload found)
+    """
+    if not muscle_group:
+        return 0
+
+    # Get recent sets for this muscle group with their RIR values
+    # Order by session number descending to find most recent deload
+    recent_sets = (
+        db.query(Set, Session.session_number)
+        .join(Session, Set.session_id == Session.id)
+        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+        .filter(Exercise.muscle_group == muscle_group)
+        .filter(Session.completed == 1)
+        .filter(Set.rir.isnot(None))
+        .order_by(Session.session_number.desc())
+        .limit(100)  # Look back up to 100 sets
+        .all()
+    )
+
+    if not recent_sets:
+        return 0
+
+    # Find the most recent deload session (RIR >= 4)
+    deload_session_id = None
+    for set_obj, _ in recent_sets:
+        if set_obj.rir >= RIR_DELOAD:
+            deload_session_id = set_obj.session_id
+            break
+
+    if deload_session_id:
+        # Count distinct sessions AFTER the deload session
+        sessions_after_deload = (
+            db.query(Session.id)
+            .join(Set, Session.id == Set.session_id)
+            .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+            .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+            .filter(Exercise.muscle_group == muscle_group)
+            .filter(Session.completed == 1)
+            .filter(Session.id > deload_session_id)  # Sessions after deload
+            .distinct()
+            .count()
+        )
+        return sessions_after_deload
+    else:
+        # No deload found in recent history - fresh mesocycle
+        # Use total session count (user is starting fresh or no deload yet)
+        return count_completed_sessions_for_muscle_group(db, muscle_group)
+
+
+def calculate_rir_from_session_count(sessions_in_cycle: int) -> Tuple[int, str]:
+    """
+    Calculate RIR based on sessions since last deload (mesocycle position).
+
+    This is the primary driver for RIR progression, ensuring intensity increases
+    on a predictable schedule based on muscle-specific session count.
+
+    Progression: 3-4 sessions per RIR level
+    - Sessions 1-4:  RIR 2 (building intensity post-deload)
+    - Sessions 5-8:  RIR 1 (high intensity)
+    - Sessions 9+:   RIR 0 (max effort / peak intensity)
+
+    Stays at RIR 0 until feedback triggers deload, then cycle restarts.
+
+    Args:
+        sessions_in_cycle: Number of sessions since last deload
+
+    Returns:
+        Tuple of (target_rir, phase_description)
+    """
+    if sessions_in_cycle == 0:
+        # Just completed a deload, starting fresh
+        return RIR_HARD, "Post-Deload - Starting Fresh (RIR 2)"
+    elif sessions_in_cycle <= 4:
+        # Sessions 1-4: RIR 2 (building intensity)
+        return RIR_HARD, f"Building Intensity - Session {sessions_in_cycle}/4 (RIR 2)"
+    elif sessions_in_cycle <= 8:
+        # Sessions 5-8: RIR 1 (high intensity)
+        session_in_phase = sessions_in_cycle - 4
+        return RIR_VERY_HARD, f"High Intensity - Session {session_in_phase}/4 (RIR 1)"
+    else:
+        # Sessions 9+: RIR 0 (peak intensity - stay here until deload)
+        sessions_at_peak = sessions_in_cycle - 8
+        return RIR_FAILURE, f"Peak Intensity - Session {sessions_at_peak} at RIR 0"
 
 
 def analyze_feedback_trend(feedback_list: List[Feedback]) -> dict:
@@ -162,12 +313,16 @@ def calculate_rir_from_feedback(
 ) -> Tuple[int, str, dict]:
     """
     Calculate appropriate RIR based on recent feedback.
-    
+
+    NOTE: This function is now used as a SECONDARY check for emergency overrides.
+    The PRIMARY driver for RIR is session count (linear progression).
+    Use get_rir_for_muscle_group() instead for the full logic.
+
     Args:
         db: Database session
         muscle_group: Name of the muscle group
         current_rir: Current RIR level (if known)
-        
+
     Returns:
         Tuple of (target_rir, phase_description, analysis)
     """
@@ -245,15 +400,66 @@ def get_last_rir_for_muscle(db: OrmSession, muscle_group: str) -> Optional[int]:
 def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, str, dict]:
     """
     Main API function to get RIR for a muscle group.
-    
+
+    Uses sessions since last deload as the primary driver for linear RIR progression,
+    with feedback as a secondary factor for triggering deloads.
+
+    Progression hierarchy:
+    1. Calculate base RIR from sessions in current mesocycle (since last deload)
+       - Sessions 1-4: RIR 2 (building)
+       - Sessions 5-8: RIR 1 (high intensity)
+       - Sessions 9+: RIR 0 (peak intensity - stay here)
+    2. Check feedback for deload trigger:
+       - When at RIR 0 and showing overtraining → trigger deload (RIR 4)
+       - After deload, cycle restarts at RIR 2
+    3. Return the final RIR with phase description
+
     Args:
         db: Database session
         muscle_group: Name of the muscle group
-        
+
     Returns:
         Tuple of (target_rir, phase_description, analysis)
     """
-    return calculate_rir_from_feedback(db, muscle_group)
+    if not muscle_group:
+        return RIR_HARD, "Moderate Intensity", {}
+
+    # 1. Get base RIR from sessions since last deload (mesocycle position)
+    sessions_in_cycle = get_sessions_since_last_deload(db, muscle_group)
+    base_rir, base_phase = calculate_rir_from_session_count(sessions_in_cycle)
+
+    # 2. Check feedback for deload trigger (primary use of feedback for RIR)
+    feedback_list = get_recent_muscle_feedback(db, muscle_group, limit=LOOKBACK_SESSIONS)
+    analysis = analyze_feedback_trend(feedback_list) if feedback_list else {}
+
+    # Start with base RIR and phase
+    target_rir = base_rir
+    phase = base_phase
+
+    # 3. Apply feedback overrides (deload trigger is the main override)
+    if analysis:
+        status = analysis.get("status", "maintain")
+
+        # CRITICAL: Trigger deload if showing severe overtraining signs
+        # This is especially important when at peak intensity (RIR 0)
+        if status == "deload":
+            target_rir = RIR_DELOAD
+            phase = f"DELOAD (high fatigue detected) - Next session restarts at RIR 2"
+
+        # Minor adjustment: If showing extreme low stress at RIR 2 (early in cycle), can push slightly
+        elif status == "push_harder" and base_rir == RIR_HARD and sessions_in_cycle <= 2:
+            # Only in first 2 sessions of RIR 2 phase, can skip ahead if severely understimulated
+            target_rir = RIR_VERY_HARD
+            phase = f"{base_phase} → Advancing early (very low stress detected)"
+
+        # Minor adjustment: If showing fatigue during RIR 1 phase, can back off slightly
+        elif status == "slight_deload" and base_rir == RIR_VERY_HARD:
+            target_rir = RIR_HARD
+            phase = f"{base_phase} → Backing off to RIR 2 (fatigue detected)"
+
+        # For all other cases: keep base_rir (session count drives progression)
+
+    return target_rir, phase, analysis
 
 
 def get_rir_badge_style(rir: int) -> Tuple[str, str]:
