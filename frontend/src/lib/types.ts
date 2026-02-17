@@ -1,0 +1,76 @@
+export interface SetData {
+  set_number: number;
+  weight: number | null;
+  reps: number | null;
+  rir: number | null;
+  logged: boolean;
+}
+
+export interface RecommendedSet {
+  set_number: number;
+  weight: number;
+  reps: number;
+  done: boolean;
+  suggest_weight_increase?: boolean;
+}
+
+export interface ExerciseData {
+  we_id: number;
+  name: string;
+  muscle_group: string | null;
+  order_idx: number;
+  existing_sets: SetData[];
+  recommendations: RecommendedSet[];
+  is_finisher: boolean;
+  target_sets: number;
+  target_reps: number;
+}
+
+export interface MuscleGroupData {
+  exercises: ExerciseData[];
+  target_rir: number;
+  phase: string;
+  feedback_summary: string;
+  feedback_exists: boolean;
+  feedback_values: {
+    soreness: number;
+    pump: number;
+    workload: number;
+  } | null;
+}
+
+export interface SessionResponse {
+  session_id: number;
+  session_number: number;
+  rotation_index: number;
+  completed: number;
+  workout_id: number;
+}
+
+export interface WorkoutDataResponse {
+  session_id: number;
+  session_number: number;
+  completed: number;
+  rotation_index: number;
+  muscle_groups: Record<string, MuscleGroupData>;
+}
+
+export interface SaveSetsRequest {
+  session_id: number;
+  workout_exercise_id: number;
+  rows: {
+    set_number: number;
+    weight: number;
+    reps: number;
+    done: boolean;
+    rir?: number;
+  }[];
+}
+
+export interface FeedbackRequest {
+  session_id: number;
+  muscle_group: string;
+  soreness: number;
+  pump: number;
+  workload: number;
+}

@@ -36,3 +36,8 @@ alembic/__pycache__/
 
 # Streamlit secrets (contains database credentials)
 .streamlit/secrets.toml
+
+# Node / Next.js
+node_modules/
+frontend/.next/
+frontend/out/

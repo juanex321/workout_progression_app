@@ -1,0 +1,26 @@
+@import "tailwindcss";
+
+:root {
+  --rir-0: #ef4444;
+  --rir-1: #f97316;
+  --rir-2: #eab308;
+  --rir-3: #22c55e;
+  --rir-4: #3b82f6;
+}
+
+body {
+  font-family: system-ui, -apple-system, sans-serif;
+  background: #0a0a0a;
+  color: #ededed;
+  -webkit-tap-highlight-color: transparent;
+}
+
+/* Hide number input spinners for mobile */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+input[type="number"] {
+  -moz-appearance: textfield;
+}
