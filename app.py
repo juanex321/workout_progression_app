@@ -897,6 +897,24 @@ def display_exercise_sets(session_id, exercise_data, target_rir):
 
 # ----------------- MAIN APP -----------------
 
+def _run_one_time_migrations():
+    """Auto-migrations that run once and become no-ops on subsequent startups."""
+    if st.session_state.get("_migrations_done"):
+        return
+    with get_session() as db:
+        # Migration: Reset Glute RIR after replacing "Hip Thrust + Glute Lunges"
+        old_ex = db.query(Exercise).filter(
+            Exercise.name == "Hip Thrust + Glute Lunges",
+            Exercise.muscle_group == "Glutes",
+        ).first()
+        if old_ex:
+            db.query(Feedback).filter(Feedback.muscle_group == "Glutes").delete()
+            old_ex.muscle_group = "Glutes_Legacy"
+            db.add(old_ex)
+            db.commit()
+    st.session_state["_migrations_done"] = True
+
+
 def main():
     st.set_page_config(
         page_title="Workout Progression",
@@ -904,6 +922,7 @@ def main():
         initial_sidebar_state="collapsed"
     )
     inject_css()
+    _run_one_time_migrations()
 
     if "current_session_number" not in st.session_state:
         st.session_state["current_session_number"] = None

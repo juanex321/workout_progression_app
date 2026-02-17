@@ -6,8 +6,12 @@ from __future__ import annotations
 LEG_ROTATION = [
     "Leg Extension",                # leg session 1
     "Leg Curl",                     # leg session 2
-    "Hip Thrust + Glute Lunges",    # leg session 3
+    "GLUTE",                        # leg session 3 (resolved dynamically)
 ]
+
+# Glute exercises alternate based on push/pull day
+GLUTE_PUSH_EXERCISE = "Glute Kickbacks"   # Chest/push days
+GLUTE_PULL_EXERCISE = "Hip Thrust"         # Back/pull days
 
 PULL_MAIN_ROTATION = [
     "Lat Pulldown",
@@ -48,7 +52,8 @@ EXERCISE_MUSCLE_GROUPS = {
     "Leg Extension": "Quads",
     "Sissy Squat": "Quads",
     "Leg Curl": "Hamstrings",
-    "Hip Thrust + Glute Lunges": "Glutes",
+    "Hip Thrust": "Glutes",
+    "Glute Kickbacks": "Glutes",
     
     # Chest
     "Incline DB Bench Press": "Chest",
@@ -83,6 +88,12 @@ def get_session_exercises(session_index: int) -> list[str]:
     """
     # ----- leg block -----
     leg_ex = LEG_ROTATION[session_index % len(LEG_ROTATION)]
+
+    # Resolve dynamic glute placeholder based on push/pull day
+    is_push_day = (session_index % 2 == 0)
+    if leg_ex == "GLUTE":
+        leg_ex = GLUTE_PUSH_EXERCISE if is_push_day else GLUTE_PULL_EXERCISE
+
     leg_block = [leg_ex]
 
     # add quad finisher only on Leg Extension day
@@ -90,8 +101,6 @@ def get_session_exercises(session_index: int) -> list[str]:
         leg_block.append("Sissy Squat")
 
     # ----- upper block -----
-    is_push_day = (session_index % 2 == 0)
-
     if is_push_day:
         upper_block = [
             "Incline DB Bench Press",
