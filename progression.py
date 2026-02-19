@@ -356,7 +356,7 @@ def recommend_weights_and_reps(
         muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
 
     # Get current RIR for this muscle group (used for rep calculation and deload)
-    from rir_progression import get_rir_for_muscle_group, RIR_DELOAD
+    from rir_progression import get_rir_for_muscle_group, RIR_DELOAD, RIR_FAILURE, RIR_VERY_HARD
     if muscle_group:
         current_rir, _, _ = get_rir_for_muscle_group(db, muscle_group)
     else:
@@ -387,6 +387,17 @@ def recommend_weights_and_reps(
     if current_rir >= RIR_DELOAD:
         deload_active = True
         next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
+
+    # 5b) RIR-stage set volume modifier (non-finisher exercises only)
+    # RIR 2 = baseline (feedback drives this, no modifier)
+    # RIR 1 = slight over-reach: +1 set over baseline to accumulate fatigue
+    # RIR 0 = full over-reach: +2 sets over baseline for peak stimulus
+    # Deload = weight cut is sufficient; sets stay at baseline for recovery quality
+    if not is_finisher_exercise and not deload_active:
+        if current_rir == RIR_FAILURE:   # 0 — full overreach
+            target_sets = min(MAX_SETS_MAIN, target_sets + 2)
+        elif current_rir == RIR_VERY_HARD:  # 1 — slight overreach
+            target_sets = min(MAX_SETS_MAIN, target_sets + 1)
 
     # 6) check if we should suggest weight increase (informational only)
     suggest_weight = should_suggest_weight_increase(db, we, last_sets)
