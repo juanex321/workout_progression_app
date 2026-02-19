@@ -1,8 +1,14 @@
 import sys
 from pathlib import Path
 
-# Ensure the api directory is on the Python path for imports
-sys.path.insert(0, str(Path(__file__).resolve().parent))
+_here = Path(__file__).resolve().parent   # .../api/
+_root = _here.parent                       # .../workout_progression_app/
+
+# api/ first — api-specific modules (deps, schemas, routes, db, services) take priority.
+# root second — shared modules (progression, rir_progression, plan) are imported
+# from there directly, so there are no local copies that can drift out of sync.
+sys.path.insert(0, str(_root))
+sys.path.insert(0, str(_here))
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
