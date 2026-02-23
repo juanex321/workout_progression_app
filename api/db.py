@@ -24,8 +24,17 @@ def get_database_url():
 
     if 'DATABASE_URL' in os.environ:
         url = os.environ['DATABASE_URL']
+        # Normalize legacy postgres:// scheme
         if url.startswith('postgres://'):
             url = url.replace('postgres://', 'postgresql://', 1)
+        # Use pg8000 driver (pure Python, no binary — required for Vercel size limits)
+        if url.startswith('postgresql://') and '+' not in url.split('://')[0]:
+            url = url.replace('postgresql://', 'postgresql+pg8000://', 1)
+        # pg8000 doesn't support channel_binding — strip it from the query string
+        if 'channel_binding' in url:
+            import re
+            url = re.sub(r'[&?]channel_binding=[^&]*', '', url)
+            url = re.sub(r'\?&', '?', url)  # clean up ?& artifact
         return url
 
     # Fall back to SQLite (local development)
