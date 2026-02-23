@@ -15,7 +15,12 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import sessions, exercises, feedback, progression
-from db import get_database_runtime_info, init_db, seed_default_data
+from db import (
+    get_database_runtime_info,
+    init_db,
+    seed_default_data,
+    switch_to_sqlite_fallback,
+)
 
 app = FastAPI(title="Workout Progression API")
 STARTUP_ERROR: str | None = None
@@ -54,6 +59,13 @@ def startup():
         print("Startup initialization failed:")
         print(STARTUP_ERROR)
         print(traceback.format_exc())
+        # Keep service available while external DB credentials are being fixed.
+        try:
+            switch_to_sqlite_fallback(STARTUP_ERROR)
+            init_db()
+            seed_default_data()
+        except Exception as fallback_exc:
+            STARTUP_ERROR = f"{STARTUP_ERROR} | sqlite_fallback_failed: {type(fallback_exc).__name__}: {fallback_exc}"
 
 
 @app.get("/api/health")

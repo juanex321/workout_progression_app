@@ -146,6 +146,7 @@ except Exception as exc:
         DATABASE_URL,
         connect_args={"check_same_thread": False},
     )
+DATABASE_FALLBACK_REASON: Optional[str] = None
 
 SessionLocal = sessionmaker(bind=engine)
 
@@ -257,6 +258,23 @@ def init_db():
     Base.metadata.create_all(engine)
 
 
+def switch_to_sqlite_fallback(reason: str, source: str = "sqlite-fallback-runtime-error") -> None:
+    """
+    Rebind ORM engine/session to local SQLite when primary DB is unavailable.
+    """
+    global engine, DATABASE_URL, DATABASE_SOURCE, DATABASE_FALLBACK_REASON
+
+    db_path = Path(__file__).resolve().parent.parent / "workout.db"
+    DATABASE_URL = f"sqlite:///{db_path}"
+    DATABASE_SOURCE = source
+    DATABASE_FALLBACK_REASON = reason
+    engine = create_engine(
+        DATABASE_URL,
+        connect_args={"check_same_thread": False},
+    )
+    SessionLocal.configure(bind=engine)
+
+
 def get_database_runtime_info() -> dict:
     """Safe DB runtime info for diagnostics."""
     is_postgres = DATABASE_URL.startswith("postgresql")
@@ -267,6 +285,8 @@ def get_database_runtime_info() -> dict:
     }
     if DATABASE_BOOT_ERROR:
         info["boot_error"] = DATABASE_BOOT_ERROR
+    if DATABASE_FALLBACK_REASON:
+        info["fallback_reason"] = DATABASE_FALLBACK_REASON
     return info
 
 
