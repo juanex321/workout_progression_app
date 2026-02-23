@@ -159,3 +159,40 @@ def get_session():
 def init_db():
     """Initialize database tables."""
     Base.metadata.create_all(engine)
+
+
+def seed_default_data():
+    """
+    Ensure base data exists for first boot in fresh environments.
+
+    This keeps new Railway deployments usable without a manual init step.
+    """
+    from plan import EXERCISE_MUSCLE_GROUPS
+
+    with get_session() as db:
+        # Ensure exercise catalog exists.
+        for exercise_name, muscle_group in EXERCISE_MUSCLE_GROUPS.items():
+            existing_exercise = (
+                db.query(Exercise)
+                .filter(Exercise.name.ilike(exercise_name))
+                .first()
+            )
+            if not existing_exercise:
+                db.add(Exercise(name=exercise_name, muscle_group=muscle_group))
+
+        # Ensure at least one program + one workout exist.
+        program = db.query(Program).first()
+        if not program:
+            program = Program(name="Full Body IV")
+            db.add(program)
+            db.flush()
+
+        workout = db.query(Workout).filter(Workout.program_id == program.id).first()
+        if not workout:
+            db.add(
+                Workout(
+                    program_id=program.id,
+                    name="Week 1 Day 1",
+                    day_label="W1D1",
+                )
+            )

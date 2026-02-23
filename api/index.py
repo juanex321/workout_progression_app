@@ -14,6 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import sessions, exercises, feedback, progression
+from db import init_db, seed_default_data
 
 app = FastAPI(title="Workout Progression API")
 
@@ -36,6 +37,13 @@ app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
 app.include_router(exercises.router, prefix="/api", tags=["exercises"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(progression.router, prefix="/api", tags=["progression"])
+
+
+@app.on_event("startup")
+def startup():
+    # Create tables and seed baseline data for fresh deployments.
+    init_db()
+    seed_default_data()
 
 
 @app.get("/api/health")

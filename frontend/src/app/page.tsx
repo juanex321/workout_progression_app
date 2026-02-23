@@ -9,8 +9,11 @@ export default function HomePage() {
   const [sessionNumber, setSessionNumber] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
 
-  const { data: currentSession, isLoading: loadingSession } =
-    useCurrentSession();
+  const {
+    data: currentSession,
+    isLoading: loadingSession,
+    error: currentSessionError,
+  } = useCurrentSession();
 
   // Set initial session from current
   useEffect(() => {
@@ -20,7 +23,7 @@ export default function HomePage() {
     }
   }, [currentSession, sessionNumber]);
 
-  const { data: workoutData, isLoading: loadingData } =
+  const { data: workoutData, isLoading: loadingData, error: workoutDataError } =
     useSessionData(sessionId);
 
   // Update session ID when navigating by number
@@ -57,6 +60,16 @@ export default function HomePage() {
     );
   }
 
+  if (currentSessionError) {
+    return (
+      <div className="flex items-center justify-center min-h-screen px-4">
+        <p className="text-sm text-red-400">
+          Failed to load current session. {(currentSessionError as Error).message}
+        </p>
+      </div>
+    );
+  }
+
   return (
     <main className="mx-auto max-w-lg px-3 pb-24 pt-4">
       <SessionHeader
@@ -66,7 +79,11 @@ export default function HomePage() {
         onNavigate={handleNavigate}
       />
 
-      {loadingData ? (
+      {workoutDataError ? (
+        <p className="text-center text-red-400 mt-8">
+          Failed to load workout data. {(workoutDataError as Error).message}
+        </p>
+      ) : loadingData ? (
         <p className="text-center text-zinc-400 mt-8">Loading workout...</p>
       ) : workoutData ? (
         <>
