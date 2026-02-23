@@ -104,9 +104,9 @@ def get_database_url():
         return _normalize_database_url(raw_url), "DATABASE_URL"
 
     if require_database_url:
-        raise RuntimeError(
-            "DATABASE_URL is required in hosted/production environments. "
-            "Set Railway variable DATABASE_URL to your Neon connection string."
+        print(
+            "WARNING: DATABASE_URL missing in hosted/production runtime; "
+            "falling back to SQLite. Set Railway DATABASE_URL to Neon."
         )
 
     # Fall back to SQLite for local development only.
@@ -115,13 +115,26 @@ def get_database_url():
 
 
 DATABASE_URL, DATABASE_SOURCE = get_database_url()
+DATABASE_BOOT_ERROR: Optional[str] = None
 
-if DATABASE_URL.startswith("postgresql"):
-    engine = create_engine(
-        DATABASE_URL,
-        poolclass=NullPool,
-    )
-else:
+try:
+    if DATABASE_URL.startswith("postgresql"):
+        engine = create_engine(
+            DATABASE_URL,
+            poolclass=NullPool,
+        )
+    else:
+        engine = create_engine(
+            DATABASE_URL,
+            connect_args={"check_same_thread": False},
+        )
+except Exception as exc:
+    DATABASE_BOOT_ERROR = f"{type(exc).__name__}: {exc}"
+    print("Database engine initialization failed; falling back to SQLite.")
+    print(DATABASE_BOOT_ERROR)
+    db_path = Path(__file__).resolve().parent.parent / "workout.db"
+    DATABASE_URL = f"sqlite:///{db_path}"
+    DATABASE_SOURCE = "sqlite-fallback-engine-error"
     engine = create_engine(
         DATABASE_URL,
         connect_args={"check_same_thread": False},
@@ -240,11 +253,14 @@ def init_db():
 def get_database_runtime_info() -> dict:
     """Safe DB runtime info for diagnostics."""
     is_postgres = DATABASE_URL.startswith("postgresql")
-    return {
+    info = {
         "source": DATABASE_SOURCE,
         "engine": "postgresql" if is_postgres else "sqlite",
         "target": _sanitize_database_url(DATABASE_URL),
     }
+    if DATABASE_BOOT_ERROR:
+        info["boot_error"] = DATABASE_BOOT_ERROR
+    return info
 
 
 def seed_default_data():

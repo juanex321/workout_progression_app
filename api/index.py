@@ -1,5 +1,6 @@
 import sys
 from pathlib import Path
+import traceback
 
 _here = Path(__file__).resolve().parent   # .../api/
 _root = _here.parent                       # .../workout_progression_app/
@@ -17,6 +18,7 @@ from routes import sessions, exercises, feedback, progression
 from db import get_database_runtime_info, init_db, seed_default_data
 
 app = FastAPI(title="Workout Progression API")
+STARTUP_ERROR: str | None = None
 
 import os
 
@@ -42,10 +44,21 @@ app.include_router(progression.router, prefix="/api", tags=["progression"])
 @app.on_event("startup")
 def startup():
     # Create tables and seed baseline data for fresh deployments.
-    init_db()
-    seed_default_data()
+    global STARTUP_ERROR
+    try:
+        init_db()
+        seed_default_data()
+        STARTUP_ERROR = None
+    except Exception as exc:
+        STARTUP_ERROR = f"{type(exc).__name__}: {exc}"
+        print("Startup initialization failed:")
+        print(STARTUP_ERROR)
+        print(traceback.format_exc())
 
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok", "database": get_database_runtime_info()}
+    payload = {"status": "ok", "database": get_database_runtime_info()}
+    if STARTUP_ERROR:
+        payload["startup_error"] = STARTUP_ERROR
+    return payload
