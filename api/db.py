@@ -1,50 +1,104 @@
-import os
+﻿import os
 from contextlib import contextmanager
+from datetime import date, datetime
 from pathlib import Path
-from datetime import datetime, date
 from typing import Optional
+from urllib.parse import urlparse
 
 from sqlalchemy import (
     Column,
-    Integer,
-    String,
-    Float,
-    ForeignKey,
     Date,
     DateTime,
-    func,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
     create_engine,
+    func,
 )
-from sqlalchemy.orm import declarative_base, relationship, sessionmaker, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, sessionmaker
 from sqlalchemy.pool import NullPool
 
 
+def _is_truthy_env(value: str) -> bool:
+    return value.strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _hosted_runtime_detected() -> bool:
+    hosted_markers = (
+        "RAILWAY_ENVIRONMENT",
+        "RAILWAY_ENVIRONMENT_ID",
+        "VERCEL",
+        "VERCEL_ENV",
+        "RENDER",
+        "FLY_APP_NAME",
+    )
+    if any(os.environ.get(marker) for marker in hosted_markers):
+        return True
+
+    app_env = os.environ.get("APP_ENV", "").strip().lower()
+    env = os.environ.get("ENVIRONMENT", "").strip().lower()
+    return app_env == "production" or env == "production"
+
+
+def _normalize_database_url(url: str) -> str:
+    normalized = url.strip()
+
+    if normalized.startswith("postgres://"):
+        normalized = normalized.replace("postgres://", "postgresql://", 1)
+
+    # Force pg8000 so hosted builds do not depend on system-level libpq.
+    if normalized.startswith("postgresql://") and "+" not in normalized.split("://")[0]:
+        normalized = normalized.replace("postgresql://", "postgresql+pg8000://", 1)
+
+    # pg8000 does not support channel_binding; strip if present.
+    if "channel_binding" in normalized:
+        import re
+
+        normalized = re.sub(r"[&?]channel_binding=[^&]*", "", normalized)
+        normalized = re.sub(r"\?&", "?", normalized)
+        normalized = normalized.rstrip("?")
+
+    return normalized
+
+
+def _sanitize_database_url(url: str) -> str:
+    try:
+        parsed = urlparse(url)
+        if not parsed.scheme:
+            return "<invalid-url>"
+
+        host = parsed.hostname or "<unknown-host>"
+        database_name = parsed.path.lstrip("/") or "<unknown-db>"
+        return f"{parsed.scheme}://{host}/{database_name}"
+    except Exception:
+        return "<unavailable>"
+
+
 def get_database_url():
-    """Get database URL from environment variable or fall back to SQLite."""
+    """Resolve runtime database URL and source."""
 
-    if 'DATABASE_URL' in os.environ:
-        url = os.environ['DATABASE_URL']
-        # Normalize legacy postgres:// scheme
-        if url.startswith('postgres://'):
-            url = url.replace('postgres://', 'postgresql://', 1)
-        # Use pg8000 driver (pure Python, no binary — required for Vercel size limits)
-        if url.startswith('postgresql://') and '+' not in url.split('://')[0]:
-            url = url.replace('postgresql://', 'postgresql+pg8000://', 1)
-        # pg8000 doesn't support channel_binding — strip it from the query string
-        if 'channel_binding' in url:
-            import re
-            url = re.sub(r'[&?]channel_binding=[^&]*', '', url)
-            url = re.sub(r'\?&', '?', url)  # clean up ?& artifact
-        return url
+    require_database_url = _is_truthy_env(os.environ.get("REQUIRE_DATABASE_URL", ""))
+    require_database_url = require_database_url or _hosted_runtime_detected()
 
-    # Fall back to SQLite (local development)
-    DB_PATH = Path(__file__).resolve().parent.parent / "workout.db"
-    return f"sqlite:///{DB_PATH}"
+    raw_url = os.environ.get("DATABASE_URL", "").strip()
+    if raw_url:
+        return _normalize_database_url(raw_url), "DATABASE_URL"
+
+    if require_database_url:
+        raise RuntimeError(
+            "DATABASE_URL is required in hosted/production environments. "
+            "Set Railway variable DATABASE_URL to your Neon connection string."
+        )
+
+    # Fall back to SQLite for local development only.
+    db_path = Path(__file__).resolve().parent.parent / "workout.db"
+    return f"sqlite:///{db_path}", "sqlite-fallback"
 
 
-DATABASE_URL = get_database_url()
+DATABASE_URL, DATABASE_SOURCE = get_database_url()
 
-if DATABASE_URL.startswith('postgresql'):
+if DATABASE_URL.startswith("postgresql"):
     engine = create_engine(
         DATABASE_URL,
         poolclass=NullPool,
@@ -132,7 +186,11 @@ class Feedback(Base):
     __tablename__ = "feedback"
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
-    workout_exercise_id: Mapped[Optional[int]] = mapped_column(Integer, ForeignKey("workout_exercises.id"), nullable=True)
+    workout_exercise_id: Mapped[Optional[int]] = mapped_column(
+        Integer,
+        ForeignKey("workout_exercises.id"),
+        nullable=True,
+    )
     muscle_group: Mapped[Optional[str]] = mapped_column(String, nullable=True)
     soreness: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     pump: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
@@ -159,6 +217,16 @@ def get_session():
 def init_db():
     """Initialize database tables."""
     Base.metadata.create_all(engine)
+
+
+def get_database_runtime_info() -> dict:
+    """Safe DB runtime info for diagnostics."""
+    is_postgres = DATABASE_URL.startswith("postgresql")
+    return {
+        "source": DATABASE_SOURCE,
+        "engine": "postgresql" if is_postgres else "sqlite",
+        "target": _sanitize_database_url(DATABASE_URL),
+    }
 
 
 def seed_default_data():

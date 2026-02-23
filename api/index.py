@@ -14,7 +14,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from routes import sessions, exercises, feedback, progression
-from db import init_db, seed_default_data
+from db import get_database_runtime_info, init_db, seed_default_data
 
 app = FastAPI(title="Workout Progression API")
 
@@ -48,4 +48,4 @@ def startup():
 
 @app.get("/api/health")
 def health_check():
-    return {"status": "ok"}
+    return {"status": "ok", "database": get_database_runtime_info()}
