@@ -35,10 +35,14 @@ RIR_HARD = 2         # 2 reps in reserve (moderate-high intensity)
 RIR_MODERATE = 3     # 3 reps in reserve (moderate intensity)
 RIR_DELOAD = 4       # 4 reps in reserve (deload/recovery)
 
-# Feedback thresholds
-SORENESS_LOW = 2.0
-SORENESS_MODERATE = 3.5
-SORENESS_HIGH = 4.2
+# Soreness scale semantics (1–4):
+#   1 = never got sore       → understimulated, increase workload
+#   2 = healed a while ago   → mild stimulus, can increase
+#   3 = healed right on time → sweet spot; can push for overreach
+#   4 = still sore           → overreach signal, reduce workload if unintentional
+SORENESS_LOW = 2.0       # <= 2 → understimulated / mild recovery
+SORENESS_MODERATE = 3.0  # >= 3 → at recovery limit (sweet spot or above)
+SORENESS_HIGH = 3.5      # > 3.5 → consistently at/beyond recovery limit → deload territory
 
 PUMP_LOW = 2.0
 PUMP_GOOD = 3.0
@@ -66,6 +70,7 @@ ADVANCE_WORKLOAD_MIN = 3.0  # Minimum workload to count as "sufficient training 
 HIGH_STRESS_WORKLOAD = 4
 HIGH_STRESS_SORENESS = 4
 HIGH_STRESS_WORKLOAD_MIN = 3
+HIGH_STRESS_SORENESS_MIN = 3  # Soreness 2 ("healed a while ago") is not a stress signal; need soreness 3+ ("healed right on time") combined with high workload to flag as high-stress
 
 
 # ------- HELPER FUNCTIONS -------
@@ -267,9 +272,10 @@ def analyze_feedback_trend(feedback_list: List[Feedback]) -> dict:
     consecutive_low = 0
     
     for f in feedback_list:
-        # High stress: high workload (4+) or (high soreness + high workload)
+        # High stress: (high workload + at least some soreness) or (high soreness + moderate workload)
+        # Workload alone is not enough — hard effort with no soreness means full recovery, not overtraining
         is_high_stress = (
-            (f.workload or 0) >= HIGH_STRESS_WORKLOAD or
+            ((f.workload or 0) >= HIGH_STRESS_WORKLOAD and (f.soreness or 0) >= HIGH_STRESS_SORENESS_MIN) or
             ((f.soreness or 0) >= HIGH_STRESS_SORENESS and (f.workload or 0) >= HIGH_STRESS_WORKLOAD_MIN)
         )
         
