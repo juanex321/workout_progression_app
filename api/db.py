@@ -65,12 +65,19 @@ def _normalize_database_url(url: str) -> str:
     if normalized.startswith("postgres://"):
         normalized = normalized.replace("postgres://", "postgresql://", 1)
 
-    # Force pg8000 so hosted builds do not depend on system-level libpq.
-    if normalized.startswith("postgresql://") and "+" not in normalized.split("://")[0]:
+    # Only force pg8000 when explicitly requested (e.g. Vercel Python runtime).
+    force_pg8000 = _is_truthy_env(os.environ.get("FORCE_PG8000", ""))
+    if os.environ.get("VERCEL"):
+        force_pg8000 = True
+    if (
+        force_pg8000
+        and normalized.startswith("postgresql://")
+        and "+" not in normalized.split("://")[0]
+    ):
         normalized = normalized.replace("postgresql://", "postgresql+pg8000://", 1)
 
     # pg8000 does not support channel_binding; strip if present.
-    if "channel_binding" in normalized:
+    if normalized.startswith("postgresql+pg8000://") and "channel_binding" in normalized:
         import re
 
         normalized = re.sub(r"[&?]channel_binding=[^&]*", "", normalized)
