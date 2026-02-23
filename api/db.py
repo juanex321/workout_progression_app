@@ -44,6 +44,24 @@ def _hosted_runtime_detected() -> bool:
 def _normalize_database_url(url: str) -> str:
     normalized = url.strip()
 
+    # Accept pasted Neon CLI form:
+    #   psql 'postgresql://user:pass@host/db?...'
+    # and plain quoted strings.
+    if normalized.lower().startswith("psql "):
+        normalized = normalized[5:].strip()
+
+    if (
+        (normalized.startswith("'") and normalized.endswith("'"))
+        or (normalized.startswith('"') and normalized.endswith('"'))
+    ):
+        normalized = normalized[1:-1].strip()
+
+    # If surrounding text still exists, extract the URL portion.
+    if "postgresql://" in normalized and not normalized.startswith("postgresql://"):
+        normalized = normalized[normalized.index("postgresql://") :]
+    if "postgres://" in normalized and not normalized.startswith("postgres://"):
+        normalized = normalized[normalized.index("postgres://") :]
+
     if normalized.startswith("postgres://"):
         normalized = normalized.replace("postgres://", "postgresql://", 1)
 
