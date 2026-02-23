@@ -17,9 +17,16 @@ from routes import sessions, exercises, feedback, progression
 
 app = FastAPI(title="Workout Progression API")
 
+import os
+
+_frontend_url = os.environ.get("FRONTEND_URL", "")
+_allowed_origins = ["http://localhost:3000", "http://localhost:3001"]
+if _frontend_url:
+    _allowed_origins.append(_frontend_url)
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001"],
+    allow_origins=_allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
