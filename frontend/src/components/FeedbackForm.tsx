@@ -50,6 +50,43 @@ function Slider({
   );
 }
 
+function ChipSelect({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: string[];
+  value: number;
+  onChange: (v: number) => void;
+}) {
+  return (
+    <div>
+      <p className="text-xs text-zinc-400 mb-1.5">{label}</p>
+      <div className="flex gap-1.5">
+        {options.map((opt, i) => {
+          const v = i + 1;
+          const selected = value === v;
+          return (
+            <button
+              key={opt}
+              onClick={() => onChange(v)}
+              className={`flex-1 py-2 px-1 rounded-lg text-xs font-medium text-center transition-colors
+                ${selected
+                  ? "bg-yellow-600 text-black"
+                  : "bg-zinc-700 text-zinc-300 active:bg-zinc-600"
+                }`}
+            >
+              {opt}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 export function FeedbackForm({
   muscleGroup,
   sessionId,
@@ -91,8 +128,8 @@ export function FeedbackForm({
         {muscleGroup} Feedback
       </h4>
       <Slider label="Soreness" value={soreness} onChange={setSoreness} max={4} />
-      <Slider label="Pump" value={pump} onChange={setPump} />
-      <Slider label="Workload" value={workload} onChange={setWorkload} />
+      <ChipSelect label="Pump" options={LABELS.pump} value={pump} onChange={setPump} />
+      <ChipSelect label="Workload" options={LABELS.workload} value={workload} onChange={setWorkload} />
       <button
         onClick={handleSubmit}
         disabled={feedback.isPending}

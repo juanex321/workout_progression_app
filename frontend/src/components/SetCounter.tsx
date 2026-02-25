@@ -19,7 +19,7 @@ export function SetCounter({ count, onChange, min, max }: SetCounterProps) {
         -
       </button>
       <span className="w-6 text-center text-xs text-zinc-400">
-        {count}s
+        {count}
       </span>
       <button
         onClick={() => onChange(Math.min(max, count + 1))}

@@ -108,7 +108,6 @@ export function SetRow({
         min={0}
         inputMode="decimal"
         disabled={disabled}
-        suffix="lbs"
       />
 
       <Stepper
