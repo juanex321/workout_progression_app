@@ -40,6 +40,11 @@ export function SorenessSelector({
     onChange(v);
   };
 
+  // Collapse to compact summary once the user releases the slider
+  const handlePointerUp = () => {
+    setExpanded(false);
+  };
+
   // Collapsed summary after selection
   if (!expanded && isSelected) {
     const label = SORENESS_LABELS[internalValue - 1] ?? "";
@@ -82,6 +87,7 @@ export function SorenessSelector({
         value={internalValue}
         disabled={disabled}
         onPointerDown={handlePointerDown}
+        onPointerUp={handlePointerUp}
         onChange={(e) => handleChange(parseInt(e.target.value))}
         className={`w-full h-2 rounded-lg appearance-none bg-zinc-700 ${accentClass} disabled:opacity-40`}
       />
