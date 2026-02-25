@@ -106,6 +106,7 @@ export function MuscleGroupCard({
         {/* Soreness selector — always shown before full feedback is submitted */}
         {!data.feedback_exists && (
           <SorenessSelector
+            muscleGroup={muscleGroup}
             value={effectiveSoreness}
             onChange={handleSorenessChange}
             disabled={sessionCompleted}

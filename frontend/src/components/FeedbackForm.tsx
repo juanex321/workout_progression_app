@@ -10,7 +10,7 @@ interface FeedbackFormProps {
 }
 
 const LABELS: Record<string, string[]> = {
-  soreness: ["None", "Mild", "Moderate", "High", "Severe"],
+  soreness: ["Never got sore", "Healed a while ago", "Healed right on time", "I'm still sore"],
   pump: ["None", "Slight", "Good", "Great", "Extreme"],
   workload: ["Easy", "Light", "Just Right", "Hard", "Too Much"],
 };
@@ -19,10 +19,12 @@ function Slider({
   label,
   value,
   onChange,
+  max = 5,
 }: {
   label: string;
   value: number;
   onChange: (v: number) => void;
+  max?: number;
 }) {
   const key = label.toLowerCase();
   const descriptions = LABELS[key] ?? [];
@@ -32,13 +34,13 @@ function Slider({
       <div className="flex justify-between items-center mb-1">
         <label className="text-xs text-zinc-400">{label}</label>
         <span className="text-xs text-zinc-500">
-          {value} - {descriptions[value - 1] ?? ""}
+          {descriptions[value - 1] ?? value}
         </span>
       </div>
       <input
         type="range"
         min={1}
-        max={5}
+        max={max}
         step={1}
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value))}
@@ -54,7 +56,8 @@ export function FeedbackForm({
   initialValues,
   initialSoreness,
 }: FeedbackFormProps) {
-  const [soreness, setSoreness] = useState(initialValues?.soreness ?? initialSoreness ?? 3);
+  // Clamp to 4 since the soreness scale is now 1–4
+  const [soreness, setSoreness] = useState(Math.min(initialValues?.soreness ?? initialSoreness ?? 3, 4));
   const [pump, setPump] = useState(initialValues?.pump ?? 3);
   const [workload, setWorkload] = useState(initialValues?.workload ?? 3);
   const [submitted, setSubmitted] = useState(false);
@@ -87,7 +90,7 @@ export function FeedbackForm({
       <h4 className="text-sm font-medium text-zinc-300">
         {muscleGroup} Feedback
       </h4>
-      <Slider label="Soreness" value={soreness} onChange={setSoreness} />
+      <Slider label="Soreness" value={soreness} onChange={setSoreness} max={4} />
       <Slider label="Pump" value={pump} onChange={setPump} />
       <Slider label="Workload" value={workload} onChange={setWorkload} />
       <button
