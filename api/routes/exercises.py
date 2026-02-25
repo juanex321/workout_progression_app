@@ -21,6 +21,7 @@ from services import (
     save_sets,
     check_muscle_group_feedback_exists,
     get_muscle_group_feedback,
+    get_soreness_value,
     is_last_exercise_for_muscle_group,
 )
 from plan import get_session_exercises, EXERCISE_MUSCLE_GROUPS
@@ -119,6 +120,7 @@ def get_workout_data(
             fb_summary = get_feedback_summary(db, muscle_group)
             fb_exists = check_muscle_group_feedback_exists(db, sess.id, muscle_group)
             fb_values = get_muscle_group_feedback(db, sess.id, muscle_group)
+            soreness_val = get_soreness_value(db, sess.id, muscle_group)
 
             muscle_groups[muscle_group] = MuscleGroupData(
                 exercises=[exercise_data],
@@ -127,6 +129,7 @@ def get_workout_data(
                 feedback_summary=fb_summary,
                 feedback_exists=fb_exists,
                 feedback_values=fb_values,
+                soreness_value=soreness_val,
             )
         else:
             muscle_groups[muscle_group].exercises.append(exercise_data)

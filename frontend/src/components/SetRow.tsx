@@ -7,6 +7,7 @@ interface SetRowProps {
   reps: number;
   logged: boolean;
   disabled: boolean;
+  sorenessLocked?: boolean;
   onWeightChange: (value: number) => void;
   onRepsChange: (value: number) => void;
   onLog: () => void;
@@ -89,6 +90,7 @@ export function SetRow({
   reps,
   logged,
   disabled,
+  sorenessLocked,
   onWeightChange,
   onRepsChange,
   onLog,
@@ -120,7 +122,7 @@ export function SetRow({
 
       <button
         onClick={onLog}
-        disabled={disabled || !weight || !reps}
+        disabled={disabled || !!sorenessLocked || !weight || !reps}
         className={`h-11 px-3 rounded-lg font-medium text-sm transition-colors shrink-0
           ${
             logged

@@ -295,7 +295,27 @@ def is_last_exercise_for_muscle_group(
 
 def check_muscle_group_feedback_exists(db, session_id: int, muscle_group: str) -> bool:
     """
-    Check if feedback already exists for this muscle group in this session.
+    Check if FULL feedback (soreness + pump + workload) exists for this muscle group in this session.
+    Returns False if only soreness has been saved (partial / soreness-only state).
+    """
+    feedback = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.muscle_group == muscle_group,
+            Feedback.pump != None,
+            Feedback.workload != None,
+        )
+        .first()
+    )
+    return feedback is not None
+
+
+def get_soreness_value(db, session_id: int, muscle_group: str):
+    """
+    Return the soreness value from any Feedback record for this session/muscle,
+    even if pump/workload are not yet set (soreness-only state).
+    Returns None if no Feedback row exists at all.
     """
     feedback = (
         db.query(Feedback)
@@ -305,7 +325,31 @@ def check_muscle_group_feedback_exists(db, session_id: int, muscle_group: str) -
         )
         .first()
     )
-    return feedback is not None
+    return feedback.soreness if feedback else None
+
+
+def save_soreness_only(db, session_id: int, muscle_group: str, soreness: int) -> None:
+    """
+    Save or update soreness for a muscle group, leaving pump/workload untouched.
+    Creates a new Feedback row if none exists, or updates the soreness column only.
+    """
+    existing = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.muscle_group == muscle_group,
+        )
+        .first()
+    )
+    if existing:
+        existing.soreness = soreness
+    else:
+        db.add(Feedback(
+            session_id=session_id,
+            muscle_group=muscle_group,
+            soreness=soreness,
+        ))
+    db.commit()
 
 
 def get_muscle_group_feedback(db, session_id: int, muscle_group: str):

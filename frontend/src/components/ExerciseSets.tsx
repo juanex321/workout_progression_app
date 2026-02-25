@@ -17,6 +17,7 @@ interface ExerciseSetsProps {
   sessionId: number;
   targetRir: number;
   disabled: boolean;
+  sorenessLocked?: boolean;
   onAllLogged?: (allLogged: boolean) => void;
 }
 
@@ -25,6 +26,7 @@ export function ExerciseSets({
   sessionId,
   targetRir,
   disabled,
+  sorenessLocked,
   onAllLogged,
 }: ExerciseSetsProps) {
   // Initialize draft from existing sets or recommendations
@@ -136,7 +138,7 @@ export function ExerciseSets({
             <span className="ml-1.5 text-xs text-zinc-500">(finisher)</span>
           )}
         </h3>
-        {!exercise.is_finisher && !disabled && (
+        {!exercise.is_finisher && !disabled && !sorenessLocked && (
           <SetCounter
             count={plannedCount}
             onChange={handleSetCountChange}
@@ -161,6 +163,7 @@ export function ExerciseSets({
             reps={set.reps}
             logged={set.logged}
             disabled={disabled}
+            sorenessLocked={sorenessLocked}
             onWeightChange={(v) => updateSet(set.set_number, "weight", v)}
             onRepsChange={(v) => updateSet(set.set_number, "reps", v)}
             onLog={() => handleLog(set.set_number)}

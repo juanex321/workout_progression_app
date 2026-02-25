@@ -37,6 +37,7 @@ export interface MuscleGroupData {
     pump: number;
     workload: number;
   } | null;
+  soreness_value: number | null;
 }
 
 export interface SessionResponse {
@@ -73,4 +74,10 @@ export interface FeedbackRequest {
   soreness: number;
   pump: number;
   workload: number;
+}
+
+export interface SorenessRequest {
+  session_id: number;
+  muscle_group: string;
+  soreness: number;
 }

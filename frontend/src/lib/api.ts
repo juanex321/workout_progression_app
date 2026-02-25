@@ -3,6 +3,7 @@ import type {
   WorkoutDataResponse,
   SaveSetsRequest,
   FeedbackRequest,
+  SorenessRequest,
 } from "./types";
 
 const BASE = "/api";
@@ -43,6 +44,14 @@ export const api = {
 
   submitFeedback(req: FeedbackRequest): Promise<{ status: string }> {
     return fetchJSON(`${BASE}/feedback/muscle-group`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+  },
+
+  saveSoreness(req: SorenessRequest): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/feedback/soreness`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),

@@ -6,6 +6,7 @@ interface FeedbackFormProps {
   muscleGroup: string;
   sessionId: number;
   initialValues?: { soreness: number; pump: number; workload: number };
+  initialSoreness?: number;
 }
 
 const LABELS: Record<string, string[]> = {
@@ -51,8 +52,9 @@ export function FeedbackForm({
   muscleGroup,
   sessionId,
   initialValues,
+  initialSoreness,
 }: FeedbackFormProps) {
-  const [soreness, setSoreness] = useState(initialValues?.soreness ?? 3);
+  const [soreness, setSoreness] = useState(initialValues?.soreness ?? initialSoreness ?? 3);
   const [pump, setPump] = useState(initialValues?.pump ?? 3);
   const [workload, setWorkload] = useState(initialValues?.workload ?? 3);
   const [submitted, setSubmitted] = useState(false);

@@ -4,28 +4,30 @@ import type { MuscleGroupData } from "@/lib/types";
 import { ExerciseSets } from "./ExerciseSets";
 import { FeedbackForm } from "./FeedbackForm";
 import { FeedbackSummary } from "./FeedbackSummary";
+import { SorenessSelector } from "./SorenessSelector";
+import { useSoreness } from "@/hooks/useSoreness";
 
 const RIR_COLORS: Record<number, string> = {
   0: "border-red-500",
-  1: "border-orange-500",
-  2: "border-yellow-500",
-  3: "border-green-500",
+  1: "border-yellow-500",
+  2: "border-green-500",
+  3: "border-zinc-500",
   4: "border-blue-500",
 };
 
 const RIR_BG: Record<number, string> = {
   0: "bg-red-500/5",
-  1: "bg-orange-500/5",
-  2: "bg-yellow-500/5",
-  3: "bg-green-500/5",
+  1: "bg-yellow-500/5",
+  2: "bg-green-500/5",
+  3: "bg-zinc-500/5",
   4: "bg-blue-500/5",
 };
 
 const RIR_EMOJI: Record<number, string> = {
   0: "\uD83D\uDD34",
-  1: "\uD83D\uDFE0",
-  2: "\uD83D\uDFE1",
-  3: "\uD83D\uDFE2",
+  1: "\uD83D\uDFE1",
+  2: "\uD83D\uDFE2",
+  3: "\u26AA",
   4: "\uD83D\uDD35",
 };
 
@@ -57,12 +59,31 @@ export function MuscleGroupCard({
     return initial;
   });
 
+  // Local soreness state — null until user picks, then overrides server value
+  const [localSoreness, setLocalSoreness] = useState<number | null>(null);
+  const saveSoreness = useSoreness(sessionId);
+
+  // Effective soreness: local pick takes priority over server-persisted value
+  const effectiveSoreness = localSoreness ?? data.soreness_value;
+
+  const handleSorenessChange = useCallback(
+    (v: number) => {
+      setLocalSoreness(v);
+      saveSoreness.mutate({ session_id: sessionId, muscle_group: muscleGroup, soreness: v });
+    },
+    [sessionId, muscleGroup, saveSoreness]
+  );
+
   const handleAllLogged = useCallback((weId: number, allLogged: boolean) => {
     setLoggedMap((prev) => (prev[weId] === allLogged ? prev : { ...prev, [weId]: allLogged }));
   }, []);
 
   const allSetsLogged = Object.values(loggedMap).every(Boolean);
   const showFeedback = allSetsLogged || data.feedback_exists || sessionCompleted;
+
+  // Sets are locked until soreness is selected (unless session is already completed
+  // or full feedback already exists — in those cases everything is read-only anyway)
+  const sorenessLocked = effectiveSoreness === null && !sessionCompleted && !data.feedback_exists;
 
   return (
     <div className={`rounded-xl border-2 ${borderColor} ${bgColor} mb-4 overflow-hidden`}>
@@ -82,6 +103,15 @@ export function MuscleGroupCard({
 
       {/* Exercises */}
       <div className="px-4 py-3 space-y-4">
+        {/* Soreness selector — always shown before full feedback is submitted */}
+        {!data.feedback_exists && (
+          <SorenessSelector
+            value={effectiveSoreness}
+            onChange={handleSorenessChange}
+            disabled={sessionCompleted}
+          />
+        )}
+
         {data.exercises.map((exercise) => (
           <ExerciseSets
             key={exercise.we_id}
@@ -89,6 +119,7 @@ export function MuscleGroupCard({
             sessionId={sessionId}
             targetRir={targetRir}
             disabled={sessionCompleted}
+            sorenessLocked={sorenessLocked}
             onAllLogged={(allLogged) => handleAllLogged(exercise.we_id, allLogged)}
           />
         ))}
@@ -108,6 +139,7 @@ export function MuscleGroupCard({
             <FeedbackForm
               muscleGroup={muscleGroup}
               sessionId={sessionId}
+              initialSoreness={effectiveSoreness ?? undefined}
             />
           ) : null}
         </div>

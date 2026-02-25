@@ -18,6 +18,12 @@ class FeedbackRequest(BaseModel):
     workload: int
 
 
+class SorenessRequest(BaseModel):
+    session_id: int
+    muscle_group: str
+    soreness: int
+
+
 # --- Response models ---
 
 class SetData(BaseModel):
@@ -55,6 +61,7 @@ class MuscleGroupData(BaseModel):
     feedback_summary: str
     feedback_exists: bool
     feedback_values: Optional[dict] = None
+    soreness_value: Optional[int] = None
 
 
 class SessionResponse(BaseModel):
