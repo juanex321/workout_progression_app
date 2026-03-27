@@ -60,7 +60,7 @@ export default function HomePage() {
     );
   }
 
-  if (currentSessionError) {
+  if (currentSessionError && !currentSession) {
     return (
       <div className="flex items-center justify-center min-h-screen px-4">
         <p className="text-sm text-red-400">
@@ -79,11 +79,11 @@ export default function HomePage() {
         onNavigate={handleNavigate}
       />
 
-      {workoutDataError ? (
+      {workoutDataError && !workoutData ? (
         <p className="text-center text-red-400 mt-8">
           Failed to load workout data. {(workoutDataError as Error).message}
         </p>
-      ) : loadingData ? (
+      ) : loadingData && !workoutData ? (
         <p className="text-center text-zinc-400 mt-8">Loading workout...</p>
       ) : workoutData ? (
         <>

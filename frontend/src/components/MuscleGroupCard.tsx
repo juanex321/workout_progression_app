@@ -105,12 +105,19 @@ export function MuscleGroupCard({
       <div className="px-4 py-3 space-y-4">
         {/* Soreness selector — always shown before full feedback is submitted */}
         {!data.feedback_exists && (
-          <SorenessSelector
-            muscleGroup={muscleGroup}
-            value={effectiveSoreness}
-            onChange={handleSorenessChange}
-            disabled={sessionCompleted}
-          />
+          <>
+            <SorenessSelector
+              muscleGroup={muscleGroup}
+              value={effectiveSoreness}
+              onChange={handleSorenessChange}
+              disabled={sessionCompleted}
+            />
+            {saveSoreness.isError && (
+              <p className="text-xs text-red-400 mt-1">
+                Failed to save soreness — tap again to retry
+              </p>
+            )}
+          </>
         )}
 
         {data.exercises.map((exercise) => (

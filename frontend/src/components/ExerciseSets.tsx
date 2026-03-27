@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { ExerciseData } from "@/lib/types";
 import { SetRow } from "./SetRow";
 import { SetCounter } from "./SetCounter";
@@ -10,6 +10,36 @@ interface DraftSet {
   weight: number;
   reps: number;
   logged: boolean;
+}
+
+function draftStorageKey(sessionId: number, weId: number): string {
+  return `draft_sets_${sessionId}_${weId}`;
+}
+
+function loadDraft(sessionId: number, weId: number): DraftSet[] | null {
+  try {
+    const raw = localStorage.getItem(draftStorageKey(sessionId, weId));
+    if (!raw) return null;
+    return JSON.parse(raw) as DraftSet[];
+  } catch {
+    return null;
+  }
+}
+
+function saveDraft(sessionId: number, weId: number, sets: DraftSet[]): void {
+  try {
+    localStorage.setItem(draftStorageKey(sessionId, weId), JSON.stringify(sets));
+  } catch {
+    // Storage full or unavailable — ignore
+  }
+}
+
+function clearDraft(sessionId: number, weId: number): void {
+  try {
+    localStorage.removeItem(draftStorageKey(sessionId, weId));
+  } catch {
+    // Ignore
+  }
 }
 
 interface ExerciseSetsProps {
@@ -29,9 +59,11 @@ export function ExerciseSets({
   sorenessLocked,
   onAllLogged,
 }: ExerciseSetsProps) {
-  // Initialize draft from existing sets or recommendations
+  // Initialize draft from localStorage, existing sets, or recommendations
   const initSets = (): DraftSet[] => {
+    // If sets already saved to server, use those (source of truth)
     if (exercise.existing_sets.length > 0) {
+      clearDraft(sessionId, exercise.we_id);
       return exercise.existing_sets.map((s) => ({
         set_number: s.set_number,
         weight: s.weight ?? 0,
@@ -39,6 +71,10 @@ export function ExerciseSets({
         logged: true,
       }));
     }
+    // Restore unsaved draft from localStorage
+    const cached = loadDraft(sessionId, exercise.we_id);
+    if (cached && cached.length > 0) return cached;
+    // Fall back to recommendations
     return exercise.recommendations.map((r) => ({
       set_number: r.set_number,
       weight: r.weight,
@@ -51,6 +87,21 @@ export function ExerciseSets({
   const [plannedCount, setPlannedCount] = useState(
     sets.length || exercise.target_sets
   );
+
+  // Persist draft to localStorage whenever sets change
+  const isInitialMount = useRef(true);
+  useEffect(() => {
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      return;
+    }
+    // Only save drafts with unlogged sets; clear when all are logged
+    if (sets.every((s) => s.logged)) {
+      clearDraft(sessionId, exercise.we_id);
+    } else {
+      saveDraft(sessionId, exercise.we_id, sets);
+    }
+  }, [sets, sessionId, exercise.we_id]);
 
   const logSet = useLogSet();
 
@@ -147,6 +198,12 @@ export function ExerciseSets({
           />
         )}
       </div>
+
+      {logSet.isError && (
+        <p className="text-xs text-red-400 mb-1">
+          Failed to save — tap Log again to retry
+        </p>
+      )}
 
       {suggestIncrease && (
         <p className="text-xs text-yellow-400 mb-1">

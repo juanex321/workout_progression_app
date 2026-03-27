@@ -130,13 +130,18 @@ export function FeedbackForm({
       <Slider label="Soreness" value={soreness} onChange={setSoreness} max={4} />
       <ChipSelect label="Pump" options={LABELS.pump} value={pump} onChange={setPump} />
       <ChipSelect label="Workload" options={LABELS.workload} value={workload} onChange={setWorkload} />
+      {feedback.isError && (
+        <p className="text-xs text-red-400">
+          Failed to submit — tap again to retry
+        </p>
+      )}
       <button
         onClick={handleSubmit}
         disabled={feedback.isPending}
         className="w-full h-10 rounded-lg bg-yellow-600 text-black font-medium text-sm
                    active:bg-yellow-500 disabled:opacity-50"
       >
-        {feedback.isPending ? "Saving..." : "Submit Feedback"}
+        {feedback.isPending ? "Saving..." : feedback.isError ? "Retry Submit" : "Submit Feedback"}
       </button>
     </div>
   );

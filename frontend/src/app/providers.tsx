@@ -8,9 +8,13 @@ export function Providers({ children }: { children: React.ReactNode }) {
       new QueryClient({
         defaultOptions: {
           queries: {
-            retry: 3,
-            retryDelay: (attempt) => Math.min(1000 * 2 ** attempt, 8000),
+            retry: 5,
+            retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 15000),
             refetchOnWindowFocus: false,
+          },
+          mutations: {
+            retry: 3,
+            retryDelay: (attempt) => Math.min(2000 * 2 ** attempt, 10000),
           },
         },
       })
