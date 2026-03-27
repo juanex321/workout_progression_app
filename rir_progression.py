@@ -7,17 +7,18 @@ muscle-specific session count (sessions since last deload), with feedback used t
 trigger deloads when overtraining is detected.
 
 RIR Progression Schedule (per muscle group):
-- Sessions 1-4:  RIR 2 (building intensity post-deload)
-- Sessions 5-8:  RIR 1 (high intensity)
-- Sessions 9+:   RIR 0 (peak intensity / max effort)
+- RIR 2: minimum 4 sessions + feedback readiness gate (can stay longer)
+- RIR 1: minimum 3 sessions (session-count driven)
+- RIR 0: minimum 2 sessions before deload can trigger
+- Deload (RIR 4): 1 recovery session, then cycle restarts at RIR 2
 
 Deload Trigger:
-- When at RIR 0 AND feedback shows overtraining → Deload (RIR 4)
+- When at RIR 0 for >= 2 sessions AND feedback shows overtraining → Deload (RIR 4)
 - After deload session, cycle restarts at RIR 2
 
 Key features:
 - Each muscle group progresses independently based on its training frequency
-- 3-4 sessions per RIR level before progressing
+- Minimum session floors per phase + feedback gates for advancement
 - Feedback drives SET progression (via progression.py)
 - Feedback triggers DELOAD when at peak intensity with poor recovery
 """
@@ -59,8 +60,14 @@ CONSECUTIVE_LOW_THRESHOLD = 3
 # Sessions with pump >= 2 AND workload >= 3 required before advancing from RIR 2 → RIR 1
 CONSECUTIVE_SESSIONS_TO_ADVANCE = 2
 
-# Sessions to spend at RIR 1 before advancing to RIR 0
-RIR1_SESSION_TARGET = 4
+# Minimum sessions at each RIR level before advancing to the next phase
+# (feedback gates still apply — these are floors, not the sole trigger)
+MIN_SESSIONS_AT_RIR2 = 4   # Must complete at least 4 sessions at RIR 2
+MIN_SESSIONS_AT_RIR1 = 3   # Must complete at least 3 sessions at RIR 1
+MIN_SESSIONS_AT_RIR0 = 2   # Must complete at least 2 sessions at RIR 0 before deload fires
+
+# Legacy alias kept for clarity in the RIR 1 phase block
+RIR1_SESSION_TARGET = MIN_SESSIONS_AT_RIR1
 
 # Readiness thresholds for leaving RIR 2 calibration phase
 ADVANCE_PUMP_MIN = 2.0    # Minimum pump to count as "good enough stimulus"
@@ -488,22 +495,22 @@ def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, st
 
     Phase progression (per muscle group, independent):
 
-    RIR 2 — Calibration (open-ended, feedback-gated)
-        Stay here until the user consistently reports sufficient stimulus:
-        pump >= ADVANCE_PUMP_MIN AND workload >= ADVANCE_WORKLOAD_MIN for
-        CONSECUTIVE_SESSIONS_TO_ADVANCE consecutive sessions.
-        Purpose: let volume stabilize at the right baseline before overreaching.
+    RIR 2 — Calibration (min 4 sessions + feedback-gated)
+        Must complete MIN_SESSIONS_AT_RIR2 sessions AND show sufficient stimulus
+        (pump >= ADVANCE_PUMP_MIN AND workload >= ADVANCE_WORKLOAD_MIN for
+        CONSECUTIVE_SESSIONS_TO_ADVANCE consecutive sessions) before advancing.
+        Can stay longer if feedback isn't ready.
 
-    RIR 1 — Slight Overreach (session-count driven, RIR1_SESSION_TARGET sessions)
+    RIR 1 — Slight Overreach (min 3 sessions)
         One extra set layered on top of the RIR 2 baseline.
-        User should barely recover in time for the next session.
+        Advances to RIR 0 after MIN_SESSIONS_AT_RIR1 sessions.
 
-    RIR 0 — Full Overreach (stay until deload triggered)
+    RIR 0 — Full Overreach (min 2 sessions before deload can fire)
         Two extra sets over baseline for peak stimulus.
-        Recovery between sessions is not expected.
+        Deload only triggers after MIN_SESSIONS_AT_RIR0 sessions at this level.
 
-    Deload (RIR 4) — triggered by feedback overtraining signals at any phase.
-        Weight cut to ~55%. After deload, cycle restarts at RIR 2.
+    Deload (RIR 4) — 1 recovery session, then cycle restarts at RIR 2.
+        Weight cut to ~55%. No minimum session requirement.
 
     Args:
         db: Database session
@@ -519,9 +526,15 @@ def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, st
     feedback_list = get_recent_muscle_feedback(db, muscle_group, limit=LOOKBACK_SESSIONS)
     analysis = analyze_feedback_trend(feedback_list) if feedback_list else {}
 
-    # Deload always takes priority over any phase logic
+    # Deload takes priority — but only fires after MIN_SESSIONS_AT_RIR0 at RIR 0.
+    # At RIR 2 / RIR 1 the user hasn't reached peak intensity yet, so deload is
+    # premature; the feedback-driven set reduction handles fatigue at those phases.
     if analysis.get("status") == "deload":
-        return RIR_DELOAD, "DELOAD (high fatigue detected) - Next session restarts at RIR 2", analysis
+        last_rir_early = get_last_rir_for_muscle(db, muscle_group)
+        if last_rir_early is not None and last_rir_early == RIR_FAILURE:
+            sessions_at_rir0 = count_consecutive_sessions_at_rir(db, muscle_group, RIR_FAILURE)
+            if sessions_at_rir0 >= MIN_SESSIONS_AT_RIR0:
+                return RIR_DELOAD, "DELOAD (high fatigue detected) - Next session restarts at RIR 2", analysis
 
     # Use the last logged RIR to determine which phase we are in
     last_rir = get_last_rir_for_muscle(db, muscle_group)
@@ -531,14 +544,23 @@ def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, st
         return RIR_HARD, "Calibration Phase - Establishing baseline volume (RIR 2)", analysis
 
     # --- RIR 2: Calibration / Exploratory Phase ---
-    # Duration is open-ended. Advance only when feedback confirms sufficient stimulus:
-    # pump >= ADVANCE_PUMP_MIN AND workload >= ADVANCE_WORKLOAD_MIN for
-    # CONSECUTIVE_SESSIONS_TO_ADVANCE consecutive sessions.
+    # Must complete MIN_SESSIONS_AT_RIR2 sessions AND pass feedback readiness check.
+    # Feedback alone is not enough — the user needs time to build a baseline.
     if last_rir == RIR_HARD:
-        if _ready_to_advance_from_rir2(feedback_list):
+        sessions_at_rir2 = count_consecutive_sessions_at_rir(db, muscle_group, RIR_HARD)
+        has_min_sessions = sessions_at_rir2 >= MIN_SESSIONS_AT_RIR2
+        feedback_ready = _ready_to_advance_from_rir2(feedback_list)
+
+        if has_min_sessions and feedback_ready:
             return (
                 RIR_VERY_HARD,
                 "Baseline established → Starting Overreach Phase (RIR 1)",
+                analysis,
+            )
+        if not has_min_sessions:
+            return (
+                RIR_HARD,
+                f"Calibration Phase - Session {sessions_at_rir2}/{MIN_SESSIONS_AT_RIR2} (RIR 2)",
                 analysis,
             )
         return RIR_HARD, "Calibration Phase - Building to sufficient stimulus (RIR 2)", analysis
