@@ -1,4 +1,5 @@
 ﻿import os
+import time
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -241,8 +242,23 @@ class Feedback(Base):
 
 @contextmanager
 def get_session():
-    """Database session context manager."""
-    session = SessionLocal()
+    """Database session context manager with retry for Neon cold starts."""
+    max_retries = 3
+    retry_delay = 1.0  # seconds
+
+    for attempt in range(max_retries):
+        session = SessionLocal()
+        try:
+            # Test the connection on first acquire (wakes Neon if suspended)
+            session.connection()
+            break
+        except Exception:
+            session.close()
+            if attempt < max_retries - 1:
+                time.sleep(retry_delay * (attempt + 1))
+            else:
+                raise
+
     try:
         yield session
         session.commit()
