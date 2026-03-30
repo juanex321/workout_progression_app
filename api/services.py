@@ -4,6 +4,8 @@ from __future__ import annotations
 from datetime import date
 from typing import Optional
 
+from sqlalchemy import func
+
 from db import Session as DbSession, WorkoutExercise, Exercise, Set, Feedback
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
@@ -152,26 +154,35 @@ def load_existing_sets(db, session_id: int, workout_exercise_id: int) -> list[Se
 def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
     """
     rows: iterable of dict-like rows with set_number, weight, reps, done(optional), rir(optional)
-    Deletes and replaces all sets for that exercise in that session.
+    Upserts each row by set_number — safe to retry, never wipes previously saved sets.
     """
-    db.query(Set).filter(
-        Set.session_id == session_id,
-        Set.workout_exercise_id == workout_exercise_id,
-    ).delete()
-
     for row in rows:
         # Skip incomplete sets
         if ("done" in row and not row["done"]) or ("logged" in row and not row["logged"]):
             continue
-        s = Set(
-            session_id=session_id,
-            workout_exercise_id=workout_exercise_id,
-            set_number=int(row["set_number"]),
-            weight=float(row["weight"]),
-            reps=int(row["reps"]),
-            rir=float(row.get("rir")) if row.get("rir") is not None else None,
+        set_num = int(row["set_number"])
+        existing = (
+            db.query(Set)
+            .filter(
+                Set.session_id == session_id,
+                Set.workout_exercise_id == workout_exercise_id,
+                Set.set_number == set_num,
+            )
+            .first()
         )
-        db.add(s)
+        if existing:
+            existing.weight = float(row["weight"])
+            existing.reps = int(row["reps"])
+            existing.rir = float(row.get("rir")) if row.get("rir") is not None else None
+        else:
+            db.add(Set(
+                session_id=session_id,
+                workout_exercise_id=workout_exercise_id,
+                set_number=set_num,
+                weight=float(row["weight"]),
+                reps=int(row["reps"]),
+                rir=float(row.get("rir")) if row.get("rir") is not None else None,
+            ))
 
     db.commit()
 
@@ -230,66 +241,71 @@ def is_last_exercise_for_muscle_group(
     """
     Check if the given workout_exercise is the last exercise for its muscle group
     in the current session, AND all other exercises for the same muscle group have
-    completed all their sets.
-    
-    Args:
-        db: Database session
-        workout_exercise: The WorkoutExercise to check
-        session_exercises: Ordered list of exercise names for the session
-        session_id: The session ID to check set completion
-    
-    Returns:
-        True if this is the last exercise for its muscle group AND all exercises
-        for the muscle group have all their sets logged, False otherwise
+    at least one set logged.
     """
-    # Get the exercise and its muscle group
     exercise = workout_exercise.exercise
     if not exercise.muscle_group:
-        # If no muscle group is set, treat each exercise independently
         return True
-    
+
     muscle_group = exercise.muscle_group
     exercise_name = exercise.name
-    
-    # Find the index of this exercise in the session
+
     try:
         current_index = session_exercises.index(exercise_name)
     except ValueError:
-        # Exercise not in session list, treat as last
         return True
-    
-    # Check if any later exercises have the same muscle group
+
+    # Batch load all exercises in the session (one query instead of N).
+    all_exercises = (
+        db.query(Exercise)
+        .filter(func.lower(Exercise.name).in_([n.lower() for n in session_exercises]))
+        .all()
+    )
+    exercise_map = {ex.name.lower(): ex for ex in all_exercises}
+
+    # If any later exercise belongs to the same muscle group, we're not last.
     for later_ex_name in session_exercises[current_index + 1:]:
-        later_exercise = db.query(Exercise).filter(Exercise.name.ilike(later_ex_name)).first()
-        if later_exercise and later_exercise.muscle_group == muscle_group:
-            # Found a later exercise with the same muscle group
+        later_ex = exercise_map.get(later_ex_name.lower())
+        if later_ex and later_ex.muscle_group == muscle_group:
             return False
-    
-    # Check if all exercises with the same muscle group have all their sets logged
-    for ex_name in session_exercises:
-        ex = db.query(Exercise).filter(Exercise.name.ilike(ex_name)).first()
-        if ex and ex.muscle_group == muscle_group:
-            # Find the corresponding WorkoutExercise
-            we = db.query(WorkoutExercise).filter(
-                WorkoutExercise.workout_id == workout_exercise.workout_id,
-                WorkoutExercise.exercise_id == ex.id
-            ).first()
-            
-            if we:
-                # Count logged sets for this exercise in the current session
-                logged_sets_count = db.query(Set).filter(
-                    Set.session_id == session_id,
-                    Set.workout_exercise_id == we.id
-                ).count()
-                
-                # FIX: Check if there are ANY logged sets (meaning the exercise has been started)
-                # An exercise is considered complete if at least 1 set is logged
-                # This allows the feedback form to appear when all exercises for a muscle group
-                # have been worked, regardless of whether all target sets were completed
-                if logged_sets_count == 0:
-                    return False
-    
-    # No later exercises with the same muscle group found and all exercises are complete
+
+    # Collect exercise IDs for the muscle group.
+    same_muscle_ex_ids = [
+        ex.id for ex in exercise_map.values()
+        if ex.muscle_group == muscle_group
+    ]
+    if not same_muscle_ex_ids:
+        return True
+
+    # Batch load the corresponding WorkoutExercise rows (one query).
+    we_for_muscle = (
+        db.query(WorkoutExercise)
+        .filter(
+            WorkoutExercise.workout_id == workout_exercise.workout_id,
+            WorkoutExercise.exercise_id.in_(same_muscle_ex_ids),
+        )
+        .all()
+    )
+    if not we_for_muscle:
+        return True
+
+    we_ids = {we.id for we in we_for_muscle}
+
+    # Batch count logged sets for all relevant exercises (one query).
+    set_counts = dict(
+        db.query(Set.workout_exercise_id, func.count(Set.id))
+        .filter(
+            Set.session_id == session_id,
+            Set.workout_exercise_id.in_(we_ids),
+        )
+        .group_by(Set.workout_exercise_id)
+        .all()
+    )
+
+    for we in we_for_muscle:
+        if set_counts.get(we.id, 0) == 0:
+            return False
+
     return True
 
 

@@ -12,6 +12,7 @@ from sqlalchemy import (
     ForeignKey,
     Date,
     DateTime,
+    UniqueConstraint,
     func,
     create_engine,
 )
@@ -124,6 +125,9 @@ class Session(Base):
 
 class Set(Base):
     __tablename__ = "sets"
+    __table_args__ = (
+        UniqueConstraint("session_id", "workout_exercise_id", "set_number", name="uq_set_session_exercise_number"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
@@ -134,6 +138,7 @@ class Set(Base):
     logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="sets")
+    workout_exercise = relationship("WorkoutExercise")
 
 
 class Feedback(Base):
@@ -148,6 +153,7 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")
+    workout_exercise = relationship("WorkoutExercise")
 
 
 @contextmanager

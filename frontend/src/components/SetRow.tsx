@@ -6,6 +6,8 @@ interface SetRowProps {
   weight: number;
   reps: number;
   logged: boolean;
+  pending?: boolean;
+  saveError?: boolean;
   disabled: boolean;
   sorenessLocked?: boolean;
   onWeightChange: (value: number) => void;
@@ -89,12 +91,22 @@ export function SetRow({
   weight,
   reps,
   logged,
+  pending,
+  saveError,
   disabled,
   sorenessLocked,
   onWeightChange,
   onRepsChange,
   onLog,
 }: SetRowProps) {
+  const logButtonClass = logged
+    ? "bg-green-600/20 text-green-400 border border-green-600/30"
+    : saveError
+    ? "bg-red-600/20 text-red-400 border border-red-600/30 active:bg-red-600/30"
+    : "bg-zinc-700 text-zinc-200 active:bg-zinc-600 disabled:opacity-30";
+
+  const logButtonLabel = pending ? "…" : logged ? "✓" : saveError ? "✗ Retry" : "Log";
+
   return (
     <div className="flex items-center gap-2">
       <span className="text-xs text-zinc-500 w-4 text-right shrink-0">
@@ -107,7 +119,7 @@ export function SetRow({
         step={2.5}
         min={0}
         inputMode="decimal"
-        disabled={disabled}
+        disabled={disabled || !!pending}
       />
 
       <Stepper
@@ -116,20 +128,16 @@ export function SetRow({
         step={1}
         min={1}
         inputMode="numeric"
-        disabled={disabled}
+        disabled={disabled || !!pending}
       />
 
       <button
         onClick={onLog}
-        disabled={disabled || !!sorenessLocked || !weight || !reps}
+        disabled={disabled || !!sorenessLocked || !weight || !reps || !!pending}
         className={`h-11 px-3 rounded-lg font-medium text-sm transition-colors shrink-0
-          ${
-            logged
-              ? "bg-green-600/20 text-green-400 border border-green-600/30"
-              : "bg-zinc-700 text-zinc-200 active:bg-zinc-600 disabled:opacity-30"
-          }`}
+          ${logButtonClass}`}
       >
-        {logged ? "✓" : "Log"}
+        {logButtonLabel}
       </button>
     </div>
   );

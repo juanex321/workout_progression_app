@@ -1,6 +1,9 @@
 """
 Script to update muscle groups for all exercises in the database.
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import get_session, Exercise
 
 # Define muscle groups for each exercise

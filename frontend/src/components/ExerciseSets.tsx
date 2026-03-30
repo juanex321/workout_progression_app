@@ -10,6 +10,7 @@ interface DraftSet {
   weight: number;
   reps: number;
   logged: boolean;
+  saveError?: boolean;
 }
 
 function draftStorageKey(sessionId: number, weId: number): string {
@@ -87,6 +88,7 @@ export function ExerciseSets({
   const [plannedCount, setPlannedCount] = useState(
     sets.length || exercise.target_sets
   );
+  const [savingSet, setSavingSet] = useState<number | null>(null);
 
   // Persist draft to localStorage whenever sets change
   const isInitialMount = useRef(true);
@@ -124,31 +126,56 @@ export function ExerciseSets({
 
   const handleLog = useCallback(
     (setNumber: number) => {
+      // Clear any previous error for this set, begin saving
       setSets((prev) =>
         prev.map((s) =>
-          s.set_number === setNumber ? { ...s, logged: true } : s
+          s.set_number === setNumber ? { ...s, saveError: false } : s
         )
       );
+      setSavingSet(setNumber);
 
-      // Get the current sets including the newly logged one
+      // Compute the rows to send (treat this set as logged, keep others as-is)
       const updatedSets = sets.map((s) =>
         s.set_number === setNumber ? { ...s, logged: true } : s
       );
 
-      // Save all logged sets to DB
-      logSet.mutate({
-        session_id: sessionId,
-        workout_exercise_id: exercise.we_id,
-        rows: updatedSets
-          .filter((s) => s.logged)
-          .map((s) => ({
-            set_number: s.set_number,
-            weight: s.weight,
-            reps: s.reps,
-            done: true,
-            rir: targetRir,
-          })),
-      });
+      logSet.mutate(
+        {
+          session_id: sessionId,
+          workout_exercise_id: exercise.we_id,
+          rows: updatedSets
+            .filter((s) => s.logged)
+            .map((s) => ({
+              set_number: s.set_number,
+              weight: s.weight,
+              reps: s.reps,
+              done: true,
+              rir: targetRir,
+            })),
+        },
+        {
+          onSuccess: () => {
+            setSets((prev) =>
+              prev.map((s) =>
+                s.set_number === setNumber
+                  ? { ...s, logged: true, saveError: false }
+                  : s
+              )
+            );
+            setSavingSet(null);
+          },
+          onError: () => {
+            setSets((prev) =>
+              prev.map((s) =>
+                s.set_number === setNumber
+                  ? { ...s, logged: false, saveError: true }
+                  : s
+              )
+            );
+            setSavingSet(null);
+          },
+        }
+      );
     },
     [sets, sessionId, exercise.we_id, targetRir, logSet]
   );
@@ -219,6 +246,8 @@ export function ExerciseSets({
             weight={set.weight}
             reps={set.reps}
             logged={set.logged}
+            pending={savingSet === set.set_number}
+            saveError={!!set.saveError}
             disabled={disabled}
             sorenessLocked={sorenessLocked}
             onWeightChange={(v) => updateSet(set.set_number, "weight", v)}

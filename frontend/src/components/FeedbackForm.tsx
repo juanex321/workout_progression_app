@@ -143,6 +143,11 @@ export function FeedbackForm({
       >
         {feedback.isPending ? "Saving..." : feedback.isError ? "Retry Submit" : "Submit Feedback"}
       </button>
+      {feedback.isError && (
+        <p className="text-xs text-red-400 text-center mt-1">
+          Save failed — tap Submit Feedback to retry
+        </p>
+      )}
     </div>
   );
 }

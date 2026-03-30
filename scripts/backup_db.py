@@ -3,9 +3,11 @@ Automatic database backup utility.
 Creates timestamped backups before any schema changes.
 Only works for SQLite databases (local development).
 """
+import sys
 import shutil
 from datetime import datetime
 from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import DATABASE_URL
 
 # Only backup SQLite databases

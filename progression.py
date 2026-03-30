@@ -100,18 +100,6 @@ def get_last_n_session_set_counts(
     return counts
 
 
-def get_recent_feedback(
-    db: OrmSession, workout_exercise_id: int, limit: int = 3
-) -> List[Feedback]:
-    return (
-        db.query(Feedback)
-        .filter(Feedback.workout_exercise_id == workout_exercise_id)
-        .order_by(Feedback.created_at.desc())
-        .limit(limit)
-        .all()
-    )
-
-
 def get_recent_muscle_group_feedback(
     db: OrmSession, muscle_group: str, limit: int = 3
 ) -> List[Feedback]:
@@ -225,26 +213,6 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
         db.commit()
 
     return int(s_reco)
-
-
-def should_deload_by_muscle_group(db: OrmSession, muscle_group: str) -> bool:
-    """
-    Check if a muscle group should deload based on recent feedback.
-
-    Uses the RIR progression system's deload detection.
-    Deload is triggered when feedback indicates excessive fatigue/overtraining.
-
-    Args:
-        db: Database session
-        muscle_group: Name of the muscle group
-
-    Returns:
-        True if deload is needed for this muscle group
-    """
-    from rir_progression import get_rir_for_muscle_group, RIR_DELOAD
-
-    target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
-    return target_rir >= RIR_DELOAD
 
 
 def calculate_reps_with_rir_progression(

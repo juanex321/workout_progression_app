@@ -5,6 +5,7 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "Workout Progression",
   description: "Track your workout progression with intelligent feedback",
+  manifest: "/manifest.json",
 };
 
 export const viewport: Viewport = {

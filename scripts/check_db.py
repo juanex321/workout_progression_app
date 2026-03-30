@@ -2,6 +2,9 @@
 Database health check utility.
 Verifies database connection and shows statistics.
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import get_session, Session, Set, Feedback, Exercise, DATABASE_URL
 
 def check_database():

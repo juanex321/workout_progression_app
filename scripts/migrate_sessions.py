@@ -2,9 +2,11 @@
 Safe migration script with automatic backup and rollback.
 This script migrates existing sessions to add session numbers and rotation indices.
 """
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).parent.parent))
 from db import get_session, Session, Set
 from backup_db import create_backup, restore_backup
-import sys
 
 def check_schema_compatibility():
     """Check if the database has the new schema columns."""

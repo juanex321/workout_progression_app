@@ -15,24 +15,27 @@ export default function HomePage() {
     error: currentSessionError,
   } = useCurrentSession();
 
-  // Set initial session from current
+  // Set initial session from current (syncing React Query data → local state is intentional here)
   useEffect(() => {
     if (currentSession && sessionNumber === null) {
+      /* eslint-disable react-hooks/set-state-in-effect */
       setSessionNumber(currentSession.session_number);
       setSessionId(currentSession.session_id);
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [currentSession, sessionNumber]);
 
   const { data: workoutData, isLoading: loadingData, error: workoutDataError } =
     useSessionData(sessionId);
 
-  // Update session ID when navigating by number
+  // Update session ID when navigating by number (syncing query result → local state is intentional)
   useEffect(() => {
     if (
       workoutData &&
       workoutData.session_number === sessionNumber &&
       workoutData.session_id !== sessionId
     ) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
       setSessionId(workoutData.session_id);
     }
   }, [workoutData, sessionNumber, sessionId]);

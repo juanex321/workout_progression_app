@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    UniqueConstraint,
     create_engine,
     func,
 )
@@ -112,9 +113,9 @@ def get_database_url():
         return _normalize_database_url(raw_url), "DATABASE_URL"
 
     if require_database_url:
-        print(
-            "WARNING: DATABASE_URL missing in hosted/production runtime; "
-            "falling back to SQLite. Set Railway DATABASE_URL to Neon."
+        raise RuntimeError(
+            "DATABASE_URL is not set in a hosted/production environment. "
+            "Add your Neon PostgreSQL connection string as DATABASE_URL in Railway."
         )
 
     # Fall back to SQLite for local development only.
@@ -138,6 +139,10 @@ try:
         )
 except Exception as exc:
     DATABASE_BOOT_ERROR = f"{type(exc).__name__}: {exc}"
+    if _hosted_runtime_detected():
+        raise RuntimeError(
+            f"Database engine initialization failed in production: {DATABASE_BOOT_ERROR}"
+        ) from exc
     print("Database engine initialization failed; falling back to SQLite.")
     print(DATABASE_BOOT_ERROR)
     db_path = Path(__file__).resolve().parent.parent / "workout.db"
@@ -210,6 +215,9 @@ class Session(Base):
 
 class Set(Base):
     __tablename__ = "sets"
+    __table_args__ = (
+        UniqueConstraint("session_id", "workout_exercise_id", "set_number", name="uq_set_session_exercise_number"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
@@ -220,6 +228,7 @@ class Set(Base):
     logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="sets")
+    workout_exercise = relationship("WorkoutExercise")
 
 
 class Feedback(Base):
@@ -238,6 +247,7 @@ class Feedback(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")
+    workout_exercise = relationship("WorkoutExercise")
 
 
 @contextmanager

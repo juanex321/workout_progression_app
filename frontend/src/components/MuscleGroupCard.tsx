@@ -6,6 +6,7 @@ import { FeedbackForm } from "./FeedbackForm";
 import { FeedbackSummary } from "./FeedbackSummary";
 import { SorenessSelector } from "./SorenessSelector";
 import { useSoreness } from "@/hooks/useSoreness";
+import { getDraft, saveDraftSoreness } from "@/lib/draft";
 
 const RIR_COLORS: Record<number, string> = {
   0: "border-red-500",
@@ -59,8 +60,12 @@ export function MuscleGroupCard({
     return initial;
   });
 
-  // Local soreness state — null until user picks, then overrides server value
-  const [localSoreness, setLocalSoreness] = useState<number | null>(null);
+  // Local soreness state — restore from draft if available, otherwise null until user picks
+  const [localSoreness, setLocalSoreness] = useState<number | null>(() => {
+    if (data.soreness_value !== null && data.soreness_value !== undefined) return null;
+    const draft = getDraft(sessionId);
+    return draft?.soreness[muscleGroup] ?? null;
+  });
   const saveSoreness = useSoreness(sessionId);
 
   // Effective soreness: local pick takes priority over server-persisted value
@@ -69,6 +74,7 @@ export function MuscleGroupCard({
   const handleSorenessChange = useCallback(
     (v: number) => {
       setLocalSoreness(v);
+      saveDraftSoreness(sessionId, muscleGroup, v);
       saveSoreness.mutate({ session_id: sessionId, muscle_group: muscleGroup, soreness: v });
     },
     [sessionId, muscleGroup, saveSoreness]
@@ -105,7 +111,7 @@ export function MuscleGroupCard({
       <div className="px-4 py-3 space-y-4">
         {/* Soreness selector — always shown before full feedback is submitted */}
         {!data.feedback_exists && (
-          <>
+          <div>
             <SorenessSelector
               muscleGroup={muscleGroup}
               value={effectiveSoreness}
@@ -114,10 +120,10 @@ export function MuscleGroupCard({
             />
             {saveSoreness.isError && (
               <p className="text-xs text-red-400 mt-1">
-                Failed to save soreness — tap again to retry
+                Soreness save failed — tap again to retry
               </p>
             )}
-          </>
+          </div>
         )}
 
         {data.exercises.map((exercise) => (

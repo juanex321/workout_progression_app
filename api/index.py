@@ -16,6 +16,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from routes import sessions, exercises, feedback, progression
 from db import (
+    _hosted_runtime_detected,
     get_database_runtime_info,
     init_db,
     seed_default_data,
@@ -59,7 +60,10 @@ def startup():
         print("Startup initialization failed:")
         print(STARTUP_ERROR)
         print(traceback.format_exc())
-        # Keep service available while external DB credentials are being fixed.
+        if _hosted_runtime_detected():
+            # In production, surface the error rather than masking it with SQLite.
+            raise
+        # Local dev only: keep service available while DB credentials are being fixed.
         try:
             switch_to_sqlite_fallback(STARTUP_ERROR)
             init_db()
