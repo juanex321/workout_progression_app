@@ -14,7 +14,9 @@
       "Bash(timeout 15 streamlit run:*)",
       "Bash(timeout 12 streamlit run:*)",
       "Bash(python:*)",
-      "Bash(timeout 10 streamlit run:*)"
+      "Bash(timeout 10 streamlit run:*)",
+      "Bash(git add:*)",
+      "Bash(git commit:*)"
     ]
   }
 }
