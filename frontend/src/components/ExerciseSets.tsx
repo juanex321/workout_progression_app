@@ -66,25 +66,84 @@ export function ExerciseSets({
     Number.isInteger(value) ? `${value}` : value.toFixed(1);
 
   const initSets = (): DraftSet[] => {
-    if (exercise.existing_sets.length > 0) {
-      clearDraft(sessionId, exercise.we_id);
-      return exercise.existing_sets.map((setRow) => ({
+    const cached = loadDraft(sessionId, exercise.we_id);
+    const existingMap = new Map(
+      exercise.existing_sets.map((setRow) => [
+        setRow.set_number,
+        {
+          set_number: setRow.set_number,
+          weight: setRow.weight ?? 0,
+          reps: setRow.reps ?? 0,
+          logged: true,
+        } satisfies DraftSet,
+      ])
+    );
+
+    const mergedRecommendations = exercise.recommendations.map((recommendation) => {
+      const existing = existingMap.get(recommendation.set_number);
+      return (
+        existing ?? {
+          set_number: recommendation.set_number,
+          weight: recommendation.weight,
+          reps: recommendation.reps,
+          logged: false,
+        }
+      );
+    });
+
+    const recommendationNumbers = new Set(
+      exercise.recommendations.map((recommendation) => recommendation.set_number)
+    );
+    const extraLoggedSets = exercise.existing_sets
+      .filter((setRow) => !recommendationNumbers.has(setRow.set_number))
+      .map((setRow) => ({
         set_number: setRow.set_number,
         weight: setRow.weight ?? 0,
         reps: setRow.reps ?? 0,
         logged: true,
       }));
+
+    const baseSets =
+      mergedRecommendations.length > 0
+        ? [...mergedRecommendations, ...extraLoggedSets].sort(
+            (a, b) => a.set_number - b.set_number
+          )
+        : exercise.existing_sets.length > 0
+          ? exercise.existing_sets.map((setRow) => ({
+              set_number: setRow.set_number,
+              weight: setRow.weight ?? 0,
+              reps: setRow.reps ?? 0,
+              logged: true,
+            }))
+          : exercise.recommendations.map((recommendation) => ({
+              set_number: recommendation.set_number,
+              weight: recommendation.weight,
+              reps: recommendation.reps,
+              logged: false,
+            }));
+
+    if (!cached || cached.length === 0) {
+      return baseSets;
     }
 
-    const cached = loadDraft(sessionId, exercise.we_id);
-    if (cached && cached.length > 0) return cached;
+    const cachedMap = new Map(cached.map((setRow) => [setRow.set_number, setRow]));
+    const mergedWithDraft = baseSets.map((setRow) => {
+      const draftSet = cachedMap.get(setRow.set_number);
+      if (!draftSet || setRow.logged) return setRow;
+      return {
+        ...setRow,
+        weight: draftSet.weight,
+        reps: draftSet.reps,
+        saveError: draftSet.saveError,
+      };
+    });
 
-    return exercise.recommendations.map((recommendation) => ({
-      set_number: recommendation.set_number,
-      weight: recommendation.weight,
-      reps: recommendation.reps,
-      logged: false,
-    }));
+    const existingNumbers = new Set(mergedWithDraft.map((setRow) => setRow.set_number));
+    const extraDraftSets = cached.filter((setRow) => !existingNumbers.has(setRow.set_number));
+
+    return [...mergedWithDraft, ...extraDraftSets].sort(
+      (a, b) => a.set_number - b.set_number
+    );
   };
 
   const [sets, setSets] = useState<DraftSet[]>(initSets);
@@ -204,7 +263,16 @@ export function ExerciseSets({
   const activeSet = sets.find((setRow) => !setRow.logged) ?? sets[sets.length - 1] ?? null;
   const hasRecentFeedback = !!feedbackSummary && feedbackSummary !== "No recent feedback";
   const lastSessionLabel = exercise.last_session_summary
-    ? `Prev ${formatWeight(exercise.last_session_summary.last_weight)} lb, ${exercise.last_session_summary.avg_reps} avg reps, ${exercise.last_session_summary.set_count} sets, RIR ${exercise.last_session_summary.recommended_rir}`
+    ? [
+        `Prev ${formatWeight(exercise.last_session_summary.last_weight)} lb`,
+        `${exercise.last_session_summary.avg_reps} avg reps`,
+        typeof exercise.last_session_summary.set_count === "number"
+          ? `${exercise.last_session_summary.set_count} sets`
+          : null,
+        `RIR ${exercise.last_session_summary.recommended_rir}`,
+      ]
+        .filter(Boolean)
+        .join(", ")
     : null;
 
   return (

@@ -9,7 +9,7 @@ export function useSoreness(sessionId: number | null) {
   return useMutation({
     mutationFn: (data: SorenessRequest) => api.saveSoreness(data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["workout-data", sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["workout-data-v2", sessionId] });
     },
   });
 }

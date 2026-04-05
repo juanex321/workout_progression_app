@@ -10,7 +10,7 @@ export function useFeedback(sessionId: number | null) {
     mutationFn: (data: FeedbackRequest) => api.submitFeedback(data),
     onSuccess: () => {
       // Refresh workout data after feedback submission
-      queryClient.invalidateQueries({ queryKey: ["workout-data", sessionId] });
+      queryClient.invalidateQueries({ queryKey: ["workout-data-v2", sessionId] });
     },
   });
 }

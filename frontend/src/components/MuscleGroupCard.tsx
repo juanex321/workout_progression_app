@@ -50,12 +50,16 @@ export function MuscleGroupCard({
   const borderColor = RIR_COLORS[targetRir] ?? "border-zinc-600";
   const bgColor = RIR_BG[targetRir] ?? "";
   const emoji = RIR_EMOJI[targetRir] ?? "";
+  const regularExercises = data.exercises.filter((exercise) => !exercise.is_finisher);
+  const finisherExercises = data.exercises.filter((exercise) => exercise.is_finisher);
 
   // Track which exercises have all sets logged
   const [loggedMap, setLoggedMap] = useState<Record<number, boolean>>(() => {
     const initial: Record<number, boolean> = {};
     for (const ex of data.exercises) {
-      initial[ex.we_id] = ex.existing_sets.length > 0;
+      initial[ex.we_id] =
+        ex.existing_sets.length > 0 &&
+        ex.existing_sets.length >= Math.max(ex.recommendations.length, 1);
     }
     return initial;
   });
@@ -85,6 +89,14 @@ export function MuscleGroupCard({
   }, []);
 
   const allSetsLogged = Object.values(loggedMap).every(Boolean);
+  const regularExercisesComplete =
+    regularExercises.length === 0 || regularExercises.every((exercise) => loggedMap[exercise.we_id]);
+  const visibleExercises = [
+    ...regularExercises,
+    ...finisherExercises.filter(
+      (exercise) => regularExercisesComplete || loggedMap[exercise.we_id] || sessionCompleted
+    ),
+  ];
   const showFeedback = allSetsLogged || data.feedback_exists || sessionCompleted;
 
   // Sets are locked until soreness is selected (unless session is already completed
@@ -133,7 +145,7 @@ export function MuscleGroupCard({
           </div>
         )}
 
-        {data.exercises.map((exercise) => (
+        {visibleExercises.map((exercise) => (
           <ExerciseSets
             key={exercise.we_id}
             exercise={exercise}

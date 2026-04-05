@@ -9,7 +9,7 @@ export function useFinishWorkout() {
     mutationFn: (sessionId: number) => api.completeSession(sessionId),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["current-session"] });
-      queryClient.invalidateQueries({ queryKey: ["workout-data"] });
+      queryClient.invalidateQueries({ queryKey: ["workout-data-v2"] });
     },
   });
 }

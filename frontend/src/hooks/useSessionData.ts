@@ -4,10 +4,11 @@ import { api } from "@/lib/api";
 
 export function useSessionData(sessionId: number | null) {
   return useQuery({
-    queryKey: ["workout-data", sessionId],
+    queryKey: ["workout-data-v2", sessionId],
     queryFn: () => api.getWorkoutData(sessionId!),
     enabled: !!sessionId,
     staleTime: Infinity, // Load once and hold locally during a session
+    refetchOnMount: "always",
     gcTime: 10 * 60 * 1000,
   });
 }
