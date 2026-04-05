@@ -46,6 +46,7 @@ class LastSessionSummary(BaseModel):
     last_weight: float
     avg_reps: int
     recommended_rir: int
+    set_count: int
 
 
 class WeightRecommendation(BaseModel):

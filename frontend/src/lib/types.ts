@@ -18,6 +18,7 @@ export interface LastSessionSummary {
   last_weight: number;
   avg_reps: number;
   recommended_rir: number;
+  set_count: number;
 }
 
 export interface WeightRecommendation {

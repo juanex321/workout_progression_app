@@ -210,6 +210,7 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
         "last_weight": last_weight,
         "avg_reps": int(round(sum(reps) / len(reps))),
         "recommended_rir": last_rir,
+        "set_count": len(ordered_sets),
     }
 
     recommendation = None

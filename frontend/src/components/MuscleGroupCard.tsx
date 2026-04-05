@@ -85,7 +85,6 @@ export function MuscleGroupCard({
   }, []);
 
   const allSetsLogged = Object.values(loggedMap).every(Boolean);
-  const completedExercises = Object.values(loggedMap).filter(Boolean).length;
   const showFeedback = allSetsLogged || data.feedback_exists || sessionCompleted;
 
   // Sets are locked until soreness is selected (unless session is already completed
@@ -97,32 +96,21 @@ export function MuscleGroupCard({
       className={`mb-4 overflow-hidden rounded-[28px] border ${borderColor} ${bgColor} bg-zinc-950/85 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur`}
     >
       {/* Header */}
-      <div className="border-b border-white/8 px-4 py-4">
-        <div className="flex items-start justify-between gap-3">
+      <div className="border-b border-white/8 px-4 py-3">
+        <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold tracking-tight">
               {emoji} {muscleGroup}
             </h2>
-            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-500">{data.phase}</p>
           </div>
-          <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-medium text-zinc-300">
+          <span className="rounded-full border border-white/10 bg-black/25 px-3.5 py-1.5 text-sm font-semibold text-zinc-100">
             RIR {targetRir}
           </span>
         </div>
-        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
-          <p className="text-zinc-400">
-            {allSetsLogged
-              ? "All exercises logged. Feedback is ready."
-              : sorenessLocked
-                ? "Log recovery to unlock set tracking."
-                : `${completedExercises} of ${data.exercises.length} exercises complete`}
+        {sorenessLocked && (
+          <p className="mt-2 text-xs text-zinc-400">
+            Log recovery to unlock set tracking.
           </p>
-          <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300">
-            {completedExercises}/{data.exercises.length}
-          </span>
-        </div>
-        {data.feedback_summary && data.feedback_summary !== "No recent feedback" && (
-          <p className="mt-2 text-xs text-zinc-500">Recent: {data.feedback_summary}</p>
         )}
       </div>
 
@@ -153,6 +141,7 @@ export function MuscleGroupCard({
             targetRir={targetRir}
             disabled={sessionCompleted}
             sorenessLocked={sorenessLocked}
+            feedbackSummary={data.feedback_summary}
             onAllLogged={(allLogged) => handleAllLogged(exercise.we_id, allLogged)}
           />
         ))}
