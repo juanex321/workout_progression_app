@@ -278,7 +278,7 @@ export function ExerciseSets({
   return (
     <section className="rounded-2xl border border-white/8 bg-white/4 p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
-        <div className="min-w-0 flex items-center">
+        <div className="min-w-0 flex items-center self-center">
           <div className="flex min-w-0 items-center gap-2">
             <h3 className="text-sm font-semibold text-zinc-100">{exercise.name}</h3>
             {exercise.is_finisher && (
@@ -292,7 +292,7 @@ export function ExerciseSets({
         <button
           type="button"
           onClick={() => setShowAllSets((prev) => !prev)}
-          className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
+          className="justify-self-center rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
         >
           {showAllSets ? "Hide sets" : "Full session"}
         </button>

@@ -32,6 +32,38 @@ const RIR_PILL: Record<number, string> = {
   4: "border-blue-400/30 bg-blue-500/12 text-blue-100",
 };
 
+const PHASE_LABELS: Record<number, string> = {
+  0: "Max effort",
+  1: "Overreach",
+  2: "Calibration",
+  4: "Deload",
+};
+
+const PHASE_SESSION_TOTALS: Partial<Record<number, number>> = {
+  0: 2,
+  1: 3,
+  2: 4,
+  4: 1,
+};
+
+function getCompactPhaseLabel(phase: string, targetRir: number): string {
+  const baseLabel = PHASE_LABELS[targetRir] ?? phase;
+  const sessionMatch = phase.match(/Session\s+(\d+)(?:\/(\d+))?/i);
+
+  if (sessionMatch) {
+    const current = sessionMatch[1];
+    const total = sessionMatch[2] ?? PHASE_SESSION_TOTALS[targetRir];
+    return total ? `${baseLabel} · S${current}/${total}` : `${baseLabel} · S${current}`;
+  }
+
+  if (/starting fresh/i.test(phase)) {
+    const total = PHASE_SESSION_TOTALS[targetRir];
+    return total ? `${baseLabel} · S1/${total}` : baseLabel;
+  }
+
+  return baseLabel;
+}
+
 const RIR_EMOJI: Record<number, string> = {
   0: "\uD83D\uDD34",
   1: "\uD83D\uDFE1",
@@ -58,6 +90,7 @@ export function MuscleGroupCard({
   const borderColor = RIR_COLORS[targetRir] ?? "border-zinc-600";
   const bgColor = RIR_BG[targetRir] ?? "";
   const rirPill = RIR_PILL[targetRir] ?? "border-white/10 bg-black/25 text-zinc-100";
+  const compactPhase = getCompactPhaseLabel(data.phase, targetRir);
   const emoji = RIR_EMOJI[targetRir] ?? "";
   const regularExercises = data.exercises.filter((exercise) => !exercise.is_finisher);
   const finisherExercises = data.exercises.filter((exercise) => exercise.is_finisher);
@@ -124,8 +157,8 @@ export function MuscleGroupCard({
               <h2 className="text-xl font-bold tracking-tight text-zinc-50">
                 {emoji} {muscleGroup}
               </h2>
-              <span className="text-sm text-zinc-400 truncate">
-                {data.phase}
+              <span className="truncate text-sm text-zinc-400">
+                {compactPhase}
               </span>
             </div>
           </div>
