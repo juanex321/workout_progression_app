@@ -264,7 +264,7 @@ export function ExerciseSets({
   const hasRecentFeedback = !!feedbackSummary && feedbackSummary !== "No recent feedback";
   const lastSessionLabel = exercise.last_session_summary
     ? [
-        `Prev ${formatWeight(exercise.last_session_summary.last_weight)} lb`,
+        `Last ${formatWeight(exercise.last_session_summary.last_weight)} lb`,
         `${exercise.last_session_summary.avg_reps} avg reps`,
         typeof exercise.last_session_summary.set_count === "number"
           ? `${exercise.last_session_summary.set_count} sets`
@@ -286,6 +286,13 @@ export function ExerciseSets({
                 Finisher
               </span>
             )}
+            <button
+              type="button"
+              onClick={() => setShowAllSets((prev) => !prev)}
+              className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
+            >
+              {showAllSets ? "Hide sets" : "Full session"}
+            </button>
           </div>
         </div>
 
@@ -351,16 +358,6 @@ export function ExerciseSets({
           />
         </div>
       )}
-
-      <div className="mt-3 flex items-center justify-end border-t border-white/8 pt-3">
-        <button
-          type="button"
-          onClick={() => setShowAllSets((prev) => !prev)}
-          className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
-        >
-          {showAllSets ? "Hide full session" : "Show full session"}
-        </button>
-      </div>
 
       {showAllSets && (
         <div className="mt-3 space-y-1.5 rounded-2xl border border-white/8 bg-black/15 p-2.5">

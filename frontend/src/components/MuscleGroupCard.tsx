@@ -108,7 +108,7 @@ export function MuscleGroupCard({
       className={`mb-4 overflow-hidden rounded-[28px] border ${borderColor} ${bgColor} bg-zinc-950/85 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur`}
     >
       {/* Header */}
-      <div className="border-b border-white/8 px-4 py-3">
+      <div className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
           <div>
             <h2 className="text-xl font-bold tracking-tight">
