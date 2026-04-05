@@ -24,6 +24,14 @@ const RIR_BG: Record<number, string> = {
   4: "bg-blue-500/8",
 };
 
+const RIR_PILL: Record<number, string> = {
+  0: "border-red-400/30 bg-red-500/12 text-red-100",
+  1: "border-yellow-400/30 bg-yellow-500/12 text-yellow-100",
+  2: "border-emerald-400/30 bg-emerald-500/12 text-emerald-100",
+  3: "border-zinc-400/20 bg-zinc-500/10 text-zinc-200",
+  4: "border-blue-400/30 bg-blue-500/12 text-blue-100",
+};
+
 const RIR_EMOJI: Record<number, string> = {
   0: "\uD83D\uDD34",
   1: "\uD83D\uDFE1",
@@ -49,6 +57,7 @@ export function MuscleGroupCard({
 }: MuscleGroupCardProps) {
   const borderColor = RIR_COLORS[targetRir] ?? "border-zinc-600";
   const bgColor = RIR_BG[targetRir] ?? "";
+  const rirPill = RIR_PILL[targetRir] ?? "border-white/10 bg-black/25 text-zinc-100";
   const emoji = RIR_EMOJI[targetRir] ?? "";
   const regularExercises = data.exercises.filter((exercise) => !exercise.is_finisher);
   const finisherExercises = data.exercises.filter((exercise) => exercise.is_finisher);
@@ -110,20 +119,20 @@ export function MuscleGroupCard({
       {/* Header */}
       <div className="px-4 py-3">
         <div className="flex items-center justify-between gap-3">
-          <div>
-            <h2 className="text-xl font-bold tracking-tight">
-              {emoji} {muscleGroup}
-            </h2>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2">
+              <h2 className="text-xl font-bold tracking-tight text-zinc-50">
+                {emoji} {muscleGroup}
+              </h2>
+              <span className="text-sm text-zinc-400 truncate">
+                {data.phase}
+              </span>
+            </div>
           </div>
-          <span className="rounded-full border border-white/10 bg-black/25 px-3.5 py-1.5 text-sm font-semibold text-zinc-100">
+          <span className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold ${rirPill}`}>
             RIR {targetRir}
           </span>
         </div>
-        {sorenessLocked && (
-          <p className="mt-2 text-xs text-zinc-400">
-            Log recovery to unlock set tracking.
-          </p>
-        )}
       </div>
 
       {/* Exercises */}

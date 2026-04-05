@@ -277,24 +277,25 @@ export function ExerciseSets({
 
   return (
     <section className="rounded-2xl border border-white/8 bg-white/4 p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex items-center gap-2">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
+        <div className="min-w-0 flex items-center">
+          <div className="flex min-w-0 items-center gap-2">
             <h3 className="text-sm font-semibold text-zinc-100">{exercise.name}</h3>
             {exercise.is_finisher && (
               <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400">
                 Finisher
               </span>
             )}
-            <button
-              type="button"
-              onClick={() => setShowAllSets((prev) => !prev)}
-              className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
-            >
-              {showAllSets ? "Hide sets" : "Full session"}
-            </button>
           </div>
         </div>
+
+        <button
+          type="button"
+          onClick={() => setShowAllSets((prev) => !prev)}
+          className="rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
+        >
+          {showAllSets ? "Hide sets" : "Full session"}
+        </button>
 
         {!exercise.is_finisher && !disabled && !sorenessLocked ? (
           <SetCounter
@@ -311,16 +312,26 @@ export function ExerciseSets({
       </div>
 
       {(hasRecentFeedback || lastSessionLabel) && (
-        <div className="mt-2 flex flex-wrap gap-2 text-[11px] text-zinc-300">
+        <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
           {hasRecentFeedback && (
-            <span className="rounded-full border border-white/8 bg-black/20 px-2.5 py-1">
-              Recent: {feedbackSummary}
-            </span>
+            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                Recent feedback
+              </p>
+              <p className="mt-1 text-[11px] text-zinc-200">
+                {feedbackSummary}
+              </p>
+            </div>
           )}
           {lastSessionLabel && (
-            <span className="rounded-full border border-white/8 bg-black/20 px-2.5 py-1">
-              {lastSessionLabel}
-            </span>
+            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
+              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
+                Last session
+              </p>
+              <p className="mt-1 text-[11px] text-zinc-200">
+                {lastSessionLabel}
+              </p>
+            </div>
           )}
         </div>
       )}
