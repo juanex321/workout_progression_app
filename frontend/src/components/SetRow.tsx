@@ -10,6 +10,7 @@ interface SetRowProps {
   saveError?: boolean;
   disabled: boolean;
   sorenessLocked?: boolean;
+  highlight?: boolean;
   onWeightChange: (value: number) => void;
   onRepsChange: (value: number) => void;
   onLog: () => void;
@@ -40,13 +41,13 @@ function Stepper({
         type="button"
         onClick={() => onChange(Math.max(min, value - step))}
         disabled={disabled || value <= min}
-        className="w-9 h-11 rounded-l-lg bg-zinc-700 text-zinc-300 text-lg font-bold
-                   active:bg-zinc-600 disabled:opacity-30 shrink-0"
+        className="h-11 w-10 shrink-0 rounded-l-xl border border-white/10 bg-zinc-700/80 text-lg font-bold text-zinc-200
+                   transition-colors active:bg-zinc-600 disabled:opacity-30"
       >
         −
       </button>
       <div
-        className="relative flex-1 h-11 bg-zinc-800 border-y border-zinc-700 cursor-text"
+        className="relative h-11 flex-1 cursor-text border-y border-white/10 bg-zinc-900/80"
         onClick={() => {
           inputRef.current?.focus();
           inputRef.current?.select();
@@ -64,11 +65,11 @@ function Stepper({
             onChange(Math.max(min, parsed));
           }}
           disabled={disabled}
-          className="w-full h-full bg-transparent text-center text-base font-medium
+          className="h-full w-full bg-transparent px-5 text-center text-base font-semibold text-zinc-100
                      focus:outline-none disabled:opacity-50"
         />
         {suffix && (
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] text-zinc-500">
+          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
             {suffix}
           </span>
         )}
@@ -77,8 +78,8 @@ function Stepper({
         type="button"
         onClick={() => onChange(value + step)}
         disabled={disabled}
-        className="w-9 h-11 rounded-r-lg bg-zinc-700 text-zinc-300 text-lg font-bold
-                   active:bg-zinc-600 disabled:opacity-30 shrink-0"
+        className="h-11 w-10 shrink-0 rounded-r-xl border border-white/10 bg-zinc-700/80 text-lg font-bold text-zinc-200
+                   transition-colors active:bg-zinc-600 disabled:opacity-30"
       >
         +
       </button>
@@ -95,21 +96,30 @@ export function SetRow({
   saveError,
   disabled,
   sorenessLocked,
+  highlight,
   onWeightChange,
   onRepsChange,
   onLog,
 }: SetRowProps) {
   const logButtonClass = logged
-    ? "bg-green-600/20 text-green-400 border border-green-600/30"
+    ? "border border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
     : saveError
-    ? "bg-red-600/20 text-red-400 border border-red-600/30 active:bg-red-600/30"
-    : "bg-zinc-700 text-zinc-200 active:bg-zinc-600 disabled:opacity-30";
+    ? "border border-red-500/30 bg-red-500/15 text-red-300 active:bg-red-500/25"
+    : "bg-zinc-200 text-zinc-950 active:bg-white disabled:opacity-30";
 
   const logButtonLabel = pending ? "…" : logged ? "✓" : saveError ? "✗ Retry" : "Log";
 
   return (
-    <div className="flex items-center gap-2">
-      <span className="text-xs text-zinc-500 w-4 text-right shrink-0">
+    <div
+      className={`flex items-center gap-2 ${highlight ? "rounded-2xl border border-white/10 bg-white/5 p-2.5" : ""}`}
+    >
+      <span
+        className={`shrink-0 text-right text-xs ${
+          highlight
+            ? "flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-zinc-200"
+            : "w-4 text-zinc-500"
+        }`}
+      >
         {setNumber}
       </span>
 
@@ -120,6 +130,7 @@ export function SetRow({
         min={0}
         inputMode="decimal"
         disabled={disabled || !!pending}
+        suffix="lb"
       />
 
       <Stepper
@@ -129,12 +140,14 @@ export function SetRow({
         min={1}
         inputMode="numeric"
         disabled={disabled || !!pending}
+        suffix="reps"
       />
 
       <button
+        type="button"
         onClick={onLog}
         disabled={disabled || !!sorenessLocked || !weight || !reps || !!pending}
-        className={`h-11 px-3 rounded-lg font-medium text-sm transition-colors shrink-0
+        className={`h-11 shrink-0 rounded-xl px-3 text-sm font-semibold transition-colors
           ${logButtonClass}`}
       >
         {logButtonLabel}

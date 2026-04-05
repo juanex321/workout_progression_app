@@ -92,6 +92,7 @@ export function ExerciseSets({
     sets.length || exercise.target_sets
   );
   const [savingSet, setSavingSet] = useState<number | null>(null);
+  const [showAllSets, setShowAllSets] = useState(false);
 
   // Persist draft to localStorage whenever sets change
   const isInitialMount = useRef(true);
@@ -208,27 +209,42 @@ export function ExerciseSets({
     []
   );
 
+  const loggedCount = sets.filter((set) => set.logged).length;
+  const allLogged = sets.length > 0 && loggedCount === sets.length;
+  const activeSet = sets.find((set) => !set.logged) ?? sets[sets.length - 1] ?? null;
+  const activeSetLabel = activeSet ? `Set ${activeSet.set_number} of ${sets.length}` : "No sets planned";
+
   return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="font-semibold text-sm">
-          {exercise.name}
-          {exercise.is_finisher && (
-            <span className="ml-1.5 text-xs text-zinc-500">(finisher)</span>
+    <section className="rounded-2xl border border-white/8 bg-white/4 p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <h3 className="text-sm font-semibold text-zinc-100">{exercise.name}</h3>
+            {exercise.is_finisher && (
+              <span className="rounded-full border border-white/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.18em] text-zinc-400">
+                Finisher
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-2">
+          <span className="rounded-full border border-white/10 bg-black/20 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-300">
+            {allLogged ? "Completed" : activeSetLabel}
+          </span>
+          {!exercise.is_finisher && !disabled && !sorenessLocked && (
+            <SetCounter
+              count={plannedCount}
+              onChange={handleSetCountChange}
+              min={1}
+              max={10}
+            />
           )}
-        </h3>
-        {!exercise.is_finisher && !disabled && !sorenessLocked && (
-          <SetCounter
-            count={plannedCount}
-            onChange={handleSetCountChange}
-            min={1}
-            max={10}
-          />
-        )}
+        </div>
       </div>
 
       {exercise.last_session_summary && (
-        <p className="text-xs text-zinc-400 mb-1.5">
+        <p className="mt-1 text-xs text-zinc-400">
           Last time: {formatWeight(exercise.last_session_summary.last_weight)} lb
           {" · "}avg {exercise.last_session_summary.avg_reps} reps{" · "}RIR{" "}
           {exercise.last_session_summary.recommended_rir}
@@ -236,13 +252,13 @@ export function ExerciseSets({
       )}
 
       {logSet.isError && (
-        <p className="text-xs text-red-400 mb-1">
+        <p className="mt-2 text-xs text-red-300">
           Failed to save — tap Log again to retry
         </p>
       )}
 
       {exercise.weight_recommendation && (
-        <p className="text-xs text-yellow-400 mb-1">
+        <p className="mt-2 rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
           {exercise.weight_recommendation.message}
           {exercise.weight_recommendation.context_note
             ? `. ${exercise.weight_recommendation.context_note}`
@@ -250,24 +266,74 @@ export function ExerciseSets({
         </p>
       )}
 
-      <div className="space-y-1.5">
-        {sets.map((set) => (
+      {allLogged ? (
+        <div className="mt-3 rounded-2xl border border-emerald-500/20 bg-emerald-500/10 px-4 py-3">
+          <p className="text-sm font-semibold text-emerald-200">Exercise complete</p>
+          <p className="mt-1 text-xs text-emerald-100/75">
+            {loggedCount} of {sets.length} sets logged for this movement.
+          </p>
+        </div>
+      ) : activeSet ? (
+        <div className="mt-3 space-y-2">
+          <div className="flex items-center justify-between text-xs text-zinc-400">
+            <span>Current working set</span>
+            <span>{loggedCount}/{sets.length} logged</span>
+          </div>
           <SetRow
-            key={set.set_number}
-            setNumber={set.set_number}
-            weight={set.weight}
-            reps={set.reps}
-            logged={set.logged}
-            pending={savingSet === set.set_number}
-            saveError={!!set.saveError}
+            setNumber={activeSet.set_number}
+            weight={activeSet.weight}
+            reps={activeSet.reps}
+            logged={activeSet.logged}
+            pending={savingSet === activeSet.set_number}
+            saveError={!!activeSet.saveError}
             disabled={disabled}
             sorenessLocked={sorenessLocked}
-            onWeightChange={(v) => updateSet(set.set_number, "weight", v)}
-            onRepsChange={(v) => updateSet(set.set_number, "reps", v)}
-            onLog={() => handleLog(set.set_number)}
+            highlight
+            onWeightChange={(value) => updateSet(activeSet.set_number, "weight", value)}
+            onRepsChange={(value) => updateSet(activeSet.set_number, "reps", value)}
+            onLog={() => handleLog(activeSet.set_number)}
           />
-        ))}
+        </div>
+      ) : (
+        <p className="mt-3 text-xs text-zinc-500">No sets planned yet.</p>
+      )}
+
+      <div className="mt-3 flex items-center justify-between gap-3 border-t border-white/8 pt-3">
+        <p className="text-xs text-zinc-500">
+          {loggedCount === 0
+            ? `${sets.length} sets queued`
+            : `${loggedCount} of ${sets.length} sets logged`}
+        </p>
+        <button
+          type="button"
+          onClick={() => setShowAllSets((prev) => !prev)}
+          className="rounded-full border border-white/10 px-3 py-1.5 text-xs font-medium text-zinc-300 transition-colors hover:border-white/20 hover:text-white"
+        >
+          {showAllSets ? "Hide full session" : "Show full session"}
+        </button>
       </div>
-    </div>
+
+      {showAllSets && (
+        <div className="mt-3 space-y-1.5 rounded-2xl border border-white/8 bg-black/15 p-2.5">
+          {sets.map((set) => (
+            <SetRow
+              key={set.set_number}
+              setNumber={set.set_number}
+              weight={set.weight}
+              reps={set.reps}
+              logged={set.logged}
+              pending={savingSet === set.set_number}
+              saveError={!!set.saveError}
+              disabled={disabled}
+              sorenessLocked={sorenessLocked}
+              highlight={!set.logged && set.set_number === activeSet?.set_number}
+              onWeightChange={(value) => updateSet(set.set_number, "weight", value)}
+              onRepsChange={(value) => updateSet(set.set_number, "reps", value)}
+              onLog={() => handleLog(set.set_number)}
+            />
+          ))}
+        </div>
+      )}
+    </section>
   );
 }

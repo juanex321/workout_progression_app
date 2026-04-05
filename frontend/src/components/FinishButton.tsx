@@ -36,11 +36,11 @@ export function FinishButton({
       <button
         onClick={handleFinish}
         disabled={finishWorkout.isPending}
-        className={`w-full h-12 rounded-xl font-bold text-base transition-colors
+        className={`h-[52px] w-full rounded-2xl border font-bold text-base transition-colors
           ${
             allFeedbackDone
-              ? "bg-green-600 text-white active:bg-green-500"
-              : "bg-zinc-700 text-zinc-400"
+              ? "border-emerald-400/30 bg-emerald-500 text-zinc-950 active:bg-emerald-400"
+              : "border-white/10 bg-white/5 text-zinc-400"
           }
           disabled:opacity-50`}
       >

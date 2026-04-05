@@ -49,13 +49,13 @@ export function SorenessSelector({
   if (!expanded && isSelected) {
     const label = SORENESS_LABELS[internalValue - 1] ?? "";
     return (
-      <div className="flex items-center gap-2 mb-3 text-xs">
+      <div className="mb-3 flex items-center gap-2 rounded-full border border-white/8 bg-black/20 px-3 py-2 text-xs">
         <span className="text-zinc-500">Recovery:</span>
-        <span className="text-zinc-300 font-medium">{label}</span>
+        <span className="font-medium text-zinc-200">{label}</span>
         {!disabled && (
           <button
             onClick={() => setExpanded(true)}
-            className="text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+            className="text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
           >
             edit
           </button>
@@ -65,17 +65,17 @@ export function SorenessSelector({
   }
 
   // Prominent unset block
-  const accentClass = isSelected ? "accent-yellow-500" : "accent-zinc-500";
+  const accentClass = isSelected ? "accent-amber-400" : "accent-zinc-500";
   const currentLabel = isSelected ? SORENESS_LABELS[internalValue - 1] : null;
 
   return (
-    <div className="rounded-lg bg-zinc-800/70 border border-zinc-700 p-3 mb-3">
-      <div className="flex items-center justify-between mb-2">
+    <div className="mb-3 rounded-2xl border border-white/8 bg-black/20 p-3">
+      <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-zinc-200">
           How did {muscleGroup} recover?
         </p>
         {currentLabel && (
-          <span className="text-xs text-yellow-400 font-medium">{currentLabel}</span>
+          <span className="text-xs font-medium text-amber-300">{currentLabel}</span>
         )}
       </div>
 
@@ -89,16 +89,15 @@ export function SorenessSelector({
         onPointerDown={handlePointerDown}
         onPointerUp={handlePointerUp}
         onChange={(e) => handleChange(parseInt(e.target.value))}
-        className={`w-full h-2 rounded-lg appearance-none bg-zinc-700 ${accentClass} disabled:opacity-40`}
+        className={`h-2 w-full appearance-none rounded-lg bg-zinc-700 ${accentClass} disabled:opacity-40`}
       />
 
       {/* Stop labels */}
-      <div className="flex justify-between mt-1.5 px-0.5">
+      <div className="mt-2 grid grid-cols-4 gap-2">
         {SORENESS_LABELS.map((label) => (
           <span
             key={label}
-            className="text-[10px] text-zinc-500 text-center leading-tight"
-            style={{ width: "25%" }}
+            className="text-center text-[10px] leading-tight text-zinc-500"
           >
             {label}
           </span>
@@ -106,7 +105,7 @@ export function SorenessSelector({
       </div>
 
       {!isSelected && (
-        <p className="text-[10px] text-zinc-600 mt-2 text-center">
+        <p className="mt-2 text-center text-[10px] uppercase tracking-[0.16em] text-zinc-600">
           slide to begin logging sets
         </p>
       )}

@@ -17,11 +17,11 @@ const RIR_COLORS: Record<number, string> = {
 };
 
 const RIR_BG: Record<number, string> = {
-  0: "bg-red-500/5",
-  1: "bg-yellow-500/5",
-  2: "bg-green-500/5",
-  3: "bg-zinc-500/5",
-  4: "bg-blue-500/5",
+  0: "bg-red-500/8",
+  1: "bg-yellow-500/8",
+  2: "bg-emerald-500/8",
+  3: "bg-zinc-500/8",
+  4: "bg-blue-500/8",
 };
 
 const RIR_EMOJI: Record<number, string> = {
@@ -85,6 +85,7 @@ export function MuscleGroupCard({
   }, []);
 
   const allSetsLogged = Object.values(loggedMap).every(Boolean);
+  const completedExercises = Object.values(loggedMap).filter(Boolean).length;
   const showFeedback = allSetsLogged || data.feedback_exists || sessionCompleted;
 
   // Sets are locked until soreness is selected (unless session is already completed
@@ -92,23 +93,41 @@ export function MuscleGroupCard({
   const sorenessLocked = effectiveSoreness === null && !sessionCompleted && !data.feedback_exists;
 
   return (
-    <div className={`rounded-xl border-2 ${borderColor} ${bgColor} mb-4 overflow-hidden`}>
+    <section
+      className={`mb-4 overflow-hidden rounded-[28px] border ${borderColor} ${bgColor} bg-zinc-950/85 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur`}
+    >
       {/* Header */}
-      <div className="px-4 py-3 border-b border-zinc-800">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-bold">
-            {emoji} {muscleGroup}
-          </h2>
-          <span className="text-sm text-zinc-400">RIR {targetRir}</span>
+      <div className="border-b border-white/8 px-4 py-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-xl font-bold tracking-tight">
+              {emoji} {muscleGroup}
+            </h2>
+            <p className="mt-1 text-xs uppercase tracking-[0.18em] text-zinc-500">{data.phase}</p>
+          </div>
+          <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-xs font-medium text-zinc-300">
+            RIR {targetRir}
+          </span>
         </div>
-        <p className="text-xs text-zinc-500 mt-0.5">{data.phase}</p>
+        <div className="mt-3 flex items-center justify-between gap-3 text-xs">
+          <p className="text-zinc-400">
+            {allSetsLogged
+              ? "All exercises logged. Feedback is ready."
+              : sorenessLocked
+                ? "Log recovery to unlock set tracking."
+                : `${completedExercises} of ${data.exercises.length} exercises complete`}
+          </p>
+          <span className="rounded-full border border-white/10 px-2.5 py-1 text-[11px] text-zinc-300">
+            {completedExercises}/{data.exercises.length}
+          </span>
+        </div>
         {data.feedback_summary && data.feedback_summary !== "No recent feedback" && (
-          <p className="text-xs text-zinc-500">Recent: {data.feedback_summary}</p>
+          <p className="mt-2 text-xs text-zinc-500">Recent: {data.feedback_summary}</p>
         )}
       </div>
 
       {/* Exercises */}
-      <div className="px-4 py-3 space-y-4">
+      <div className="space-y-4 px-4 py-4">
         {/* Soreness selector — always shown before full feedback is submitted */}
         {!data.feedback_exists && (
           <div>
@@ -119,7 +138,7 @@ export function MuscleGroupCard({
               disabled={sessionCompleted}
             />
             {saveSoreness.isError && (
-              <p className="text-xs text-red-400 mt-1">
+              <p className="mt-1 text-xs text-red-300">
                 Soreness save failed — tap again to retry
               </p>
             )}
@@ -158,6 +177,6 @@ export function MuscleGroupCard({
           ) : null}
         </div>
       )}
-    </div>
+    </section>
   );
 }

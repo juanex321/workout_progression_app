@@ -74,7 +74,7 @@ export default function HomePage() {
   }
 
   return (
-    <main className="mx-auto max-w-lg px-3 pb-24 pt-4">
+    <main className="mx-auto max-w-xl px-3 pb-24 pt-4">
       <SessionHeader
         sessionNumber={sessionNumber ?? 1}
         completed={workoutData?.completed ?? 0}
@@ -89,7 +89,7 @@ export default function HomePage() {
       ) : loadingData && !workoutData ? (
         <p className="text-center text-zinc-400 mt-8">Loading workout...</p>
       ) : workoutData ? (
-        <>
+        <div className="space-y-4">
           {Object.entries(workoutData.muscle_groups).map(([mg, data]) => (
             <MuscleGroupCard
               key={mg}
@@ -111,7 +111,7 @@ export default function HomePage() {
               }}
             />
           )}
-        </>
+        </div>
       ) : null}
     </main>
   );
