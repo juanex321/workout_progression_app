@@ -1,5 +1,5 @@
 from pydantic import BaseModel
-from typing import Optional
+from typing import Literal, Optional
 
 
 # --- Request models ---
@@ -42,6 +42,18 @@ class RecommendedSet(BaseModel):
     suggest_weight_increase: Optional[bool] = None
 
 
+class LastSessionSummary(BaseModel):
+    last_weight: float
+    avg_reps: int
+    recommended_rir: int
+
+
+class WeightRecommendation(BaseModel):
+    level: Literal["standard", "strong"]
+    message: str
+    context_note: Optional[str] = None
+
+
 class ExerciseData(BaseModel):
     we_id: int
     name: str
@@ -52,6 +64,8 @@ class ExerciseData(BaseModel):
     is_finisher: bool
     target_sets: int
     target_reps: int
+    last_session_summary: Optional[LastSessionSummary] = None
+    weight_recommendation: Optional[WeightRecommendation] = None
 
 
 class MuscleGroupData(BaseModel):

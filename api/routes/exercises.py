@@ -17,6 +17,7 @@ from services import (
     get_current_session,
     get_session_by_number,
     get_or_create_workout_exercise,
+    get_exercise_last_session_metadata,
     load_existing_sets,
     save_sets,
     check_muscle_group_feedback_exists,
@@ -76,6 +77,20 @@ def get_workout_data(
         we = get_or_create_workout_exercise(db, workout, ex_name, idx)
         muscle_group = EXERCISE_MUSCLE_GROUPS.get(ex_name, "Other")
 
+        if muscle_group in muscle_groups:
+            target_rir = muscle_groups[muscle_group].target_rir
+            phase = muscle_groups[muscle_group].phase
+            fb_summary = muscle_groups[muscle_group].feedback_summary
+            fb_exists = muscle_groups[muscle_group].feedback_exists
+            fb_values = muscle_groups[muscle_group].feedback_values
+            soreness_val = muscle_groups[muscle_group].soreness_value
+        else:
+            target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
+            fb_summary = get_feedback_summary(db, muscle_group)
+            fb_exists = check_muscle_group_feedback_exists(db, sess.id, muscle_group)
+            fb_values = get_muscle_group_feedback(db, sess.id, muscle_group)
+            soreness_val = get_soreness_value(db, sess.id, muscle_group)
+
         # Get existing logged sets
         existing = load_existing_sets(db, sess.id, we.id)
         existing_sets = [
@@ -101,6 +116,12 @@ def get_workout_data(
             )
             for r in recs_raw
         ]
+        last_session_summary, weight_recommendation = get_exercise_last_session_metadata(
+            db,
+            workout_exercise_id=we.id,
+            before_session_number=sess.session_number,
+            current_target_rir=target_rir,
+        )
 
         exercise_data = ExerciseData(
             we_id=we.id,
@@ -112,19 +133,15 @@ def get_workout_data(
             is_finisher=is_finisher(we),
             target_sets=we.target_sets,
             target_reps=we.target_reps,
+            last_session_summary=last_session_summary,
+            weight_recommendation=weight_recommendation,
         )
 
         # Add to muscle group or create new
         if muscle_group not in muscle_groups:
-            rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
-            fb_summary = get_feedback_summary(db, muscle_group)
-            fb_exists = check_muscle_group_feedback_exists(db, sess.id, muscle_group)
-            fb_values = get_muscle_group_feedback(db, sess.id, muscle_group)
-            soreness_val = get_soreness_value(db, sess.id, muscle_group)
-
             muscle_groups[muscle_group] = MuscleGroupData(
                 exercises=[exercise_data],
-                target_rir=rir,
+                target_rir=target_rir,
                 phase=phase,
                 feedback_summary=fb_summary,
                 feedback_exists=fb_exists,

@@ -10,6 +10,10 @@ from db import Session as DbSession, WorkoutExercise, Exercise, Set, Feedback
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
+WEIGHT_RECOMMENDATION_STANDARD = "Recommend increasing weight based on last session"
+WEIGHT_RECOMMENDATION_STRONG = "Strongly recommend increasing weight"
+
+
 def get_current_session(db, workout_id: int) -> DbSession:
     """
     Get the current (most recent incomplete) session, or create a new one if all are complete.
@@ -149,6 +153,105 @@ def load_existing_sets(db, session_id: int, workout_exercise_id: int) -> list[Se
         .order_by(Set.set_number.asc())
         .all()
     )
+
+
+def get_previous_completed_exercise_sets(
+    db,
+    workout_exercise_id: int,
+    before_session_number: int,
+) -> list[Set]:
+    """
+    Return the logged sets for the most recent completed session strictly before
+    the reference session number for this exact workout exercise.
+    """
+    sets = (
+        db.query(Set)
+        .join(DbSession, Set.session_id == DbSession.id)
+        .filter(
+            Set.workout_exercise_id == workout_exercise_id,
+            DbSession.completed == 1,
+            DbSession.session_number < before_session_number,
+        )
+        .order_by(DbSession.session_number.desc(), Set.set_number.asc())
+        .all()
+    )
+    if not sets:
+        return []
+
+    last_session_id = sets[0].session_id
+    return [set_row for set_row in sets if set_row.session_id == last_session_id]
+
+
+def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
+    """
+    Build compact summary + recommendation metadata from one completed session.
+
+    If the prior session lacks an RIR value, suppress the entire block rather
+    than inventing a recommendation context.
+    """
+    if not last_sets:
+        return None, None
+
+    ordered_sets = sorted(last_sets, key=lambda set_row: set_row.set_number)
+    last_weight = next(
+        (float(set_row.weight) for set_row in ordered_sets if set_row.weight is not None),
+        None,
+    )
+    reps = [int(set_row.reps) for set_row in ordered_sets if set_row.reps is not None]
+    last_rir = next(
+        (int(set_row.rir) for set_row in ordered_sets if set_row.rir is not None),
+        None,
+    )
+
+    if last_weight is None or not reps or last_rir is None:
+        return None, None
+
+    summary = {
+        "last_weight": last_weight,
+        "avg_reps": int(round(sum(reps) / len(reps))),
+        "recommended_rir": last_rir,
+    }
+
+    recommendation = None
+    sets_at_15 = sum(1 for rep_count in reps if rep_count >= 15)
+    sets_at_12 = sum(1 for rep_count in reps if rep_count >= 12)
+    required_sets = max(1, int(len(reps) * 0.8))
+
+    # Match the requested examples: 3/4 and 4/5 should both trigger.
+    if sets_at_15 >= required_sets:
+        recommendation = {
+            "level": "strong",
+            "message": WEIGHT_RECOMMENDATION_STRONG,
+            "context_note": None,
+        }
+    elif sets_at_12 >= required_sets:
+        recommendation = {
+            "level": "standard",
+            "message": WEIGHT_RECOMMENDATION_STANDARD,
+            "context_note": None,
+        }
+
+    if recommendation and current_target_rir < last_rir:
+        recommendation["context_note"] = f"Even more so at RIR {current_target_rir} today."
+
+    return summary, recommendation
+
+
+def get_exercise_last_session_metadata(
+    db,
+    workout_exercise_id: int,
+    before_session_number: int,
+    current_target_rir: int,
+):
+    """
+    Fetch and derive the compact last-session block for one exercise.
+    """
+    last_sets = get_previous_completed_exercise_sets(
+        db,
+        workout_exercise_id=workout_exercise_id,
+        before_session_number=before_session_number,
+    )
+    return build_last_session_metadata(last_sets, current_target_rir)
 
 
 def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:

@@ -14,6 +14,18 @@ export interface RecommendedSet {
   suggest_weight_increase?: boolean;
 }
 
+export interface LastSessionSummary {
+  last_weight: number;
+  avg_reps: number;
+  recommended_rir: number;
+}
+
+export interface WeightRecommendation {
+  level: "standard" | "strong";
+  message: string;
+  context_note: string | null;
+}
+
 export interface ExerciseData {
   we_id: number;
   name: string;
@@ -24,6 +36,8 @@ export interface ExerciseData {
   is_finisher: boolean;
   target_sets: number;
   target_reps: number;
+  last_session_summary: LastSessionSummary | null;
+  weight_recommendation: WeightRecommendation | null;
 }
 
 export interface MuscleGroupData {

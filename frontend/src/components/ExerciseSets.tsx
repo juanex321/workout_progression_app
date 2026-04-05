@@ -60,6 +60,9 @@ export function ExerciseSets({
   sorenessLocked,
   onAllLogged,
 }: ExerciseSetsProps) {
+  const formatWeight = (value: number): string =>
+    Number.isInteger(value) ? `${value}` : value.toFixed(1);
+
   // Initialize draft from localStorage, existing sets, or recommendations
   const initSets = (): DraftSet[] => {
     // If sets already saved to server, use those (source of truth)
@@ -205,8 +208,6 @@ export function ExerciseSets({
     []
   );
 
-  const suggestIncrease = exercise.recommendations[0]?.suggest_weight_increase;
-
   return (
     <div>
       <div className="flex items-center justify-between mb-2">
@@ -226,15 +227,26 @@ export function ExerciseSets({
         )}
       </div>
 
+      {exercise.last_session_summary && (
+        <p className="text-xs text-zinc-400 mb-1.5">
+          Last time: {formatWeight(exercise.last_session_summary.last_weight)} lb
+          {" · "}avg {exercise.last_session_summary.avg_reps} reps{" · "}RIR{" "}
+          {exercise.last_session_summary.recommended_rir}
+        </p>
+      )}
+
       {logSet.isError && (
         <p className="text-xs text-red-400 mb-1">
           Failed to save — tap Log again to retry
         </p>
       )}
 
-      {suggestIncrease && (
+      {exercise.weight_recommendation && (
         <p className="text-xs text-yellow-400 mb-1">
-          Consider increasing weight
+          {exercise.weight_recommendation.message}
+          {exercise.weight_recommendation.context_note
+            ? `. ${exercise.weight_recommendation.context_note}`
+            : ""}
         </p>
       )}
 
