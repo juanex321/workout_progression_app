@@ -304,7 +304,7 @@ def recommend_weights_and_reps(
     db: OrmSession, we: WorkoutExercise, muscle_group: str = None
 ) -> list[dict]:
     """
-    Main entry used by app.py.
+    Main entry used by the API recommendation flow.
 
     Progression hierarchy:
     1. Adjust target_sets based on recent feedback (primary progression).
@@ -312,7 +312,7 @@ def recommend_weights_and_reps(
     3. Keep weight the same as last session (manual changes only).
     4. If deload is indicated → drop weight to ~55%.
        - For finishers during deload: reduce weight only, keep reps same.
-    5. Return rows ready for the Streamlit data editor.
+    5. Return rows ready for API serialization and UI rendering.
 
     Args:
         db: Database session

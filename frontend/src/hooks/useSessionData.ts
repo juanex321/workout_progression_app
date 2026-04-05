@@ -7,7 +7,7 @@ export function useSessionData(sessionId: number | null) {
     queryKey: ["workout-data", sessionId],
     queryFn: () => api.getWorkoutData(sessionId!),
     enabled: !!sessionId,
-    staleTime: Infinity, // "Load once, hold locally" — matches Streamlit pattern
+    staleTime: Infinity, // Load once and hold locally during a session
     gcTime: 10 * 60 * 1000,
   });
 }

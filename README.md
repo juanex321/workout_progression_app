@@ -52,8 +52,6 @@ The app rotates through exercises automatically:
 | ORM | SQLAlchemy 2.0 |
 | Python | 3.10+ |
 
-> **Legacy:** `app.py` is a Streamlit UI kept for reference. Do not modify it.
-
 ## Project Structure
 
 ```
@@ -67,8 +65,8 @@ workout_progression_app/
 │   └── routes/            # sessions, exercises, feedback, progression
 ├── frontend/              # Next.js app (port 3000)
 │   └── src/
-├── db.py                  # SQLAlchemy models (shared with Streamlit)
-├── services.py            # CRUD operations (shared with Streamlit)
+├── db.py                  # SQLAlchemy models (used by scripts/tests)
+├── services.py            # Legacy root service layer
 ├── progression.py         # Volume & rep progression logic
 ├── rir_progression.py     # RIR (intensity) progression logic
 ├── plan.py                # Exercise rotation configuration
@@ -149,3 +147,5 @@ DEFAULT_TARGET_REPS = 10
 ## License
 
 MIT License
+
+

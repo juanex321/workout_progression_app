@@ -21,7 +21,7 @@ from sqlalchemy.pool import NullPool
 
 
 def get_database_url():
-    """Get database URL based on environment (works with Streamlit, Reflex, or standalone)."""
+    """Get database URL based on environment for scripts, tests, or local dev."""
 
     # First, try environment variable (works everywhere)
     if 'DATABASE_URL' in os.environ:
@@ -30,19 +30,6 @@ def get_database_url():
             url = url.replace('postgres://', 'postgresql://', 1)
         print("Using PostgreSQL from DATABASE_URL environment variable")
         return url
-
-    # Second, try Streamlit secrets (only when running in Streamlit)
-    try:
-        import streamlit as st
-        if hasattr(st, 'secrets') and 'DATABASE_URL' in st.secrets:
-            url = st.secrets['DATABASE_URL']
-            if url.startswith('postgres://'):
-                url = url.replace('postgres://', 'postgresql://', 1)
-            print("Using PostgreSQL database from Streamlit secrets")
-            return url
-    except (ImportError, Exception):
-        # Streamlit not available or secrets not accessible - that's fine
-        pass
 
     # Fall back to SQLite (local development)
     # Use absolute path to ensure we find the database regardless of working directory
