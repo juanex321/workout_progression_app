@@ -193,6 +193,11 @@ export function ExerciseSets({
       );
       setSavingSet(setNumber);
 
+      // Capture the logged set's values before the mutation so we can propagate them
+      const loggedSet = sets.find((s) => s.set_number === setNumber);
+      const loggedWeight = loggedSet?.weight ?? 0;
+      const loggedReps = loggedSet?.reps ?? 0;
+
       const updatedSets = sets.map((setRow) =>
         setRow.set_number === setNumber ? { ...setRow, logged: true } : setRow
       );
@@ -213,13 +218,24 @@ export function ExerciseSets({
         },
         {
           onSuccess: () => {
-            setSets((prev) =>
-              prev.map((setRow) =>
+            setSets((prev) => {
+              const marked = prev.map((setRow) =>
                 setRow.set_number === setNumber
                   ? { ...setRow, logged: true, saveError: false }
                   : setRow
-              )
-            );
+              );
+              // Propagate weight and recalculate reps for all subsequent unlogged sets
+              return marked.map((setRow) => {
+                if (!setRow.logged && setRow.set_number > setNumber) {
+                  return {
+                    ...setRow,
+                    weight: loggedWeight,
+                    reps: Math.max(5, loggedReps - (setRow.set_number - setNumber)),
+                  };
+                }
+                return setRow;
+              });
+            });
             setSavingSet(null);
           },
           onError: () => {

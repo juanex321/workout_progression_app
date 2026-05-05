@@ -12,6 +12,7 @@ from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS
 
 WEIGHT_RECOMMENDATION_STANDARD = "Recommend increasing weight based on last session"
 WEIGHT_RECOMMENDATION_STRONG = "Strongly recommend increasing weight"
+WEIGHT_RECOMMENDATION_HOLD = "Weight increase earned — apply at the start of your next mesocycle (RIR 2)"
 
 
 def get_current_session(db, workout_id: int) -> DbSession:
@@ -182,6 +183,34 @@ def get_previous_completed_exercise_sets(
     return [set_row for set_row in sets if set_row.session_id == last_session_id]
 
 
+def get_recent_first_set_reps(
+    db,
+    workout_exercise_id: int,
+    before_session_number: int,
+    n_sessions: int = 3,
+) -> list[int]:
+    """
+    Return the first-set reps from the last n completed sessions for an exercise,
+    ordered most-recent first. Used to gauge rep consistency before recommending
+    a weight increase.
+    """
+    rows = (
+        db.query(Set.reps)
+        .join(DbSession, Set.session_id == DbSession.id)
+        .filter(
+            Set.workout_exercise_id == workout_exercise_id,
+            Set.set_number == 1,
+            Set.reps.isnot(None),
+            DbSession.completed == 1,
+            DbSession.session_number < before_session_number,
+        )
+        .order_by(DbSession.session_number.desc())
+        .limit(n_sessions)
+        .all()
+    )
+    return [int(r.reps) for r in rows]
+
+
 def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
     """
     Build compact summary + recommendation metadata from one completed session.
@@ -235,6 +264,15 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
     if recommendation and current_target_rir < last_rir:
         recommendation["context_note"] = f"Even more so at RIR {current_target_rir} today."
 
+    # At RIR 0 the user is already at peak intensity — stacking a weight increase is
+    # triple overreach. Flag the earned increase for the next mesocycle instead.
+    if recommendation and current_target_rir == 0:
+        recommendation = {
+            "level": "hold",
+            "message": WEIGHT_RECOMMENDATION_HOLD,
+            "context_note": None,
+        }
+
     return summary, recommendation
 
 
@@ -252,7 +290,19 @@ def get_exercise_last_session_metadata(
         workout_exercise_id=workout_exercise_id,
         before_session_number=before_session_number,
     )
-    return build_last_session_metadata(last_sets, current_target_rir)
+    summary, recommendation = build_last_session_metadata(last_sets, current_target_rir)
+
+    # Suppress weight increase when first-set rep performance is inconsistent across
+    # recent sessions — a single high-rep session shouldn't trigger a weight change
+    # if the prior sessions showed much lower reps at the same RIR.
+    if recommendation and recommendation.get("level") in ("standard", "strong", "hold"):
+        recent_reps = get_recent_first_set_reps(
+            db, workout_exercise_id, before_session_number, n_sessions=3
+        )
+        if len(recent_reps) >= 2 and (max(recent_reps) - min(recent_reps)) >= 4:
+            recommendation = None
+
+    return summary, recommendation
 
 
 def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:

@@ -489,6 +489,67 @@ def count_consecutive_sessions_at_rir(
     return count
 
 
+def get_days_since_last_session(db: OrmSession, muscle_group: str) -> Optional[int]:
+    """
+    Return the number of calendar days between the last two completed sessions
+    for this muscle group. Returns None if fewer than 2 sessions exist.
+
+    Used to make the deload trigger more sensitive when the user trains on
+    consecutive days (less recovery time between sessions).
+    """
+    recent_dates = (
+        db.query(Session.date)
+        .join(Set, Session.id == Set.session_id)
+        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+        .filter(Exercise.muscle_group == muscle_group)
+        .filter(Session.completed == 1)
+        .distinct()
+        .order_by(Session.session_number.desc())
+        .limit(2)
+        .all()
+    )
+    if len(recent_dates) < 2:
+        return None
+    delta = recent_dates[0].date - recent_dates[1].date
+    return abs(delta.days)
+
+
+def get_rir0_performance_trend(db: OrmSession, muscle_group: str, n_sessions: int = 3) -> str:
+    """
+    Check whether first-set performance is declining across the last n RIR 0 sessions
+    for this muscle group (same weight required for a fair comparison).
+
+    Returns:
+        "declining"        — reps dropped by >= 2 between the two most recent RIR 0 sessions
+        "stable"           — no clear decline, or weight changed between sessions
+        "insufficient_data" — fewer than 2 RIR 0 sessions found
+    """
+    rows = (
+        db.query(Set.reps, Set.weight, Session.session_number)
+        .join(Session, Set.session_id == Session.id)
+        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+        .filter(Exercise.muscle_group == muscle_group)
+        .filter(Session.completed == 1)
+        .filter(Set.set_number == 1)
+        .filter(Set.rir == RIR_FAILURE)
+        .filter(Set.reps.isnot(None))
+        .filter(Set.weight.isnot(None))
+        .order_by(Session.session_number.desc())
+        .limit(n_sessions)
+        .all()
+    )
+    if len(rows) < 2:
+        return "insufficient_data"
+    most_recent, previous = rows[0], rows[1]
+    if most_recent.weight != previous.weight:
+        return "stable"
+    if (int(previous.reps) - int(most_recent.reps)) >= 2:
+        return "declining"
+    return "stable"
+
+
 def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, str, dict]:
     """
     Main API function to get RIR for a muscle group.
@@ -529,12 +590,34 @@ def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, st
     # Deload takes priority — but only fires after MIN_SESSIONS_AT_RIR0 at RIR 0.
     # At RIR 2 / RIR 1 the user hasn't reached peak intensity yet, so deload is
     # premature; the feedback-driven set reduction handles fatigue at those phases.
-    if analysis.get("status") == "deload":
+
+    # Dense training (≤1 day between sessions) lowers the consecutive-high threshold:
+    # a single high-stress session is already enough to warrant deload.
+    days_between = get_days_since_last_session(db, muscle_group)
+    dense_training = days_between is not None and days_between <= 1
+    consecutive_high = analysis.get("consecutive_high", 0)
+    feedback_says_deload = (
+        analysis.get("status") == "deload"
+        or (dense_training and consecutive_high >= 1)
+    )
+
+    if feedback_says_deload:
         last_rir_early = get_last_rir_for_muscle(db, muscle_group)
         if last_rir_early is not None and last_rir_early == RIR_FAILURE:
             sessions_at_rir0 = count_consecutive_sessions_at_rir(db, muscle_group, RIR_FAILURE)
             if sessions_at_rir0 >= MIN_SESSIONS_AT_RIR0:
                 return RIR_DELOAD, "DELOAD (high fatigue detected) - Next session restarts at RIR 2", analysis
+
+    # Objective deload signal: declining first-set reps at RIR 0 corroborates a
+    # slight-deload or deload feedback signal. Requires feedback agreement to avoid
+    # false positives from normal session-to-session variation.
+    if analysis.get("status") in ("deload", "slight_deload"):
+        last_rir_obj = get_last_rir_for_muscle(db, muscle_group)
+        if last_rir_obj is not None and last_rir_obj == RIR_FAILURE:
+            sessions_at_rir0_obj = count_consecutive_sessions_at_rir(db, muscle_group, RIR_FAILURE)
+            if sessions_at_rir0_obj >= MIN_SESSIONS_AT_RIR0:
+                if get_rir0_performance_trend(db, muscle_group) == "declining":
+                    return RIR_DELOAD, "DELOAD (performance declining at peak intensity) - Next session restarts at RIR 2", analysis
 
     # Use the last logged RIR to determine which phase we are in
     last_rir = get_last_rir_for_muscle(db, muscle_group)

@@ -360,15 +360,13 @@ def recommend_weights_and_reps(
         next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
 
     # 5b) RIR-stage set volume modifier (non-finisher exercises only)
-    # RIR 2 = baseline (feedback drives this, no modifier)
-    # RIR 1 = slight over-reach: +1 set over baseline to accumulate fatigue
-    # RIR 0 = full over-reach: +2 sets over baseline for peak stimulus
+    # RIR 2 = baseline (feedback drives volume accumulation here)
+    # RIR 1 = hold flat — intensity jump from RIR 2→1 is already an overreach stimulus
+    # RIR 0 = peak intensity: drop 1 set for quality over quantity (fewer, harder sets)
     # Deload = weight cut is sufficient; sets stay at baseline for recovery quality
     if not is_finisher_exercise and not deload_active:
-        if current_rir == RIR_FAILURE:   # 0 — full overreach
-            target_sets = min(MAX_SETS_MAIN, target_sets + 2)
-        elif current_rir == RIR_VERY_HARD:  # 1 — slight overreach
-            target_sets = min(MAX_SETS_MAIN, target_sets + 1)
+        if current_rir == RIR_FAILURE:   # 0 — peak intensity: -1 set
+            target_sets = max(1, target_sets - 1)
 
     # 6) check if we should suggest weight increase (informational only)
     suggest_weight = should_suggest_weight_increase(db, we, last_sets)
