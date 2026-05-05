@@ -42,26 +42,40 @@ WORKLOAD_HIGH = 4      # ≥4 indicates too much volume
 
 # ------- helpers -------
 
+def _session_cache(db: OrmSession, namespace: str) -> dict:
+    info = getattr(db, "info", None)
+    if not isinstance(info, dict):
+        return {}
+    return info.setdefault(namespace, {})
+
+
+def _completed_sets_by_session(db: OrmSession, workout_exercise_id: int) -> dict[int, list[Set]]:
+    cache = _session_cache(db, "progression.completed_sets_by_session")
+    if workout_exercise_id not in cache:
+        sets = (
+            db.query(Set)
+            .join(Session, Set.session_id == Session.id)
+            .filter(Set.workout_exercise_id == workout_exercise_id)
+            .filter(Session.completed == 1)
+            .order_by(Session.session_number.desc(), Set.set_number.asc())
+            .all()
+        )
+        sessions: dict[int, list[Set]] = {}
+        for s in sets:
+            sessions.setdefault(s.session_id, []).append(s)
+        cache[workout_exercise_id] = sessions
+    return cache[workout_exercise_id]
+
+
 def get_last_session_sets(
     db: OrmSession, workout_exercise_id: int
 ) -> Tuple[int | None, List[Set] | None]:
     """
     Return (session_id, [Set, ...]) for the most recent completed session of this exercise.
     """
-    q = (
-        db.query(Set)
-        .join(Session, Set.session_id == Session.id)
-        .filter(Set.workout_exercise_id == workout_exercise_id)
-        .filter(Session.completed == 1)  # Only look at completed sessions
-        .order_by(Session.session_number.desc(), Set.set_number.asc())
-    )
-    sets = q.all()
-    if not sets:
+    sessions = _completed_sets_by_session(db, workout_exercise_id)
+    if not sessions:
         return None, None
-
-    sessions: dict[int, list[Set]] = {}
-    for s in sets:
-        sessions.setdefault(s.session_id, []).append(s)
 
     last_sid = list(sessions.keys())[0]
     return last_sid, sessions[last_sid]
@@ -76,21 +90,9 @@ def get_last_n_session_set_counts(
     Returns a list ordered most-recent-first: [S_last, S_prev, ...]
     Empty list if no history.
     """
-    q = (
-        db.query(Set)
-        .join(Session, Set.session_id == Session.id)
-        .filter(Set.workout_exercise_id == workout_exercise_id)
-        .filter(Session.completed == 1)
-        .order_by(Session.session_number.desc(), Set.set_number.asc())
-    )
-    sets = q.all()
-    if not sets:
+    sessions = _completed_sets_by_session(db, workout_exercise_id)
+    if not sessions:
         return []
-
-    # Group by session, preserving order (most recent first)
-    sessions: dict[int, list[Set]] = {}
-    for s in sets:
-        sessions.setdefault(s.session_id, []).append(s)
 
     # Return set counts for the last N sessions
     counts = []
@@ -109,13 +111,17 @@ def get_recent_muscle_group_feedback(
     This is used for muscle-group-level feedback that applies to all exercises
     in that muscle group.
     """
-    return (
-        db.query(Feedback)
-        .filter(Feedback.muscle_group == muscle_group)
-        .order_by(Feedback.created_at.desc())
-        .limit(limit)
-        .all()
-    )
+    cache = _session_cache(db, "progression.recent_muscle_feedback")
+    key = (muscle_group, limit)
+    if key not in cache:
+        cache[key] = (
+            db.query(Feedback)
+            .filter(Feedback.muscle_group == muscle_group)
+            .order_by(Feedback.created_at.desc())
+            .limit(limit)
+            .all()
+        )
+    return cache[key]
 
 
 def is_finisher(we: WorkoutExercise) -> bool:
@@ -170,7 +176,6 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
         if we.target_sets != FINISHER_TARGET_SETS:
             we.target_sets = FINISHER_TARGET_SETS
             db.add(we)
-            db.commit()
         return FINISHER_TARGET_SETS
 
     # Get muscle group from exercise
@@ -206,11 +211,9 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     # Rule B: Apply ±1 hard limiter and clamp to floor/cap
     s_reco = max(s_floor, min(s_anchor + adj, s_cap))
 
-    # Persist the updated target
     if s_reco != we.target_sets:
         we.target_sets = int(s_reco)
         db.add(we)
-        db.commit()
 
     return int(s_reco)
 

@@ -17,6 +17,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
+    text,
 )
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, sessionmaker
 from sqlalchemy.pool import NullPool
@@ -128,10 +129,17 @@ DATABASE_BOOT_ERROR: Optional[str] = None
 
 try:
     if DATABASE_URL.startswith("postgresql"):
-        engine = create_engine(
-            DATABASE_URL,
-            poolclass=NullPool,
-        )
+        if os.environ.get("VERCEL"):
+            # Vercel Python functions are short-lived; avoid keeping sockets open.
+            pool_kwargs = {"poolclass": NullPool}
+        else:
+            pool_kwargs = {
+                "pool_pre_ping": True,
+                "pool_recycle": int(os.environ.get("DB_POOL_RECYCLE_SECONDS", "1800")),
+                "pool_size": int(os.environ.get("DB_POOL_SIZE", "5")),
+                "max_overflow": int(os.environ.get("DB_MAX_OVERFLOW", "2")),
+            }
+        engine = create_engine(DATABASE_URL, **pool_kwargs)
     else:
         engine = create_engine(
             DATABASE_URL,
@@ -154,7 +162,7 @@ except Exception as exc:
     )
 DATABASE_FALLBACK_REASON: Optional[str] = None
 
-SessionLocal = sessionmaker(bind=engine)
+SessionLocal = sessionmaker(bind=engine, expire_on_commit=False)
 
 Base = declarative_base()
 
@@ -282,6 +290,25 @@ def get_session():
 def init_db():
     """Initialize database tables."""
     Base.metadata.create_all(engine)
+    ensure_performance_indexes()
+
+
+def ensure_performance_indexes() -> None:
+    """Create read-path indexes used by workout loading and progression queries."""
+    statements = (
+        "CREATE INDEX IF NOT EXISTS idx_exercises_lower_name ON exercises (lower(name))",
+        "CREATE INDEX IF NOT EXISTS idx_workout_exercises_workout_exercise ON workout_exercises (workout_id, exercise_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_workout_completed_number ON sessions (workout_id, completed, session_number)",
+        "CREATE INDEX IF NOT EXISTS idx_sessions_workout_number ON sessions (workout_id, session_number)",
+        "CREATE INDEX IF NOT EXISTS idx_sets_workout_exercise_session ON sets (workout_exercise_id, session_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sets_session_workout_exercise ON sets (session_id, workout_exercise_id)",
+        "CREATE INDEX IF NOT EXISTS idx_sets_logged_at ON sets (logged_at)",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_session_muscle ON feedback (session_id, muscle_group)",
+        "CREATE INDEX IF NOT EXISTS idx_feedback_muscle_created ON feedback (muscle_group, created_at)",
+    )
+    with engine.begin() as conn:
+        for statement in statements:
+            conn.execute(text(statement))
 
 
 def switch_to_sqlite_fallback(reason: str, source: str = "sqlite-fallback-runtime-error") -> None:
@@ -326,13 +353,15 @@ def seed_default_data():
 
     with get_session() as db:
         # Ensure exercise catalog exists.
+        exercise_names = list(EXERCISE_MUSCLE_GROUPS)
+        existing_exercises = (
+            db.query(Exercise)
+            .filter(func.lower(Exercise.name).in_([name.lower() for name in exercise_names]))
+            .all()
+        )
+        existing_names = {exercise.name.lower() for exercise in existing_exercises}
         for exercise_name, muscle_group in EXERCISE_MUSCLE_GROUPS.items():
-            existing_exercise = (
-                db.query(Exercise)
-                .filter(Exercise.name.ilike(exercise_name))
-                .first()
-            )
-            if not existing_exercise:
+            if exercise_name.lower() not in existing_names:
                 db.add(Exercise(name=exercise_name, muscle_group=muscle_group))
 
         # Ensure at least one program + one workout exist.

@@ -1,7 +1,8 @@
 from collections import OrderedDict
 
 from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session as OrmSession
+from sqlalchemy import func
+from sqlalchemy.orm import Session as OrmSession, joinedload
 
 from deps import get_db
 from schemas import (
@@ -12,20 +13,21 @@ from schemas import (
     RecommendedSet,
     SaveSetsRequest,
 )
-from db import Session, Workout, Program
+from db import Session, Workout, Program, Exercise, Feedback, Set, WorkoutExercise
 from services import (
     get_current_session,
     get_session_by_number,
-    get_or_create_workout_exercise,
     get_exercise_last_session_metadata,
-    load_existing_sets,
     save_sets,
-    check_muscle_group_feedback_exists,
-    get_muscle_group_feedback,
-    get_soreness_value,
-    is_last_exercise_for_muscle_group,
 )
-from plan import get_session_exercises, EXERCISE_MUSCLE_GROUPS
+from plan import (
+    DEFAULT_TARGET_REPS,
+    DEFAULT_TARGET_SETS,
+    EXERCISE_DEFAULT_REPS,
+    EXERCISE_DEFAULT_SETS,
+    EXERCISE_MUSCLE_GROUPS,
+    get_session_exercises,
+)
 from progression import recommend_weights_and_reps, is_finisher
 from rir_progression import get_rir_for_muscle_group, get_feedback_summary
 
@@ -40,6 +42,108 @@ def _get_default_workout(db: OrmSession) -> Workout:
     if not workout:
         raise HTTPException(status_code=404, detail="No workout found")
     return workout
+
+
+def _load_workout_exercises(
+    db: OrmSession, workout: Workout, exercise_names: list[str]
+) -> list[WorkoutExercise]:
+    """Batch load or create the WorkoutExercise rows needed for one session."""
+    lower_names = [name.lower() for name in exercise_names]
+    exercises = (
+        db.query(Exercise)
+        .filter(func.lower(Exercise.name).in_(lower_names))
+        .all()
+    )
+    exercise_by_name = {exercise.name.lower(): exercise for exercise in exercises}
+
+    for exercise_name in exercise_names:
+        key = exercise_name.lower()
+        if key not in exercise_by_name:
+            exercise = Exercise(
+                name=exercise_name,
+                muscle_group=EXERCISE_MUSCLE_GROUPS.get(exercise_name),
+            )
+            db.add(exercise)
+            exercise_by_name[key] = exercise
+
+    db.flush()
+
+    exercise_ids = [exercise_by_name[name.lower()].id for name in exercise_names]
+    workout_exercises = (
+        db.query(WorkoutExercise)
+        .options(joinedload(WorkoutExercise.exercise))
+        .filter(
+            WorkoutExercise.workout_id == workout.id,
+            WorkoutExercise.exercise_id.in_(exercise_ids),
+        )
+        .all()
+    )
+    we_by_exercise_id = {we.exercise_id: we for we in workout_exercises}
+
+    ordered_workout_exercises: list[WorkoutExercise] = []
+    for idx, exercise_name in enumerate(exercise_names):
+        exercise = exercise_by_name[exercise_name.lower()]
+        we = we_by_exercise_id.get(exercise.id)
+        if not we:
+            we = WorkoutExercise(
+                workout_id=workout.id,
+                exercise_id=exercise.id,
+                order_index=idx,
+                target_sets=EXERCISE_DEFAULT_SETS.get(exercise_name, DEFAULT_TARGET_SETS),
+                target_reps=EXERCISE_DEFAULT_REPS.get(exercise_name, DEFAULT_TARGET_REPS),
+            )
+            we.exercise = exercise
+            db.add(we)
+            we_by_exercise_id[exercise.id] = we
+        elif we.exercise is None:
+            we.exercise = exercise
+        ordered_workout_exercises.append(we)
+
+    db.flush()
+    return ordered_workout_exercises
+
+
+def _load_sets_by_workout_exercise(
+    db: OrmSession, session_id: int, workout_exercise_ids: list[int]
+) -> dict[int, list[Set]]:
+    if not workout_exercise_ids:
+        return {}
+
+    rows = (
+        db.query(Set)
+        .filter(
+            Set.session_id == session_id,
+            Set.workout_exercise_id.in_(workout_exercise_ids),
+        )
+        .order_by(Set.workout_exercise_id.asc(), Set.set_number.asc())
+        .all()
+    )
+    grouped: dict[int, list[Set]] = {}
+    for row in rows:
+        grouped.setdefault(row.workout_exercise_id, []).append(row)
+    return grouped
+
+
+def _load_feedback_by_muscle_group(
+    db: OrmSession, session_id: int, muscle_groups: list[str]
+) -> dict[str, Feedback]:
+    if not muscle_groups:
+        return {}
+
+    rows = (
+        db.query(Feedback)
+        .filter(
+            Feedback.session_id == session_id,
+            Feedback.muscle_group.in_(muscle_groups),
+        )
+        .order_by(Feedback.created_at.desc())
+        .all()
+    )
+    feedback_by_group: dict[str, Feedback] = {}
+    for row in rows:
+        if row.muscle_group and row.muscle_group not in feedback_by_group:
+            feedback_by_group[row.muscle_group] = row
+    return feedback_by_group
 
 
 @router.get("/workout-data", response_model=WorkoutDataResponse)
@@ -69,12 +173,22 @@ def get_workout_data(
 
     # Get exercises for this session's rotation
     exercise_names = get_session_exercises(sess.rotation_index)
+    workout_exercises = _load_workout_exercises(db, workout, exercise_names)
+    existing_sets_by_we = _load_sets_by_workout_exercise(
+        db, sess.id, [we.id for we in workout_exercises]
+    )
+    session_muscle_groups = list(OrderedDict(
+        (EXERCISE_MUSCLE_GROUPS.get(name, "Other"), None)
+        for name in exercise_names
+    ).keys())
+    feedback_by_muscle_group = _load_feedback_by_muscle_group(
+        db, sess.id, session_muscle_groups
+    )
 
     # Build muscle group data
     muscle_groups: OrderedDict[str, MuscleGroupData] = OrderedDict()
 
-    for idx, ex_name in enumerate(exercise_names):
-        we = get_or_create_workout_exercise(db, workout, ex_name, idx)
+    for idx, (ex_name, we) in enumerate(zip(exercise_names, workout_exercises)):
         muscle_group = EXERCISE_MUSCLE_GROUPS.get(ex_name, "Other")
 
         if muscle_group in muscle_groups:
@@ -87,12 +201,25 @@ def get_workout_data(
         else:
             target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
             fb_summary = get_feedback_summary(db, muscle_group)
-            fb_exists = check_muscle_group_feedback_exists(db, sess.id, muscle_group)
-            fb_values = get_muscle_group_feedback(db, sess.id, muscle_group)
-            soreness_val = get_soreness_value(db, sess.id, muscle_group)
+            feedback = feedback_by_muscle_group.get(muscle_group)
+            fb_exists = bool(
+                feedback
+                and feedback.pump is not None
+                and feedback.workload is not None
+            )
+            fb_values = (
+                {
+                    "soreness": feedback.soreness or 3,
+                    "pump": feedback.pump or 3,
+                    "workload": feedback.workload or 3,
+                }
+                if feedback
+                else None
+            )
+            soreness_val = feedback.soreness if feedback else None
 
         # Get existing logged sets
-        existing = load_existing_sets(db, sess.id, we.id)
+        existing = existing_sets_by_we.get(we.id, [])
         existing_sets = [
             SetData(
                 set_number=s.set_number,
@@ -151,7 +278,7 @@ def get_workout_data(
         else:
             muscle_groups[muscle_group].exercises.append(exercise_data)
 
-    db.commit()  # Persist any new WorkoutExercise records created
+    db.commit()
 
     return WorkoutDataResponse(
         session_id=sess.id,
