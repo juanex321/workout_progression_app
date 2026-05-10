@@ -498,7 +498,7 @@ def get_days_since_last_session(db: OrmSession, muscle_group: str) -> Optional[i
     consecutive days (less recovery time between sessions).
     """
     recent_dates = (
-        db.query(Session.date)
+        db.query(Session.date, Session.session_number)
         .join(Set, Session.id == Set.session_id)
         .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
         .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
