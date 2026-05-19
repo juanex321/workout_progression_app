@@ -78,8 +78,8 @@ export function SorenessSelector({
               onClick={() => handleSelect(optionValue)}
               className={`rounded-xl border px-3 py-2.5 text-left text-xs transition-colors disabled:opacity-40 ${
                 selected
-                  ? "border-amber-300/30 bg-amber-300/12 text-amber-100"
-                  : "border-white/8 bg-white/4 text-zinc-300 hover:border-white/16 hover:bg-white/8"
+                  ? "border-amber-400/60 bg-amber-500/30 text-amber-100"
+                  : "border-white/20 bg-zinc-800 text-zinc-200 hover:border-white/30 hover:bg-zinc-700"
               }`}
             >
               {label}

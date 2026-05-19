@@ -41,7 +41,7 @@ function Stepper({
         type="button"
         onClick={() => onChange(Math.max(min, value - step))}
         disabled={disabled || value <= min}
-        className="h-11 w-10 shrink-0 rounded-l-xl border border-white/10 bg-zinc-700/80 text-lg font-bold text-zinc-200 transition-colors active:bg-zinc-600 disabled:opacity-30"
+        className="h-11 w-10 shrink-0 rounded-l-xl border border-white/15 bg-zinc-600 text-lg font-bold text-zinc-100 transition-colors active:bg-zinc-500 disabled:opacity-30"
       >
         -
       </button>
@@ -77,7 +77,7 @@ function Stepper({
         type="button"
         onClick={() => onChange(value + step)}
         disabled={disabled}
-        className="h-11 w-10 shrink-0 rounded-r-xl border border-white/10 bg-zinc-700/80 text-lg font-bold text-zinc-200 transition-colors active:bg-zinc-600 disabled:opacity-30"
+        className="h-11 w-10 shrink-0 rounded-r-xl border border-white/15 bg-zinc-600 text-lg font-bold text-zinc-100 transition-colors active:bg-zinc-500 disabled:opacity-30"
       >
         +
       </button>
@@ -100,7 +100,7 @@ export function SetRow({
   onLog,
 }: SetRowProps) {
   const logButtonClass = logged
-    ? "border border-emerald-500/30 bg-emerald-500/15 text-emerald-300"
+    ? "border border-emerald-500/50 bg-emerald-500/25 text-emerald-200"
     : saveError
       ? "border border-red-500/30 bg-red-500/15 text-red-300 active:bg-red-500/25"
       : "bg-zinc-200 text-zinc-950 active:bg-white disabled:opacity-30";

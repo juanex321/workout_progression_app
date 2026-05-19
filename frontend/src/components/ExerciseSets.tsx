@@ -292,7 +292,7 @@ export function ExerciseSets({
     : null;
 
   return (
-    <section className="rounded-2xl border border-white/8 bg-white/4 p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
+    <section className="rounded-2xl border border-white/12 bg-zinc-900/70 p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
       <div className="grid grid-cols-[minmax(0,1fr)_auto_auto] items-center gap-3">
         <div className="min-w-0 flex items-center self-center">
           <div className="flex min-w-0 items-center gap-2">
@@ -308,9 +308,13 @@ export function ExerciseSets({
         <button
           type="button"
           onClick={() => setShowAllSets((prev) => !prev)}
-          className="justify-self-center rounded-full border border-white/10 px-2.5 py-1 text-[10px] font-medium uppercase tracking-[0.16em] text-zinc-400 transition-colors hover:border-white/20 hover:text-zinc-200"
+          className={`justify-self-center rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition-colors ${
+            showAllSets
+              ? "border-zinc-400/40 bg-zinc-600 text-zinc-100 active:bg-zinc-500"
+              : "border-white/20 bg-zinc-700/70 text-zinc-300 hover:border-white/30 hover:bg-zinc-600/80 hover:text-zinc-100 active:bg-zinc-600"
+          }`}
         >
-          {showAllSets ? "Hide sets" : "Full session"}
+          {showAllSets ? "▲ Hide" : "▼ All sets"}
         </button>
 
         {!exercise.is_finisher && !disabled && !sorenessLocked ? (
