@@ -358,14 +358,23 @@ export function ExerciseSets({
         </p>
       )}
 
-      {exercise.weight_recommendation && (
-        <p className="mt-2 rounded-xl border border-amber-400/20 bg-amber-400/8 px-3 py-2 text-xs text-amber-200">
-          {exercise.weight_recommendation.message}
-          {exercise.weight_recommendation.context_note
-            ? `. ${exercise.weight_recommendation.context_note}`
-            : ""}
-        </p>
-      )}
+      {exercise.weight_recommendation && (() => {
+        const rec = exercise.weight_recommendation;
+        const styles =
+          rec.level === "apply"
+            ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
+            : rec.level === "strong"
+            ? "border-amber-400/30 bg-amber-500/10 text-amber-200"
+            : rec.level === "hold"
+            ? "border-zinc-400/20 bg-zinc-500/8 text-zinc-300"
+            : "border-amber-400/20 bg-amber-400/8 text-amber-200";
+        return (
+          <p className={`mt-2 rounded-xl border px-3 py-2 text-xs ${styles}`}>
+            {rec.message}
+            {rec.context_note ? `. ${rec.context_note}` : ""}
+          </p>
+        );
+      })()}
 
       {!allLogged && activeSet && (
         <div className="mt-3">

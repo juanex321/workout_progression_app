@@ -22,7 +22,7 @@ export interface LastSessionSummary {
 }
 
 export interface WeightRecommendation {
-  level: "standard" | "strong";
+  level: "standard" | "strong" | "hold" | "apply";
   message: string;
   context_note: string | null;
 }

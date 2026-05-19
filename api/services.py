@@ -5,14 +5,16 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import func
+from sqlalchemy.dialects.postgresql import insert as pg_insert
 
 from db import Session as DbSession, WorkoutExercise, Exercise, Set, Feedback
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
-WEIGHT_RECOMMENDATION_STANDARD = "Recommend increasing weight based on last session"
-WEIGHT_RECOMMENDATION_STRONG = "Strongly recommend increasing weight"
-WEIGHT_RECOMMENDATION_HOLD = "Weight increase earned — apply at the start of your next mesocycle (RIR 2)"
+WEIGHT_RECOMMENDATION_STANDARD = "Good candidate for a weight increase — consider adding 2.5 kg next wave"
+WEIGHT_RECOMMENDATION_STRONG = "Strong candidate for a weight increase — add 2.5–5 kg next wave"
+WEIGHT_RECOMMENDATION_APPLY = "Wave reset: apply the weight increase you earned at peak — bump weight now"
+WEIGHT_RECOMMENDATION_HOLD = "Weight increase earned — apply it at your next wave reset (RIR 2)"
 
 
 def get_current_session(db, workout_id: int) -> DbSession:
@@ -160,10 +162,14 @@ def get_previous_completed_exercise_sets(
     db,
     workout_exercise_id: int,
     before_session_number: int,
+    skip_deload: bool = False,
 ) -> list[Set]:
     """
     Return the logged sets for the most recent completed session strictly before
     the reference session number for this exact workout exercise.
+
+    skip_deload=True: skip any session where all sets have RIR >= 4 (deload sessions
+    don't reflect working capacity and shouldn't drive weight recommendations).
     """
     sets = (
         db.query(Set)
@@ -179,8 +185,19 @@ def get_previous_completed_exercise_sets(
     if not sets:
         return []
 
-    last_session_id = sets[0].session_id
-    return [set_row for set_row in sets if set_row.session_id == last_session_id]
+    # Group into sessions (ordered most-recent first)
+    sessions: dict[int, list[Set]] = {}
+    for s in sets:
+        sessions.setdefault(s.session_id, []).append(s)
+
+    for session_id, session_sets in sessions.items():
+        if skip_deload and all((s.rir or 0) >= 4 for s in session_sets):
+            continue
+        return session_sets
+
+    # All sessions were deloads — fall back to the most recent one
+    first_id = next(iter(sessions))
+    return sessions[first_id]
 
 
 def get_recent_first_set_reps(
@@ -264,13 +281,21 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
     if recommendation and current_target_rir < last_rir:
         recommendation["context_note"] = f"Even more so at RIR {current_target_rir} today."
 
-    # At RIR 0 the user is already at peak intensity — stacking a weight increase is
-    # triple overreach. Flag the earned increase for the next mesocycle instead.
+    # At RIR 0: peak intensity — don't stack a weight increase, flag it for the reset.
     if recommendation and current_target_rir == 0:
         recommendation = {
             "level": "hold",
             "message": WEIGHT_RECOMMENDATION_HOLD,
             "context_note": None,
+        }
+
+    # At RIR 2 (wave reset start): this is the moment to apply the earned increase.
+    # Upgrade standard/strong to the actionable "apply now" message.
+    if recommendation and recommendation.get("level") in ("standard", "strong") and current_target_rir == 2:
+        recommendation = {
+            "level": "apply",
+            "message": WEIGHT_RECOMMENDATION_APPLY,
+            "context_note": recommendation.get("context_note"),
         }
 
     return summary, recommendation
@@ -284,23 +309,28 @@ def get_exercise_last_session_metadata(
 ):
     """
     Fetch and derive the compact last-session block for one exercise.
+
+    For the weight recommendation, deload sessions (all sets RIR >= 4) are skipped
+    so that wave-reset sessions correctly surface the earned increase from peak phase,
+    not the artificially low deload performance.
     """
+    # Last-session summary uses the true last session (including deloads) for context display.
     last_sets = get_previous_completed_exercise_sets(
         db,
         workout_exercise_id=workout_exercise_id,
         before_session_number=before_session_number,
     )
-    summary, recommendation = build_last_session_metadata(last_sets, current_target_rir)
+    summary, _ = build_last_session_metadata(last_sets, current_target_rir)
 
-    # Suppress weight increase when first-set rep performance is inconsistent across
-    # recent sessions — a single high-rep session shouldn't trigger a weight change
-    # if the prior sessions showed much lower reps at the same RIR.
-    if recommendation and recommendation.get("level") in ("standard", "strong", "hold"):
-        recent_reps = get_recent_first_set_reps(
-            db, workout_exercise_id, before_session_number, n_sessions=3
-        )
-        if len(recent_reps) >= 2 and (max(recent_reps) - min(recent_reps)) >= 4:
-            recommendation = None
+    # Weight recommendation evaluates the last non-deload session so that
+    # coming off a wave reset the recommendation correctly reflects peak performance.
+    reference_sets = get_previous_completed_exercise_sets(
+        db,
+        workout_exercise_id=workout_exercise_id,
+        before_session_number=before_session_number,
+        skip_deload=True,
+    )
+    _, recommendation = build_last_session_metadata(reference_sets, current_target_rir)
 
     return summary, recommendation
 
@@ -501,24 +531,17 @@ def get_soreness_value(db, session_id: int, muscle_group: str):
 def save_soreness_only(db, session_id: int, muscle_group: str, soreness: int) -> None:
     """
     Save or update soreness for a muscle group, leaving pump/workload untouched.
-    Creates a new Feedback row if none exists, or updates the soreness column only.
+    Uses an atomic upsert to prevent duplicate rows under concurrent requests.
     """
-    existing = (
-        db.query(Feedback)
-        .filter(
-            Feedback.session_id == session_id,
-            Feedback.muscle_group == muscle_group,
+    stmt = (
+        pg_insert(Feedback)
+        .values(session_id=session_id, muscle_group=muscle_group, soreness=soreness)
+        .on_conflict_do_update(
+            constraint="uq_feedback_session_muscle",
+            set_={"soreness": soreness},
         )
-        .first()
     )
-    if existing:
-        existing.soreness = soreness
-    else:
-        db.add(Feedback(
-            session_id=session_id,
-            muscle_group=muscle_group,
-            soreness=soreness,
-        ))
+    db.execute(stmt)
     db.commit()
 
 
@@ -551,30 +574,22 @@ def save_muscle_group_feedback(
     db, session_id: int, muscle_group: str, soreness: int, pump: int, workload: int
 ) -> None:
     """
-    Save feedback to the database for a given session and muscle group.
-    If feedback already exists, update it. Otherwise, create new feedback.
+    Save full feedback for a muscle group.
+    Uses an atomic upsert to prevent duplicate rows under concurrent requests.
     """
-    existing_feedback = (
-        db.query(Feedback)
-        .filter(
-            Feedback.session_id == session_id,
-            Feedback.muscle_group == muscle_group,
-        )
-        .first()
-    )
-
-    if existing_feedback:
-        existing_feedback.soreness = soreness
-        existing_feedback.pump = pump
-        existing_feedback.workload = workload
-    else:
-        feedback = Feedback(
+    stmt = (
+        pg_insert(Feedback)
+        .values(
             session_id=session_id,
             muscle_group=muscle_group,
             soreness=soreness,
             pump=pump,
             workload=workload,
         )
-        db.add(feedback)
-
+        .on_conflict_do_update(
+            constraint="uq_feedback_session_muscle",
+            set_={"soreness": soreness, "pump": pump, "workload": workload},
+        )
+    )
+    db.execute(stmt)
     db.commit()

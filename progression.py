@@ -3,7 +3,7 @@
 from typing import List, Tuple
 from sqlalchemy.orm import Session as OrmSession
 
-from db import Set, Session, Feedback, WorkoutExercise
+from db import Set, Session, Feedback, WorkoutExercise, Exercise
 from plan import DEFAULT_TARGET_SETS
 
 # ------- constants / config -------
@@ -11,7 +11,12 @@ from plan import DEFAULT_TARGET_SETS
 DEFAULT_BASE_WEIGHT = 50.0
 
 MIN_SETS = 1
-MAX_SETS_MAIN = 10          # upper cap for normal exercises
+DEFAULT_SET_CAP = 8         # hard ceiling for most muscles per session
+MAX_SETS_MAIN = DEFAULT_SET_CAP  # alias kept for test compatibility
+MUSCLE_SET_CAPS = {
+    "Shoulders": 6,         # trained every session — lower ceiling
+}
+# Finisher-style names (always 1 set regardless of progression)
 FINISHER_TARGET_SETS = 1    # finishers are always 1 set
 
 MIN_TARGET_REPS = 8
@@ -124,6 +129,65 @@ def get_recent_muscle_group_feedback(
     return cache[key]
 
 
+def estimate_mev_for_muscle(db: OrmSession, muscle_group: str) -> int:
+    """
+    Estimate Minimum Effective Volume for a muscle group from recent history.
+
+    Returns the lowest set count per session in the last 8 sessions where
+    feedback still showed a productive stimulus (pump >= 2, workload >= 2).
+    Falls back to DEFAULT_TARGET_SETS when feedback coverage is insufficient.
+    """
+    if not muscle_group:
+        return DEFAULT_TARGET_SETS
+
+    recent_session_ids = [
+        r.id for r in (
+            db.query(Session.id)
+            .join(Set, Session.id == Set.session_id)
+            .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+            .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+            .filter(Exercise.muscle_group == muscle_group)
+            .filter(Session.completed == 1)
+            .distinct()
+            .order_by(Session.id.desc())
+            .limit(8)
+            .all()
+        )
+    ]
+
+    if not recent_session_ids:
+        return DEFAULT_TARGET_SETS
+
+    set_rows = (
+        db.query(Set.session_id)
+        .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+        .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+        .filter(Exercise.muscle_group == muscle_group)
+        .filter(Set.session_id.in_(recent_session_ids))
+        .all()
+    )
+    counts_by_session: dict[int, int] = {}
+    for row in set_rows:
+        counts_by_session[row.session_id] = counts_by_session.get(row.session_id, 0) + 1
+
+    feedback_rows = (
+        db.query(Feedback)
+        .filter(Feedback.session_id.in_(recent_session_ids))
+        .filter(Feedback.muscle_group == muscle_group)
+        .all()
+    )
+    fb_by_session = {f.session_id: f for f in feedback_rows}
+
+    min_adequate: int | None = None
+    for sid, count in counts_by_session.items():
+        fb = fb_by_session.get(sid)
+        if fb and (fb.pump or 0) >= 2 and (fb.workload or 0) >= 2:
+            if min_adequate is None or count < min_adequate:
+                min_adequate = count
+
+    return max(3, min_adequate) if min_adequate is not None else DEFAULT_TARGET_SETS
+
+
 def is_finisher(we: WorkoutExercise) -> bool:
     name = (we.exercise.name or "").strip()
     return name in FINISHER_NAMES
@@ -157,7 +221,9 @@ def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
     return 0
 
 
-def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
+def adjust_sets_based_on_feedback(
+    db: OrmSession, we: WorkoutExercise, wave_reset: bool = False
+) -> int:
     """
     Determine target sets using session-to-session bounded progression.
 
@@ -167,49 +233,48 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     B) Sets can only change by ±1 per session (hard limiter).
     C) Optional smoothing: if 2 sessions of history exist, anchor to the average.
     D) Feedback drives direction (+1/-1/0), but never more than ±1 from anchor.
+    E) wave_reset=True: drop back to MEV estimate regardless of recent history.
 
     Finishers ALWAYS stay at their stored target (typically 1 set).
     """
     # CRITICAL: Finishers are always 1 set - no exceptions
     if is_finisher(we):
-        # Fix stored value if it drifted
         if we.target_sets != FINISHER_TARGET_SETS:
             we.target_sets = FINISHER_TARGET_SETS
             db.add(we)
         return FINISHER_TARGET_SETS
 
-    # Get muscle group from exercise
     muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
+    s_cap = MUSCLE_SET_CAPS.get(muscle_group, DEFAULT_SET_CAP) if muscle_group else DEFAULT_SET_CAP
 
-    # Determine floor and cap
-    max_sets = MAX_SETS_MAIN
-    s_floor = MIN_SETS
-    s_cap = max_sets
+    # Rule E: Wave reset — drop to MEV, ignoring recent history
+    if wave_reset and muscle_group:
+        mev = estimate_mev_for_muscle(db, muscle_group)
+        mev = min(mev, s_cap)
+        if we.target_sets != mev:
+            we.target_sets = mev
+            db.add(we)
+        return mev
 
     # Rule A: Anchor to last session's actual sets performed
     history = get_last_n_session_set_counts(db, we.id, n=2)
 
     if not history:
-        # No history - use conservative default, no adjustment
         return we.target_sets or DEFAULT_TARGET_SETS
 
     s_last = history[0]
 
     # Rule C: If 2 sessions available, smooth by averaging
     if len(history) >= 2:
-        s_prev = history[1]
-        s_anchor = round((s_last + s_prev) / 2)
+        s_anchor = round((s_last + history[1]) / 2)
     else:
         s_anchor = s_last
 
     # Rule D: Compute feedback-driven adjustment direction
-    if muscle_group:
-        adj = compute_feedback_adjustment(db, muscle_group)
-    else:
-        adj = 0  # No muscle group = no adjustment
+    adj = compute_feedback_adjustment(db, muscle_group) if muscle_group else 0
 
     # Rule B: Apply ±1 hard limiter and clamp to floor/cap
-    s_reco = max(s_floor, min(s_anchor + adj, s_cap))
+    s_reco = max(MIN_SETS, min(s_anchor + adj, s_cap))
 
     if s_reco != we.target_sets:
         we.target_sets = int(s_reco)
@@ -310,17 +375,12 @@ def recommend_weights_and_reps(
     Main entry used by the API recommendation flow.
 
     Progression hierarchy:
-    1. Adjust target_sets based on recent feedback (primary progression).
-    2. Adjust target_reps based on performance (secondary progression).
-    3. Keep weight the same as last session (manual changes only).
-    4. If deload is indicated → drop weight to ~55%.
-       - For finishers during deload: reduce weight only, keep reps same.
+    1. Adjust target_sets: feedback-driven accumulation up to MUSCLE_SET_CAPS ceiling.
+       On wave reset (RIR 4), sets drop back to adaptive MEV estimate instead.
+    2. Adjust target_reps based on last session performance + RIR change.
+    3. Carry forward last session's weight unchanged (user controls weight increases).
+    4. At RIR 0 (peak): apply -1 set modifier for quality over quantity.
     5. Return rows ready for API serialization and UI rendering.
-
-    Args:
-        db: Database session
-        we: WorkoutExercise object
-        muscle_group: Name of the muscle group (for deload detection)
     """
     # Get muscle group from exercise if not provided
     if muscle_group is None:
@@ -336,8 +396,11 @@ def recommend_weights_and_reps(
     # Check if this is a finisher exercise
     is_finisher_exercise = is_finisher(we)
 
+    # Wave reset: RIR 4 signals the volume reset phase — sets drop to MEV, weight unchanged
+    wave_reset = current_rir >= RIR_DELOAD
+
     # 1) volume adjustment (primary progression)
-    target_sets = adjust_sets_based_on_feedback(db, we)
+    target_sets = adjust_sets_based_on_feedback(db, we, wave_reset=wave_reset)
 
     # 2) get last session data
     _, last_sets = get_last_session_sets(db, we.id)
@@ -345,26 +408,18 @@ def recommend_weights_and_reps(
     # 3) rep calculation based on last session + RIR progression
     target_reps = calculate_reps_with_rir_progression(we, last_sets, current_rir)
 
-    # 4) weight logic - copy from last session (NO auto-increment)
+    # 4) weight — always carry forward last session's weight, no auto-cut
     if not last_sets:
         next_weight = DEFAULT_BASE_WEIGHT
     else:
-        # Simply copy the last weight - user manually increases when ready
-        last_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
-        next_weight = last_weight
+        next_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
 
-    # 5) deload override - applies to ALL exercises including finishers
-    deload_active = False
-    if current_rir >= RIR_DELOAD:
-        deload_active = True
-        next_weight = max(next_weight * 0.55, 5.0)  # keep some floor
-
-    # 5b) RIR-stage set volume modifier (non-finisher exercises only)
-    # RIR 2 = baseline (feedback drives volume accumulation here)
-    # RIR 1 = hold flat — intensity jump from RIR 2→1 is already an overreach stimulus
-    # RIR 0 = peak intensity: drop 1 set for quality over quantity (fewer, harder sets)
-    # Deload = weight cut is sufficient; sets stay at baseline for recovery quality
-    if not is_finisher_exercise and not deload_active:
+    # 5) RIR-stage set volume modifier (non-finisher, non-reset exercises only)
+    # RIR 2 = baseline (feedback drives accumulation)
+    # RIR 1 = hold flat — the intensity jump is already an overreach stimulus
+    # RIR 0 = peak intensity: -1 set for quality over quantity
+    # Wave reset (RIR 4) = sets already at MEV from step 1; no further modifier
+    if not is_finisher_exercise and not wave_reset:
         if current_rir == RIR_FAILURE:   # 0 — peak intensity: -1 set
             target_sets = max(1, target_sets - 1)
 
@@ -372,20 +427,11 @@ def recommend_weights_and_reps(
     suggest_weight = should_suggest_weight_increase(db, we, last_sets)
 
     # 7) build plan rows with fatigue model
-    # First set = target_reps (strongest/freshest)
-    # Subsequent sets = realistic decline based on fatigue
     rows: list[dict] = []
     for i in range(1, int(target_sets) + 1):
-        # Apply fatigue: each set after the first drops by FATIGUE_REP_DROP_PER_SET
-        # BUT: for finishers during deload, keep reps the same (no fatigue drop)
-        if is_finisher_exercise and deload_active:
-            # Finishers during deload: keep target reps, no fatigue model
-            set_reps = target_reps
-        else:
-            sets_of_fatigue = i - 1  # 0 for first set, 1 for second, etc.
-            fatigued_reps = target_reps - (sets_of_fatigue * FATIGUE_REP_DROP_PER_SET)
-            # Never go below the floor
-            set_reps = max(fatigued_reps, MIN_REPS_FLOOR)
+        sets_of_fatigue = i - 1
+        fatigued_reps = target_reps - (sets_of_fatigue * FATIGUE_REP_DROP_PER_SET)
+        set_reps = max(fatigued_reps, MIN_REPS_FLOOR)
 
         row = {
             "set_number": i,

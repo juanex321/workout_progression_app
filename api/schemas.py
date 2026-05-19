@@ -50,7 +50,7 @@ class LastSessionSummary(BaseModel):
 
 
 class WeightRecommendation(BaseModel):
-    level: Literal["standard", "strong", "hold"]
+    level: Literal["standard", "strong", "hold", "apply"]
     message: str
     context_note: Optional[str] = None
 

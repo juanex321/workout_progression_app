@@ -241,6 +241,9 @@ class Set(Base):
 
 class Feedback(Base):
     __tablename__ = "feedback"
+    __table_args__ = (
+        UniqueConstraint("session_id", "muscle_group", name="uq_feedback_session_muscle"),
+    )
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
     workout_exercise_id: Mapped[Optional[int]] = mapped_column(

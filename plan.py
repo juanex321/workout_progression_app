@@ -19,7 +19,12 @@ PULL_MAIN_ROTATION = [
 ]
 
 PULL_SECONDARY = "Cable Curl"
-LATERAL_RAISES = "Dumbbell Lateral Raise"
+
+# Shoulder exercises alternate each session for lateral-head variety
+SHOULDER_ROTATION = [
+    "Dumbbell Lateral Raise",
+    "Dumbbell Upright Row",
+]
 
 DEFAULT_TARGET_SETS = 4
 DEFAULT_TARGET_REPS = 10
@@ -40,7 +45,8 @@ EXERCISE_DEFAULT_SETS = {
 
 # per-exercise overrides for target reps (muscle-specific targeting)
 EXERCISE_DEFAULT_REPS = {
-    "Dumbbell Lateral Raise": 12,  # Higher rep range for delts
+    "Dumbbell Lateral Raise": 12,   # Higher rep range for delts
+    "Dumbbell Upright Row": 12,     # Same rep range for lateral head stimulus
     "Cable Curl": 12,
     "Incline DB Curl": 12,
     # All other exercises default to DEFAULT_TARGET_REPS (10)
@@ -72,6 +78,7 @@ EXERCISE_MUSCLE_GROUPS = {
     
     # Shoulders
     "Dumbbell Lateral Raise": "Shoulders",
+    "Dumbbell Upright Row": "Shoulders",
 }
 
 def get_session_exercises(session_index: int) -> list[str]:
@@ -118,4 +125,5 @@ def get_session_exercises(session_index: int) -> list[str]:
             "Incline DB Curl",        # biceps finisher
         ]
 
-    return leg_block + upper_block + [LATERAL_RAISES]
+    shoulder_ex = SHOULDER_ROTATION[session_index % len(SHOULDER_ROTATION)]
+    return leg_block + upper_block + [shoulder_ex]
