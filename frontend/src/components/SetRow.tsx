@@ -109,7 +109,7 @@ export function SetRow({
 
   return (
     <div
-      className={`flex items-center gap-2 ${highlight ? "rounded-2xl border border-white/10 bg-white/5 p-2.5" : ""}`}
+      className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] ${highlight ? "rounded-2xl border border-white/10 bg-white/5 p-2.5" : ""}`}
     >
       <span
         className={`shrink-0 text-right text-xs ${
@@ -121,31 +121,46 @@ export function SetRow({
         {setNumber}
       </span>
 
-      <Stepper
-        value={weight}
-        onChange={onWeightChange}
-        step={2.5}
-        min={0}
-        inputMode="decimal"
-        disabled={disabled || !!pending}
-        suffix="lb"
-      />
+      <div className="min-w-0 sm:hidden">
+        <button
+          type="button"
+          onClick={onLog}
+          disabled={disabled || !!sorenessLocked || !weight || !reps || !!pending}
+          className={`h-11 w-full rounded-xl px-3 text-sm font-semibold transition-colors ${logButtonClass}`}
+        >
+          {logButtonLabel}
+        </button>
+      </div>
 
-      <Stepper
-        value={reps}
-        onChange={onRepsChange}
-        step={1}
-        min={1}
-        inputMode="numeric"
-        disabled={disabled || !!pending}
-        suffix="reps"
-      />
+      <div className="col-span-2 min-w-0 sm:col-span-1">
+        <Stepper
+          value={weight}
+          onChange={onWeightChange}
+          step={2.5}
+          min={0}
+          inputMode="decimal"
+          disabled={disabled || !!pending}
+          suffix="lb"
+        />
+      </div>
+
+      <div className="col-span-2 min-w-0 sm:col-span-1">
+        <Stepper
+          value={reps}
+          onChange={onRepsChange}
+          step={1}
+          min={1}
+          inputMode="numeric"
+          disabled={disabled || !!pending}
+          suffix="reps"
+        />
+      </div>
 
       <button
         type="button"
         onClick={onLog}
         disabled={disabled || !!sorenessLocked || !weight || !reps || !!pending}
-        className={`h-11 shrink-0 rounded-xl px-3 text-sm font-semibold transition-colors ${logButtonClass}`}
+        className={`hidden h-11 shrink-0 rounded-xl px-3 text-sm font-semibold transition-colors sm:block ${logButtonClass}`}
       >
         {logButtonLabel}
       </button>
