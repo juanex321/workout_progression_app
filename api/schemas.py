@@ -64,6 +64,8 @@ class ExerciseData(BaseModel):
     recommendations: list[RecommendedSet]
     is_finisher: bool
     target_sets: int
+    min_sets: int
+    max_sets: int
     target_reps: int
     last_session_summary: Optional[LastSessionSummary] = None
     weight_recommendation: Optional[WeightRecommendation] = None

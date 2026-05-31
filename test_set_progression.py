@@ -21,7 +21,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from progression import (
     compute_feedback_adjustment,
     adjust_sets_based_on_feedback,
-    get_last_n_session_set_counts,
+    get_last_n_muscle_group_set_counts,
     MIN_SETS,
     MAX_SETS_MAIN,
     FINISHER_TARGET_SETS,
@@ -127,7 +127,7 @@ def test_acceptance_5_sets_stays_in_range():
     mock_db = MagicMock()
 
     for adj_val in [-1, 0, +1]:
-        with patch("progression.get_last_n_session_set_counts", return_value=[5]):
+        with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
             with patch("progression.compute_feedback_adjustment", return_value=adj_val):
                 with patch("progression.is_finisher", return_value=False):
                     result = adjust_sets_based_on_feedback(mock_db, we)
@@ -141,7 +141,7 @@ def test_acceptance_high_fatigue_drops_by_1_only():
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_session_set_counts", return_value=[5]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
         with patch("progression.compute_feedback_adjustment", return_value=-1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -154,7 +154,7 @@ def test_acceptance_low_fatigue_increases_by_1_only():
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_session_set_counts", return_value=[5]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -164,10 +164,10 @@ def test_acceptance_low_fatigue_increases_by_1_only():
 
 def test_acceptance_no_history_uses_default():
     """ACCEPTANCE: No history -> use conservative default."""
-    we = make_mock_we(target_sets=4)
+    we = make_mock_we(target_sets=4, muscle_group="Glutes")
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_session_set_counts", return_value=[]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[]):
         with patch("progression.is_finisher", return_value=False):
             result = adjust_sets_based_on_feedback(mock_db, we)
             assert result == 4, f"Expected default {DEFAULT_TARGET_SETS}, got {result}"
@@ -180,7 +180,7 @@ def test_acceptance_smoothing_with_2_sessions():
     mock_db = MagicMock()
 
     # Last session: 6 sets, previous: 4 sets -> average = 5
-    with patch("progression.get_last_n_session_set_counts", return_value=[6, 4]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[6, 4]):
         with patch("progression.compute_feedback_adjustment", return_value=0):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -193,7 +193,7 @@ def test_acceptance_smoothing_with_adjustment():
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_session_set_counts", return_value=[5, 5]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5, 5]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -206,7 +206,7 @@ def test_acceptance_never_exceeds_cap():
     we = make_mock_we(target_sets=MAX_SETS_MAIN)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_session_set_counts", return_value=[MAX_SETS_MAIN]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[MAX_SETS_MAIN]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -215,18 +215,17 @@ def test_acceptance_never_exceeds_cap():
     print(f"  PASS: At cap ({MAX_SETS_MAIN}), adj=+1 -> stays at {MAX_SETS_MAIN}")
 
 
-def test_acceptance_never_below_floor():
-    """ACCEPTANCE: At min sets + negative feedback -> stays at floor."""
-    we = make_mock_we(target_sets=MIN_SETS)
+def test_acceptance_never_below_volume_window():
+    """ACCEPTANCE: At low history + negative feedback -> stays at muscle window minimum."""
+    we = make_mock_we(target_sets=MIN_SETS, muscle_group="Chest")
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_session_set_counts", return_value=[MIN_SETS]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[MIN_SETS]):
         with patch("progression.compute_feedback_adjustment", return_value=-1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
-                assert result == MIN_SETS, \
-                    f"Expected {MIN_SETS}, got {result}"
-    print(f"  PASS: At floor ({MIN_SETS}), adj=-1 -> stays at {MIN_SETS}")
+                assert result == 4, f"Expected Chest minimum 4, got {result}"
+    print("  PASS: Low history + negative feedback -> stays at Chest minimum (4)")
 
 
 def test_acceptance_finisher_stays_at_1():
@@ -260,7 +259,7 @@ if __name__ == "__main__":
     test_acceptance_smoothing_with_2_sessions()
     test_acceptance_smoothing_with_adjustment()
     test_acceptance_never_exceeds_cap()
-    test_acceptance_never_below_floor()
+    test_acceptance_never_below_volume_window()
     test_acceptance_finisher_stays_at_1()
 
     print("\nOK: All tests passed!")

@@ -28,7 +28,7 @@ from plan import (
     EXERCISE_MUSCLE_GROUPS,
     get_session_exercises,
 )
-from progression import recommend_weights_and_reps, is_finisher
+from progression import recommend_weights_and_reps, is_finisher, get_exercise_set_bounds
 from rir_progression import get_rir_for_muscle_group, get_feedback_summary
 
 router = APIRouter()
@@ -243,6 +243,8 @@ def get_workout_data(
             )
             for r in recs_raw
         ]
+        min_sets, max_sets = get_exercise_set_bounds(db, we)
+        recommended_set_count = len(recommendations)
         last_session_summary, weight_recommendation = get_exercise_last_session_metadata(
             db,
             workout_exercise_id=we.id,
@@ -258,7 +260,9 @@ def get_workout_data(
             existing_sets=existing_sets,
             recommendations=recommendations,
             is_finisher=is_finisher(we),
-            target_sets=we.target_sets,
+            target_sets=recommended_set_count,
+            min_sets=min_sets,
+            max_sets=max_sets,
             target_reps=we.target_reps,
             last_session_summary=last_session_summary,
             weight_recommendation=weight_recommendation,

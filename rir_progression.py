@@ -62,8 +62,8 @@ CONSECUTIVE_SESSIONS_TO_ADVANCE = 2
 
 # Minimum sessions at each RIR level before advancing to the next phase
 # (feedback gates still apply — these are floors, not the sole trigger)
-MIN_SESSIONS_AT_RIR2 = 4   # Must complete at least 4 sessions at RIR 2
-MIN_SESSIONS_AT_RIR1 = 3   # Must complete at least 3 sessions at RIR 1
+MIN_SESSIONS_AT_RIR2 = 3   # Must complete at least 3 sessions at RIR 2
+MIN_SESSIONS_AT_RIR1 = 2   # Must complete at least 2 sessions at RIR 1
 MIN_SESSIONS_AT_RIR0 = 2   # Must complete at least 2 sessions at RIR 0 before deload fires
 
 # Legacy alias kept for clarity in the RIR 1 phase block
@@ -101,7 +101,11 @@ def get_recent_muscle_feedback(
 
     return (
         db.query(Feedback)
+        .join(Session, Feedback.session_id == Session.id)
         .filter(Feedback.muscle_group == muscle_group)
+        .filter(Session.completed == 1)
+        .filter(Feedback.pump.isnot(None))
+        .filter(Feedback.workload.isnot(None))
         .order_by(Feedback.created_at.desc())
         .limit(limit)
         .all()
@@ -406,11 +410,13 @@ def get_last_rir_for_muscle(db: OrmSession, muscle_group: str) -> Optional[int]:
     # Get most recent set for this muscle group
     recent_set = (
         db.query(Set)
+        .join(Session, Set.session_id == Session.id)
         .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
         .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
         .filter(Exercise.muscle_group == muscle_group)
+        .filter(Session.completed == 1)
         .filter(Set.rir.isnot(None))
-        .order_by(Set.logged_at.desc())
+        .order_by(Session.session_number.desc(), Set.set_number.asc())
         .first()
     )
     
@@ -487,6 +493,17 @@ def count_consecutive_sessions_at_rir(
             break  # Stop at the first session that doesn't match
 
     return count
+
+
+def is_peak_cycle_complete(db: OrmSession, muscle_group: str) -> bool:
+    """Return True when the muscle has completed its planned RIR 0 exposures."""
+    if not muscle_group:
+        return False
+    last_rir = get_last_rir_for_muscle(db, muscle_group)
+    return (
+        last_rir == RIR_FAILURE
+        and count_consecutive_sessions_at_rir(db, muscle_group, RIR_FAILURE) >= MIN_SESSIONS_AT_RIR0
+    )
 
 
 def get_days_since_last_session(db: OrmSession, muscle_group: str) -> Optional[int]:
@@ -664,6 +681,12 @@ def get_rir_for_muscle_group(db: OrmSession, muscle_group: str) -> Tuple[int, st
     # Stay until the deload trigger fires (checked at the top of this function).
     if last_rir == RIR_FAILURE:
         sessions_at_rir0 = count_consecutive_sessions_at_rir(db, muscle_group, RIR_FAILURE)
+        if sessions_at_rir0 >= MIN_SESSIONS_AT_RIR0:
+            return (
+                RIR_HARD,
+                "Peak complete - Resetting to baseline volume (RIR 2)",
+                analysis,
+            )
         return (
             RIR_FAILURE,
             f"Peak Overreach - Session {sessions_at_rir0} at max effort (RIR 0)",

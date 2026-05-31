@@ -255,12 +255,17 @@ export function ExerciseSets({
   );
 
   const handleSetCountChange = useCallback((newCount: number) => {
-    setPlannedCount(newCount);
+    const loggedCount = sets.filter((setRow) => setRow.logged).length;
+    const cappedCount = Math.max(
+      loggedCount,
+      Math.min(Math.max(newCount, exercise.min_sets), exercise.max_sets)
+    );
+    setPlannedCount(cappedCount);
     setSets((prev) => {
-      if (newCount > prev.length) {
+      if (cappedCount > prev.length) {
         const lastSet = prev[prev.length - 1];
         const newSets = [...prev];
-        for (let i = prev.length + 1; i <= newCount; i++) {
+        for (let i = prev.length + 1; i <= cappedCount; i++) {
           newSets.push({
             set_number: i,
             weight: lastSet?.weight ?? 0,
@@ -271,9 +276,9 @@ export function ExerciseSets({
         return newSets;
       }
 
-      return prev.slice(0, newCount);
+      return prev.slice(0, cappedCount);
     });
-  }, []);
+  }, [sets, exercise.min_sets, exercise.max_sets]);
 
   const allLogged = sets.length > 0 && sets.every((setRow) => setRow.logged);
   const activeSet = sets.find((setRow) => !setRow.logged) ?? sets[sets.length - 1] ?? null;
@@ -321,8 +326,8 @@ export function ExerciseSets({
           <SetCounter
             count={plannedCount}
             onChange={handleSetCountChange}
-            min={1}
-            max={10}
+            min={exercise.min_sets}
+            max={Math.max(exercise.max_sets, sets.filter((setRow) => setRow.logged).length)}
           />
         ) : (
           <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">

@@ -112,12 +112,12 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
 
         self.assertEqual(
             summary,
-            {"last_weight": 150.0, "avg_reps": 12, "recommended_rir": 2},
+            {"last_weight": 150.0, "avg_reps": 12, "recommended_rir": 2, "set_count": 5},
         )
-        self.assertEqual(recommendation["level"], "standard")
+        self.assertEqual(recommendation["level"], "apply")
         self.assertEqual(
             recommendation["message"],
-            api_services.WEIGHT_RECOMMENDATION_STANDARD,
+            api_services.WEIGHT_RECOMMENDATION_APPLY,
         )
         self.assertIsNone(recommendation["context_note"])
 
@@ -134,7 +134,7 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
             current_target_rir=2,
         )
 
-        self.assertEqual(recommendation["level"], "standard")
+        self.assertEqual(recommendation["level"], "apply")
 
     def test_build_last_session_metadata_does_not_trigger_at_2_of_5_sets(self):
         last_sets = [
@@ -167,10 +167,10 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
             current_target_rir=2,
         )
 
-        self.assertEqual(recommendation["level"], "strong")
+        self.assertEqual(recommendation["level"], "apply")
         self.assertEqual(
             recommendation["message"],
-            api_services.WEIGHT_RECOMMENDATION_STRONG,
+            api_services.WEIGHT_RECOMMENDATION_APPLY,
         )
 
     def test_build_last_session_metadata_adds_rir_context_without_changing_level(self):
@@ -214,7 +214,7 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["last_weight"], 150.0)
         self.assertEqual(summary["avg_reps"], 12)
-        self.assertEqual(recommendation["level"], "standard")
+        self.assertEqual(recommendation["level"], "apply")
 
     def test_get_exercise_last_session_metadata_ignores_current_in_progress_session(self):
         workout = self.seed_workout()
@@ -237,7 +237,7 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["last_weight"], 150.0)
         self.assertEqual(summary["recommended_rir"], 2)
-        self.assertEqual(recommendation["level"], "standard")
+        self.assertEqual(recommendation["level"], "apply")
 
     def test_get_exercise_last_session_metadata_is_isolated_to_same_exercise(self):
         workout = self.seed_workout()
@@ -297,10 +297,10 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         self.assertEqual(leg_extension_payload.last_session_summary.avg_reps, 12)
         self.assertEqual(leg_extension_payload.last_session_summary.recommended_rir, 2)
         self.assertIsNotNone(leg_extension_payload.weight_recommendation)
-        self.assertEqual(leg_extension_payload.weight_recommendation.level, "standard")
+        self.assertEqual(leg_extension_payload.weight_recommendation.level, "apply")
         self.assertEqual(
             leg_extension_payload.weight_recommendation.message,
-            api_services.WEIGHT_RECOMMENDATION_STANDARD,
+            api_services.WEIGHT_RECOMMENDATION_APPLY,
         )
         self.assertIsNone(leg_extension_payload.weight_recommendation.context_note)
         self.assertIsNone(sissy_squat_payload.last_session_summary)

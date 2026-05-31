@@ -36,6 +36,8 @@ export interface ExerciseData {
   recommendations: RecommendedSet[];
   is_finisher: boolean;
   target_sets: number;
+  min_sets: number;
+  max_sets: number;
   target_reps: number;
   last_session_summary: LastSessionSummary | null;
   weight_recommendation: WeightRecommendation | null;
