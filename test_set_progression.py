@@ -68,6 +68,19 @@ def test_feedback_low_returns_plus_1():
     print("  PASS: Low feedback -> +1")
 
 
+def test_feedback_never_sore_manageable_returns_plus_1():
+    """Never sore + manageable workload should add a set even with a good pump."""
+    mock_db = MagicMock()
+    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+        mock_fb.return_value = [
+            make_mock_feedback(1, 4, 3),
+            make_mock_feedback(1, 3, 3),
+        ]
+        adj = compute_feedback_adjustment(mock_db, "Glutes")
+        assert adj == +1, f"Expected +1 for recovered manageable sessions, got {adj}"
+    print("  PASS: Never sore + manageable workload -> +1")
+
+
 def test_feedback_high_soreness_returns_minus_1():
     """High soreness should return -1."""
     mock_db = MagicMock()
@@ -246,6 +259,7 @@ def test_acceptance_finisher_stays_at_1():
 if __name__ == "__main__":
     print("\n=== Feedback Adjustment Tests ===")
     test_feedback_low_returns_plus_1()
+    test_feedback_never_sore_manageable_returns_plus_1()
     test_feedback_high_soreness_returns_minus_1()
     test_feedback_high_workload_returns_minus_1()
     test_feedback_moderate_returns_0()

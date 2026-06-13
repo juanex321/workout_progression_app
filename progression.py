@@ -329,11 +329,17 @@ def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
         return -1
 
     # "Under-stimulated" → +1
-    if len(recent_two) >= 2 and all(
-        (f.soreness or 0) <= 2 and (f.pump or 0) <= 2 and (f.workload or 0) <= 2
-        for f in recent_two
-    ):
-        return +1
+    if len(recent_two) >= 2:
+        easy_and_recovered = all(
+            (f.soreness or 0) <= 2 and (f.workload or 0) <= 2
+            for f in recent_two
+        )
+        never_sore_and_manageable = all(
+            (f.soreness or 0) <= 1 and (f.workload or 0) <= 3
+            for f in recent_two
+        )
+        if easy_and_recovered or never_sore_and_manageable:
+            return +1
 
     # "Beaten up / too much" → -1
     if avg_s >= SORENESS_HIGH or avg_w >= WORKLOAD_HIGH:

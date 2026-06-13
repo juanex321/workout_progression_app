@@ -260,18 +260,19 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
     }
 
     recommendation = None
+    first_set_reps = int(ordered_sets[0].reps or 0)
     sets_at_15 = sum(1 for rep_count in reps if rep_count >= 15)
-    sets_at_12 = sum(1 for rep_count in reps if rep_count >= 12)
     required_sets = max(1, int(len(reps) * 0.8))
 
-    # Match the requested examples: 3/4 and 4/5 should both trigger.
-    if sets_at_15 >= required_sets:
+    # Weight progression is earned by top-set performance, not RIR cycle position alone.
+    # Back-off sets only decide whether this is a standard or strong recommendation.
+    if first_set_reps >= 15 and sets_at_15 >= required_sets:
         recommendation = {
             "level": "strong",
             "message": WEIGHT_RECOMMENDATION_STRONG,
             "context_note": None,
         }
-    elif sets_at_12 >= required_sets:
+    elif first_set_reps >= 15:
         recommendation = {
             "level": "standard",
             "message": WEIGHT_RECOMMENDATION_STANDARD,
