@@ -42,7 +42,14 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const text = await res.text();
-    throw new Error(`${res.status}: ${text}`);
+    // Avoid dumping raw HTML error pages into the UI
+    const isHtml = text.trimStart().startsWith("<");
+    const detail = isHtml
+      ? `Server error (${res.status}) — please try again`
+      : text.length > 200
+        ? `${res.status}: ${text.slice(0, 200)}…`
+        : `${res.status}: ${text}`;
+    throw new Error(detail);
   }
   return res.json();
 }
@@ -204,7 +211,17 @@ function ExerciseCard({
       </div>
 
       <div className="px-4 py-3 space-y-3">
-        {error && <p className="text-xs text-red-400">{error}</p>}
+        {error && (
+          <div className="flex items-center justify-between gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
+            <p className="text-xs text-red-400">{error}</p>
+            <button
+              onClick={() => onChange({ error: "" })}
+              className="text-xs text-zinc-500 shrink-0 hover:text-zinc-300"
+            >
+              dismiss
+            </button>
+          </div>
+        )}
 
         {/* Last session reference block */}
         {(exercise.last_reps || exercise.last_weight || exercise.last_mini_sets != null) && stage !== "done" && (
