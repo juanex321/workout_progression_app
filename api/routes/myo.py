@@ -175,7 +175,7 @@ def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db
 
     if req.activation_reps:
         act = MyoActivationSet(
-            exercise_session_id=es.id,
+            exercise_session=es,  # wire backref in-memory so expire_on_commit=False doesn't hide it
             weight=req.activation_weight,
             reps=req.activation_reps,
         )

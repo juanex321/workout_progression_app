@@ -350,14 +350,14 @@ function ExerciseCard({
               <button
                 onClick={() => onChange({ stage: "feedback" })}
                 className={`w-full h-10 rounded-lg text-sm font-medium transition-colors
-                  ${atFloor || (exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets)
+                  ${exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets
                     ? "bg-red-600 text-white active:bg-red-500"
                     : "bg-zinc-700 text-zinc-400 active:bg-zinc-600"
                   }`}
               >
-                {atFloor || (exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets)
-                  ? `Done — ${miniSets.length} mini-sets`
-                  : `Stop here · ${miniSets.length} mini-sets${exercise.target_mini_sets ? ` (target: ${exercise.target_mini_sets})` : ""}`}
+                {exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets
+                  ? `Done — ${miniSets.length} mini-sets ✓`
+                  : `Finish here · ${miniSets.length}${exercise.target_mini_sets ? ` of ${exercise.target_mini_sets}` : ""} mini-sets`}
               </button>
             )}
           </div>
