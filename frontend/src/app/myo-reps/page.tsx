@@ -210,8 +210,8 @@ function ExerciseCard({
 
         {/* Last session reference block */}
         {(exercise.last_reps || exercise.last_weight || exercise.last_mini_sets != null) && stage !== "done" && (
-          <div className="rounded-lg bg-zinc-900/70 border border-zinc-700/40 px-3 py-2.5">
-            <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Last session</p>
+          <div className="rounded-lg bg-zinc-900/70 border border-zinc-700/40 px-3 py-2.5 space-y-2">
+            <p className="text-[10px] uppercase tracking-widest text-zinc-500">Last session</p>
             <div className="flex items-center">
               <div className="flex-1">
                 {(exercise.last_weight || exercise.last_reps) && (
@@ -232,6 +232,14 @@ function ExerciseCard({
                 </div>
               )}
             </div>
+            {exercise.last_reps != null && exercise.last_reps >= 15 && (
+              <div className="flex items-center gap-1.5 rounded-md bg-red-500/10 border border-red-500/25 px-2.5 py-1.5">
+                <span className="text-red-400 text-base leading-none">↑</span>
+                <span className="text-xs text-red-300">
+                  Consider increasing weight — hit {exercise.last_reps} reps last session
+                </span>
+              </div>
+            )}
           </div>
         )}
 
