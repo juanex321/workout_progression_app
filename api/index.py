@@ -14,7 +14,7 @@ sys.path.insert(0, str(_here))
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from routes import sessions, exercises, feedback, progression
+from routes import sessions, exercises, feedback, progression, myo
 from db import (
     _hosted_runtime_detected,
     get_database_runtime_info,
@@ -45,6 +45,7 @@ app.include_router(sessions.router, prefix="/api/sessions", tags=["sessions"])
 app.include_router(exercises.router, prefix="/api", tags=["exercises"])
 app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 app.include_router(progression.router, prefix="/api", tags=["progression"])
+app.include_router(myo.router, prefix="/api/myo", tags=["myo"])
 
 
 @app.on_event("startup")
