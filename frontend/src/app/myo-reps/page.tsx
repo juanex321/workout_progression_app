@@ -35,6 +35,7 @@ interface ExerciseState {
 }
 
 const WORKLOAD_LABELS = ["Easy", "Light", "Just Right", "Hard", "Too Much"];
+const SORENESS_LABELS = ["Never got sore", "Healed a while ago", "Healed right on time", "I'm still sore"];
 const MIN_REPS_FLOOR = 3;
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
@@ -44,6 +45,62 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(`${res.status}: ${text}`);
   }
   return res.json();
+}
+
+// ---- Soreness Block ----
+function SorenessBlock({
+  muscleGroup,
+  value,
+  onChange,
+}: {
+  muscleGroup: string;
+  value: number | null;
+  onChange: (v: number) => void;
+}) {
+  const [expanded, setExpanded] = useState(value === null);
+
+  if (!expanded && value !== null) {
+    return (
+      <div className="flex items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-900/40 px-3 py-2 text-xs mb-1">
+        <span className="text-zinc-500">Recovery:</span>
+        <span className="font-medium text-zinc-200">{SORENESS_LABELS[value - 1]}</span>
+        <button
+          onClick={() => setExpanded(true)}
+          className="ml-auto text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
+        >
+          edit
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3 mb-1">
+      <p className="text-xs font-medium text-zinc-300 mb-2">How did {muscleGroup} recover?</p>
+      <div className="grid grid-cols-2 gap-1.5">
+        {SORENESS_LABELS.map((label, i) => {
+          const v = i + 1;
+          const selected = v === value;
+          return (
+            <button
+              key={label}
+              onClick={() => {
+                onChange(v);
+                setExpanded(false);
+              }}
+              className={`rounded-lg border px-2.5 py-2 text-left text-xs transition-colors
+                ${selected
+                  ? "border-red-500/60 bg-red-500/20 text-red-100"
+                  : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
+                }`}
+            >
+              {label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
 }
 
 // ---- Exercise Card ----
@@ -68,13 +125,11 @@ function ExerciseCard({
     }
     onChange({ submitting: true, error: "" });
     try {
-      // Create exercise session
       const es = await fetchJSON<{ exercise_session_id: number }>("/api/myo/exercise-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ myo_session_id: myoSessionId, exercise_id: exercise.id }),
       });
-      // Log activation set
       await fetchJSON(`/api/myo/exercise-sessions/${es.exercise_session_id}/activation`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -138,7 +193,7 @@ function ExerciseCard({
             <span className="text-xs text-zinc-400">Target: {exercise.target_mini_sets} mini-sets</span>
           )}
           {!exercise.calibrated && (
-            <span className="text-xs bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded">
+            <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded">
               Cal {exercise.calibration_session}/3
             </span>
           )}
@@ -151,19 +206,36 @@ function ExerciseCard({
       </div>
 
       <div className="px-4 py-3 space-y-3">
-        {error && (
-          <p className="text-xs text-red-400">{error}</p>
+        {error && <p className="text-xs text-red-400">{error}</p>}
+
+        {/* Last session reference block */}
+        {(exercise.last_reps || exercise.last_weight || exercise.last_mini_sets != null) && stage !== "done" && (
+          <div className="rounded-lg bg-zinc-900/70 border border-zinc-700/40 px-3 py-2.5">
+            <p className="text-[10px] uppercase tracking-widest text-zinc-500 mb-1.5">Last session</p>
+            <div className="flex items-center">
+              <div className="flex-1">
+                {(exercise.last_weight || exercise.last_reps) && (
+                  <div>
+                    <span className="text-sm font-semibold text-zinc-100">
+                      {exercise.last_weight ? `${exercise.last_weight}` : ""}
+                      {exercise.last_weight && exercise.last_reps ? " × " : ""}
+                      {exercise.last_reps ? `${exercise.last_reps} reps` : ""}
+                    </span>
+                    <span className="text-xs text-zinc-500 ml-1.5">activation</span>
+                  </div>
+                )}
+              </div>
+              {exercise.last_mini_sets != null && (
+                <div className="text-right">
+                  <span className="text-2xl font-bold text-red-400 leading-none">{exercise.last_mini_sets}</span>
+                  <p className="text-[10px] text-zinc-500 mt-0.5">mini-sets</p>
+                </div>
+              )}
+            </div>
+          </div>
         )}
 
-        {/* Last session reference */}
-        {exercise.last_reps && stage !== "done" && (
-          <p className="text-xs text-zinc-500">
-            Last session: {exercise.last_weight ? `${exercise.last_weight} × ` : ""}{exercise.last_reps} reps
-            {exercise.last_mini_sets ? `, ${exercise.last_mini_sets} mini-sets` : ""}
-          </p>
-        )}
-
-        {/* IDLE / ACTIVATION stage: weight + reps inputs */}
+        {/* IDLE / ACTIVATION stage */}
         {(stage === "idle" || stage === "activation") && (
           <div className="space-y-3">
             <p className="text-xs text-zinc-400 uppercase tracking-wide">Activation set — near failure</p>
@@ -175,7 +247,7 @@ function ExerciseCard({
                   value={weight}
                   onChange={(e) => onChange({ weight: e.target.value })}
                   placeholder={exercise.last_weight ? String(exercise.last_weight) : "—"}
-                  className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
+                  className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-red-500"
                 />
               </div>
               <div className="flex-1">
@@ -185,14 +257,14 @@ function ExerciseCard({
                   value={reps}
                   onChange={(e) => onChange({ reps: e.target.value })}
                   placeholder={exercise.last_reps ? String(exercise.last_reps) : "0"}
-                  className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
+                  className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-red-500"
                 />
               </div>
               <div className="flex items-end">
                 <button
                   onClick={logActivation}
                   disabled={submitting}
-                  className="h-9 px-4 rounded-lg bg-yellow-600 text-black text-sm font-medium active:bg-yellow-500 disabled:opacity-50 whitespace-nowrap"
+                  className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-medium active:bg-red-500 disabled:opacity-50 whitespace-nowrap"
                 >
                   {submitting ? "..." : "Log"}
                 </button>
@@ -208,7 +280,6 @@ function ExerciseCard({
               Activation: {weight || exercise.last_weight} × {reps} reps
             </div>
 
-            {/* Progress bar */}
             {exercise.target_mini_sets && (
               <div className="space-y-1">
                 <div className="flex justify-between text-xs text-zinc-400">
@@ -221,14 +292,13 @@ function ExerciseCard({
                 </div>
                 <div className="h-1 rounded-full bg-zinc-700">
                   <div
-                    className="h-1 rounded-full bg-yellow-500 transition-all"
+                    className="h-1 rounded-full bg-red-500 transition-all"
                     style={{ width: `${Math.min((miniSets.length / exercise.target_mini_sets) * 100, 100)}%` }}
                   />
                 </div>
               </div>
             )}
 
-            {/* Mini-set list */}
             {miniSets.length > 0 && (
               <div className="grid grid-cols-4 gap-1">
                 {miniSets.map((ms) => (
@@ -252,7 +322,6 @@ function ExerciseCard({
               </p>
             )}
 
-            {/* Log mini-set row */}
             <div className="flex gap-2">
               <input
                 type="number"
@@ -260,7 +329,7 @@ function ExerciseCard({
                 onChange={(e) => onChange({ miniRepsInput: e.target.value })}
                 onKeyDown={(e) => e.key === "Enter" && logMiniSet()}
                 placeholder={`Mini-set ${miniSets.length + 1} reps`}
-                className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
+                className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-red-500"
               />
               <button
                 onClick={logMiniSet}
@@ -274,7 +343,7 @@ function ExerciseCard({
             {miniSets.length > 0 && (
               <button
                 onClick={() => onChange({ stage: "feedback" })}
-                className="w-full h-10 rounded-lg bg-yellow-600 text-black text-sm font-medium active:bg-yellow-500"
+                className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium active:bg-red-500"
               >
                 Done — {miniSets.length} mini-sets
               </button>
@@ -310,7 +379,7 @@ function ExerciseCard({
                       onClick={() => onChange({ workload: v })}
                       className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors
                         ${workload === v
-                          ? "bg-yellow-600 text-black"
+                          ? "bg-red-600 text-white"
                           : "bg-zinc-700 text-zinc-300 active:bg-zinc-600"
                         }`}
                     >
@@ -323,7 +392,7 @@ function ExerciseCard({
             <button
               onClick={submitFeedback}
               disabled={submitting}
-              className="w-full h-10 rounded-lg bg-yellow-600 text-black text-sm font-medium active:bg-yellow-500 disabled:opacity-50"
+              className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium active:bg-red-500 disabled:opacity-50"
             >
               {submitting ? "Saving..." : "Submit"}
             </button>
@@ -350,9 +419,8 @@ export default function MyoRepsPage() {
   const [loading, setLoading] = useState(true);
   const [myoSessionId, setMyoSessionId] = useState<number | null>(null);
   const [pageError, setPageError] = useState("");
-
-  // Per-exercise state keyed by exercise id
   const [exStates, setExStates] = useState<Record<number, ExerciseState>>({});
+  const [sorenessState, setSorenessState] = useState<Record<string, number | null>>({});
 
   const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => {
     setExStates((prev) => ({
@@ -375,7 +443,6 @@ export default function MyoRepsPage() {
         setExercises(exs);
         setMyoSessionId(sess.session_id);
 
-        // Init per-exercise state, pre-filling from last session
         const initial: Record<number, ExerciseState> = {};
         for (const ex of exs) {
           initial[ex.id] = {
@@ -430,7 +497,7 @@ export default function MyoRepsPage() {
         </div>
         <a
           href="/"
-          className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-yellow-600 hover:text-yellow-500 transition-colors"
+          className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-red-600 hover:text-red-500 transition-colors"
         >
           Back to Straight Sets
         </a>
@@ -447,9 +514,16 @@ export default function MyoRepsPage() {
         <div key={mg} className="space-y-2">
           {/* Muscle group header */}
           <div className="flex items-center gap-2 px-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
+            <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
             <span className="text-sm font-semibold text-zinc-100">{mg}</span>
           </div>
+
+          {/* Soreness question */}
+          <SorenessBlock
+            muscleGroup={mg}
+            value={sorenessState[mg] ?? null}
+            onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))}
+          />
 
           {/* Exercise cards */}
           {grouped[mg].map((ex) => (
