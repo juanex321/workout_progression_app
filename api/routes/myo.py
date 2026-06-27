@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
 
 from deps import get_db
-from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program, Set as DbSet, WorkoutExercise
+from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program, Set as DbSet, WorkoutExercise, Session as StraightSetsSession
 from schemas import (
     MyoSessionResponse,
     MyoStartExerciseRequest,
@@ -17,7 +17,7 @@ from schemas import (
 )
 from myo_progression import get_recommendation, record_session_result
 from plan import EXERCISE_MUSCLE_GROUPS, get_session_exercises
-from services import get_current_session
+from services import get_current_session, complete_session as advance_straight_sets_session
 
 router = APIRouter()
 
@@ -126,12 +126,29 @@ def get_or_create_session(db: OrmSession = Depends(get_db)):
 
 
 @router.post("/sessions/{session_id}/complete", response_model=MyoSessionResponse)
-def complete_session(session_id: int, db: OrmSession = Depends(get_db)):
+def finish_myo_session(session_id: int, db: OrmSession = Depends(get_db)):
     sess = db.get(MyoSession, session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
     sess.completed = 1
     db.commit()
+
+    # Advance straight sets rotation so both modes stay in sync.
+    # Only complete the straight sets session if it is still open — avoid
+    # double-advancing if the user already finished straight sets today.
+    workout = _get_default_workout(db)
+    straight_sess = (
+        db.query(StraightSetsSession)
+        .filter(
+            StraightSetsSession.workout_id == workout.id,
+            StraightSetsSession.completed == 0,
+        )
+        .order_by(StraightSetsSession.session_number.desc())
+        .first()
+    )
+    if straight_sess:
+        advance_straight_sets_session(db, straight_sess.id)
+
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
 
 

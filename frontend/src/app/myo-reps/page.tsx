@@ -429,6 +429,8 @@ export default function MyoRepsPage() {
   const [pageError, setPageError] = useState("");
   const [exStates, setExStates] = useState<Record<number, ExerciseState>>({});
   const [sorenessState, setSorenessState] = useState<Record<string, number | null>>({});
+  const [sessionDone, setSessionDone] = useState(false);
+  const [finishing, setFinishing] = useState(false);
 
   const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => {
     setExStates((prev) => ({
@@ -487,6 +489,23 @@ export default function MyoRepsPage() {
     grouped[mg].push(ex);
   }
 
+  const doneCount = exercises.filter((ex) => exStates[ex.id]?.stage === "done").length;
+  const totalCount = exercises.length;
+  const allDone = doneCount === totalCount && totalCount > 0;
+
+  const finishSession = async () => {
+    if (!myoSessionId) return;
+    setFinishing(true);
+    try {
+      await fetchJSON(`/api/myo/sessions/${myoSessionId}/complete`, { method: "POST" });
+      setSessionDone(true);
+    } catch (e) {
+      setPageError((e as Error).message);
+    } finally {
+      setFinishing(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
@@ -517,8 +536,19 @@ export default function MyoRepsPage() {
         </div>
       )}
 
+      {/* Session complete banner */}
+      {sessionDone && (
+        <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center">
+          <p className="text-green-400 font-semibold">Session complete!</p>
+          <p className="text-xs text-zinc-400 mt-1">Rotation advanced — next session is queued for both modes.</p>
+          <a href="/" className="mt-3 inline-block text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-200">
+            Back to Straight Sets
+          </a>
+        </div>
+      )}
+
       {/* Muscle group sections */}
-      {myoSessionId && orderedGroups.map((mg) => (
+      {!sessionDone && myoSessionId && orderedGroups.map((mg) => (
         <div key={mg} className="space-y-2">
           {/* Muscle group header */}
           <div className="flex items-center gap-2 px-1">
@@ -548,6 +578,27 @@ export default function MyoRepsPage() {
           ))}
         </div>
       ))}
+
+      {/* Finish session button */}
+      {!sessionDone && myoSessionId && totalCount > 0 && (
+        <div className="pt-2">
+          <button
+            onClick={finishSession}
+            disabled={finishing}
+            className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50
+              ${allDone
+                ? "border-green-400/30 bg-green-500 text-zinc-950 active:bg-green-400"
+                : "border-zinc-600 bg-zinc-800 text-zinc-300 active:bg-zinc-700"
+              }`}
+          >
+            {finishing
+              ? "Finishing..."
+              : allDone
+                ? "Finish Session"
+                : `Finish Session · ${doneCount} / ${totalCount} done`}
+          </button>
+        </div>
+      )}
     </main>
   );
 }
