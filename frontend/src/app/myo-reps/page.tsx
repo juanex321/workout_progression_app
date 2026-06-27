@@ -210,12 +210,12 @@ export default function MyoRepsPage() {
   const [error, setError] = useState("");
   const [sessionHistory, setSessionHistory] = useState<ExerciseSession[]>([]);
 
-  // Load exercises + create/get myo session
+  // Load today's exercises + create/get myo session
   useEffect(() => {
     async function init() {
       try {
         const [exs, sess] = await Promise.all([
-          fetchJSON<Exercise[]>("/api/myo/exercises"),
+          fetchJSON<Exercise[]>("/api/myo/today"),
           fetchJSON<{ session_id: number; date: string; completed: number }>("/api/myo/sessions", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
@@ -362,7 +362,7 @@ export default function MyoRepsPage() {
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Myo Reps</h1>
-          <p className="text-xs text-zinc-500">Activation set + mini-sets to floor</p>
+          <p className="text-xs text-zinc-500">Today&apos;s session — myo reps style</p>
         </div>
         <BackLink />
       </div>
@@ -389,7 +389,7 @@ export default function MyoRepsPage() {
       {/* Stage: pick exercise */}
       {stage === "pick-exercise" && (
         <div className="space-y-3">
-          <p className="text-sm text-zinc-400">Select an exercise</p>
+          <p className="text-sm text-zinc-400">Select an exercise for today</p>
           {submitting ? (
             <p className="text-zinc-500 text-sm">Starting...</p>
           ) : (

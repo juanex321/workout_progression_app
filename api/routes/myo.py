@@ -1,10 +1,11 @@
 from datetime import date
 
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
 
 from deps import get_db
-from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet
+from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program, Session as DbSession
 from schemas import (
     MyoSessionResponse,
     MyoStartExerciseRequest,
@@ -15,10 +16,22 @@ from schemas import (
     MyoMiniSetData,
 )
 from myo_progression import get_recommendation, record_session_result
+from plan import EXERCISE_MUSCLE_GROUPS, get_session_exercises
+from services import get_current_session
 
 router = APIRouter()
 
 MIN_REPS_FLOOR = 3
+
+
+def _get_default_workout(db: OrmSession) -> Workout:
+    program = db.query(Program).first()
+    if not program:
+        raise HTTPException(status_code=404, detail="No program found")
+    workout = db.query(Workout).filter(Workout.program_id == program.id).first()
+    if not workout:
+        raise HTTPException(status_code=404, detail="No workout found")
+    return workout
 
 
 def _exercise_session_response(es: MyoExerciseSession, rec: dict) -> MyoExerciseSessionResponse:
@@ -39,13 +52,31 @@ def _exercise_session_response(es: MyoExerciseSession, rec: dict) -> MyoExercise
     )
 
 
-@router.get("/exercises")
-def list_exercises(db: OrmSession = Depends(get_db)):
-    exercises = db.query(Exercise).order_by(Exercise.muscle_group, Exercise.name).all()
-    return [
-        {"id": e.id, "name": e.name, "muscle_group": e.muscle_group}
-        for e in exercises
-    ]
+@router.get("/today")
+def get_today_exercises(db: OrmSession = Depends(get_db)):
+    """Return today's scheduled exercises based on the current session rotation."""
+    workout = _get_default_workout(db)
+    sess = get_current_session(db, workout.id)
+    exercise_names = get_session_exercises(sess.rotation_index)
+
+    lower_names = [name.lower() for name in exercise_names]
+    exercises = (
+        db.query(Exercise)
+        .filter(func.lower(Exercise.name).in_(lower_names))
+        .all()
+    )
+    ex_by_name = {e.name.lower(): e for e in exercises}
+
+    result = []
+    for name in exercise_names:
+        ex = ex_by_name.get(name.lower())
+        if ex:
+            result.append({
+                "id": ex.id,
+                "name": name,
+                "muscle_group": EXERCISE_MUSCLE_GROUPS.get(name, "Other"),
+            })
+    return result
 
 
 @router.post("/sessions", response_model=MyoSessionResponse)
