@@ -95,3 +95,50 @@ class WorkoutDataResponse(BaseModel):
     completed: int
     rotation_index: int
     muscle_groups: dict[str, MuscleGroupData]
+
+
+# --- Myo reps schemas ---
+
+class MyoSessionResponse(BaseModel):
+    session_id: int
+    date: str
+    completed: int
+
+
+class MyoStartExerciseRequest(BaseModel):
+    myo_session_id: int
+    exercise_id: int
+
+
+class MyoActivationSetRequest(BaseModel):
+    weight: Optional[float] = None
+    reps: int
+
+
+class MyoMiniSetRequest(BaseModel):
+    reps: int
+
+
+class MyoCompleteRequest(BaseModel):
+    workload_feedback: int  # 1-5
+
+
+class MyoMiniSetData(BaseModel):
+    order_index: int
+    reps: int
+
+
+class MyoExerciseSessionResponse(BaseModel):
+    exercise_session_id: int
+    exercise_id: int
+    exercise_name: str
+    muscle_group: Optional[str]
+    calibrated: bool
+    calibration_session: Optional[int]
+    target_mini_sets: Optional[int]
+    baseline_mini_sets: Optional[int]
+    activation_weight: Optional[float]
+    activation_reps: Optional[int]
+    mini_sets: list[MyoMiniSetData]
+    completed: int
+    workload_feedback: Optional[int]

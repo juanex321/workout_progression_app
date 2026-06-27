@@ -75,6 +75,14 @@ export default function HomePage() {
 
   return (
     <main className="mx-auto max-w-xl px-3 pb-24 pt-4">
+      <div className="flex justify-end mb-3">
+        <a
+          href="/myo-reps"
+          className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-yellow-600 hover:text-yellow-500 transition-colors"
+        >
+          Try Myo Reps
+        </a>
+      </div>
       <SessionHeader
         sessionNumber={sessionNumber ?? 1}
         completed={workoutData?.completed ?? 0}
