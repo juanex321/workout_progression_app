@@ -42,149 +42,6 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   return res.json();
 }
 
-// ---- Sub-components ----
-
-function BackLink() {
-  return (
-    <a
-      href="/"
-      className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-yellow-600 hover:text-yellow-500 transition-colors"
-    >
-      Back to Straight Sets
-    </a>
-  );
-}
-
-function ExercisePicker({
-  exercises,
-  onSelect,
-}: {
-  exercises: Exercise[];
-  onSelect: (ex: Exercise) => void;
-}) {
-  const grouped = exercises.reduce<Record<string, Exercise[]>>((acc, ex) => {
-    const mg = ex.muscle_group ?? "Other";
-    (acc[mg] ??= []).push(ex);
-    return acc;
-  }, {});
-
-  return (
-    <div className="space-y-4">
-      {Object.entries(grouped).map(([mg, exs]) => (
-        <div key={mg}>
-          <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">{mg}</p>
-          <div className="space-y-1">
-            {exs.map((ex) => (
-              <button
-                key={ex.id}
-                onClick={() => onSelect(ex)}
-                className="w-full text-left px-4 py-3 rounded-lg bg-zinc-800 text-sm text-zinc-200 hover:bg-zinc-700 active:bg-zinc-600 transition-colors"
-              >
-                {ex.name}
-              </button>
-            ))}
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function CalibrationBadge({
-  calibrated,
-  calibrationSession,
-}: {
-  calibrated: boolean;
-  calibrationSession: number | null;
-}) {
-  if (calibrated) return null;
-  return (
-    <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-xs text-yellow-400">
-      Calibration session {calibrationSession} of 3 — do as many mini-sets as feels right, no target yet.
-    </div>
-  );
-}
-
-function ProgressBar({
-  completed,
-  target,
-}: {
-  completed: number;
-  target: number | null;
-}) {
-  if (!target) return null;
-  const pct = Math.min((completed / target) * 100, 100);
-  return (
-    <div className="space-y-1">
-      <div className="flex justify-between text-xs text-zinc-400">
-        <span>{completed} / {target} mini-sets</span>
-        <span>{pct >= 100 ? "Target reached!" : `${Math.round(pct)}%`}</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-zinc-700">
-        <div
-          className="h-1.5 rounded-full bg-yellow-500 transition-all"
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function MiniSetList({ miniSets }: { miniSets: MiniSetData[] }) {
-  if (miniSets.length === 0) return null;
-  return (
-    <div className="space-y-1">
-      {miniSets.map((ms) => (
-        <div
-          key={ms.order_index}
-          className={`flex justify-between items-center px-3 py-2 rounded-lg text-sm ${
-            ms.reps < MIN_REPS_FLOOR
-              ? "bg-red-500/10 border border-red-500/30 text-red-400"
-              : "bg-zinc-800 text-zinc-300"
-          }`}
-        >
-          <span className="text-zinc-500">Mini-set {ms.order_index}</span>
-          <span className="font-medium">{ms.reps} reps</span>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function WorkloadPicker({
-  value,
-  onChange,
-}: {
-  value: number;
-  onChange: (v: number) => void;
-}) {
-  return (
-    <div className="space-y-2">
-      <p className="text-xs text-zinc-400">How was the workload?</p>
-      <div className="flex gap-1.5">
-        {WORKLOAD_LABELS.map((label, i) => {
-          const v = i + 1;
-          return (
-            <button
-              key={label}
-              onClick={() => onChange(v)}
-              className={`flex-1 py-2 px-1 rounded-lg text-xs font-medium text-center transition-colors
-                ${value === v
-                  ? "bg-yellow-600 text-black"
-                  : "bg-zinc-700 text-zinc-300 active:bg-zinc-600"
-                }`}
-            >
-              {label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-// ---- Main page ----
-
 type Stage = "pick-exercise" | "activation" | "mini-sets" | "feedback" | "done";
 
 export default function MyoRepsPage() {
@@ -194,23 +51,16 @@ export default function MyoRepsPage() {
   const [exerciseSession, setExerciseSession] = useState<ExerciseSession | null>(null);
   const [stage, setStage] = useState<Stage>("pick-exercise");
 
-  // Activation set inputs
   const [activationWeight, setActivationWeight] = useState("");
   const [activationReps, setActivationReps] = useState("");
   const [activationError, setActivationError] = useState("");
-
-  // Mini-set input
   const [miniReps, setMiniReps] = useState("");
   const [miniError, setMiniError] = useState("");
-
-  // Feedback
   const [workload, setWorkload] = useState(3);
-
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState("");
   const [sessionHistory, setSessionHistory] = useState<ExerciseSession[]>([]);
 
-  // Load today's exercises + create/get myo session
   useEffect(() => {
     async function init() {
       try {
@@ -259,10 +109,7 @@ export default function MyoRepsPage() {
   const handleLogActivation = async () => {
     if (!exerciseSession) return;
     const reps = parseInt(activationReps);
-    if (!reps || reps < 1) {
-      setActivationError("Enter reps completed");
-      return;
-    }
+    if (!reps || reps < 1) { setActivationError("Enter reps completed"); return; }
     setActivationError("");
     setSubmitting(true);
     try {
@@ -289,10 +136,7 @@ export default function MyoRepsPage() {
   const handleLogMiniSet = async () => {
     if (!exerciseSession) return;
     const reps = parseInt(miniReps);
-    if (!reps || reps < 1) {
-      setMiniError("Enter reps completed");
-      return;
-    }
+    if (!reps || reps < 1) { setMiniError("Enter reps completed"); return; }
     setMiniError("");
     setSubmitting(true);
     try {
@@ -311,10 +155,6 @@ export default function MyoRepsPage() {
     } finally {
       setSubmitting(false);
     }
-  };
-
-  const handleFinishMiniSets = () => {
-    setStage("feedback");
   };
 
   const handleSubmitFeedback = async () => {
@@ -345,6 +185,15 @@ export default function MyoRepsPage() {
     setError("");
   };
 
+  // Grouped exercises preserving today's order
+  const grouped = exercises.reduce<Record<string, Exercise[]>>((acc, ex) => {
+    const mg = ex.muscle_group ?? "Other";
+    if (!acc[mg]) acc[mg] = [];
+    acc[mg].push(ex);
+    return acc;
+  }, {});
+  const orderedGroups = Object.keys(grouped);
+
   const lastMiniReps = exerciseSession?.mini_sets.at(-1)?.reps ?? null;
   const atFloor = lastMiniReps !== null && lastMiniReps < MIN_REPS_FLOOR;
 
@@ -358,13 +207,19 @@ export default function MyoRepsPage() {
 
   return (
     <main className="mx-auto max-w-xl px-3 pb-24 pt-4 space-y-4">
+
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
           <h1 className="text-lg font-semibold text-zinc-100">Myo Reps</h1>
           <p className="text-xs text-zinc-500">Today&apos;s session — myo reps style</p>
         </div>
-        <BackLink />
+        <a
+          href="/"
+          className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-yellow-600 hover:text-yellow-500 transition-colors"
+        >
+          Back to Straight Sets
+        </a>
       </div>
 
       {error && (
@@ -373,10 +228,10 @@ export default function MyoRepsPage() {
         </div>
       )}
 
-      {/* Session history summary */}
-      {sessionHistory.length > 0 && stage !== "done" && (
-        <div className="rounded-lg bg-zinc-800/50 p-3 space-y-1">
-          <p className="text-xs text-zinc-500 uppercase tracking-wider">Done today</p>
+      {/* Done-today summary (shown while picking next exercise) */}
+      {sessionHistory.length > 0 && stage === "pick-exercise" && (
+        <div className="rounded-lg bg-zinc-800/60 border border-zinc-700 p-3 space-y-1">
+          <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Done today</p>
           {sessionHistory.map((s) => (
             <div key={s.exercise_session_id} className="flex justify-between text-sm">
               <span className="text-zinc-300">{s.exercise_name}</span>
@@ -386,38 +241,59 @@ export default function MyoRepsPage() {
         </div>
       )}
 
-      {/* Stage: pick exercise */}
+      {/* ── PICK EXERCISE ── */}
       {stage === "pick-exercise" && (
         <div className="space-y-3">
           <p className="text-sm text-zinc-400">Select an exercise for today</p>
           {submitting ? (
-            <p className="text-zinc-500 text-sm">Starting...</p>
+            <p className="text-zinc-500 text-sm text-center py-4">Starting...</p>
           ) : (
-            <ExercisePicker exercises={exercises} onSelect={handleSelectExercise} />
+            orderedGroups.map((mg) => (
+              <div
+                key={mg}
+                className="rounded-xl border border-yellow-500/40 bg-yellow-500/5 overflow-hidden"
+              >
+                <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
+                  <span className="text-sm font-semibold text-zinc-100">{mg}</span>
+                </div>
+                <div className="px-3 pb-3 space-y-1.5">
+                  {grouped[mg].map((ex) => (
+                    <button
+                      key={ex.id}
+                      onClick={() => handleSelectExercise(ex)}
+                      className="w-full text-left px-4 py-3 rounded-lg bg-zinc-800/80 text-sm text-zinc-200 hover:bg-zinc-700 active:bg-zinc-600 transition-colors"
+                    >
+                      {ex.name}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            ))
           )}
         </div>
       )}
 
-      {/* Stage: activation set */}
+      {/* ── ACTIVATION SET ── */}
       {stage === "activation" && exerciseSession && (
-        <div className="space-y-4">
-          <div className="rounded-lg bg-zinc-800 p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <h2 className="font-medium text-zinc-100">{exerciseSession.exercise_name}</h2>
-              {exerciseSession.muscle_group && (
-                <span className="text-xs text-zinc-500 bg-zinc-700 px-2 py-0.5 rounded">
-                  {exerciseSession.muscle_group}
-                </span>
-              )}
-            </div>
+        <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/5 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
+            <span className="text-sm font-semibold text-zinc-100">
+              {exerciseSession.muscle_group ?? "Exercise"}
+            </span>
+          </div>
+          <div className="px-4 pb-4 space-y-4">
+            <p className="font-medium text-zinc-100">{exerciseSession.exercise_name}</p>
 
-            <CalibrationBadge
-              calibrated={exerciseSession.calibrated}
-              calibrationSession={exerciseSession.calibration_session}
-            />
+            {!exerciseSession.calibrated && (
+              <div className="rounded-lg bg-yellow-500/10 border border-yellow-500/30 px-3 py-2 text-xs text-yellow-400">
+                Calibration session {exerciseSession.calibration_session} of 3 — no target yet, just go by feel.
+              </div>
+            )}
 
             <div className="space-y-2">
-              <p className="text-sm font-medium text-zinc-300">Activation set — go to near failure</p>
+              <p className="text-sm text-zinc-400">Activation set — go to near failure</p>
               <div className="flex gap-2">
                 <div className="flex-1">
                   <label className="text-xs text-zinc-500 block mb-1">Weight (kg/lb)</label>
@@ -426,7 +302,7 @@ export default function MyoRepsPage() {
                     value={activationWeight}
                     onChange={(e) => setActivationWeight(e.target.value)}
                     placeholder="—"
-                    className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
+                    className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
                   />
                 </div>
                 <div className="flex-1">
@@ -436,13 +312,11 @@ export default function MyoRepsPage() {
                     value={activationReps}
                     onChange={(e) => setActivationReps(e.target.value)}
                     placeholder="0"
-                    className="w-full bg-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
+                    className="w-full bg-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
                   />
                 </div>
               </div>
-              {activationError && (
-                <p className="text-xs text-red-400">{activationError}</p>
-              )}
+              {activationError && <p className="text-xs text-red-400">{activationError}</p>}
             </div>
 
             <button
@@ -456,33 +330,75 @@ export default function MyoRepsPage() {
         </div>
       )}
 
-      {/* Stage: mini-sets */}
+      {/* ── MINI-SETS ── */}
       {stage === "mini-sets" && exerciseSession && (
-        <div className="space-y-4">
-          <div className="rounded-lg bg-zinc-800 p-4 space-y-4">
-            <div className="flex items-center justify-between">
-              <h2 className="font-medium text-zinc-100">{exerciseSession.exercise_name}</h2>
-              <span className="text-xs text-zinc-400">
-                Activation: {exerciseSession.activation_reps} reps
-                {exerciseSession.activation_weight
-                  ? ` @ ${exerciseSession.activation_weight}`
-                  : ""}
+        <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/5 overflow-hidden">
+          <div className="flex items-center justify-between px-4 pt-3 pb-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
+              <span className="text-sm font-semibold text-zinc-100">
+                {exerciseSession.muscle_group ?? "Exercise"}
               </span>
             </div>
+            <span className="text-xs text-zinc-500">
+              Activation: {exerciseSession.activation_reps} reps
+              {exerciseSession.activation_weight ? ` @ ${exerciseSession.activation_weight}` : ""}
+            </span>
+          </div>
 
-            <ProgressBar
-              completed={exerciseSession.mini_sets.length}
-              target={exerciseSession.target_mini_sets}
-            />
+          <div className="px-4 pb-4 space-y-4">
+            <p className="font-medium text-zinc-100">{exerciseSession.exercise_name}</p>
 
-            <MiniSetList miniSets={exerciseSession.mini_sets} />
-
-            {atFloor ? (
-              <div className="rounded-lg bg-orange-500/10 border border-orange-500/30 px-3 py-2 text-xs text-orange-400">
-                Last mini-set dropped below {MIN_REPS_FLOOR} reps — good time to stop.
+            {/* Progress toward target */}
+            {exerciseSession.target_mini_sets && (
+              <div className="space-y-1">
+                <div className="flex justify-between text-xs text-zinc-400">
+                  <span>{exerciseSession.mini_sets.length} / {exerciseSession.target_mini_sets} mini-sets</span>
+                  <span>
+                    {exerciseSession.mini_sets.length >= exerciseSession.target_mini_sets
+                      ? "Target reached!"
+                      : `${Math.round((exerciseSession.mini_sets.length / exerciseSession.target_mini_sets) * 100)}%`}
+                  </span>
+                </div>
+                <div className="h-1.5 rounded-full bg-zinc-700">
+                  <div
+                    className="h-1.5 rounded-full bg-yellow-500 transition-all"
+                    style={{ width: `${Math.min((exerciseSession.mini_sets.length / exerciseSession.target_mini_sets) * 100, 100)}%` }}
+                  />
+                </div>
               </div>
-            ) : null}
+            )}
 
+            {!exerciseSession.target_mini_sets && (
+              <p className="text-xs text-yellow-400">Calibration — do as many mini-sets as feels right.</p>
+            )}
+
+            {/* Mini-set log */}
+            {exerciseSession.mini_sets.length > 0 && (
+              <div className="space-y-1">
+                {exerciseSession.mini_sets.map((ms) => (
+                  <div
+                    key={ms.order_index}
+                    className={`flex justify-between items-center px-3 py-2 rounded-lg text-sm ${
+                      ms.reps < MIN_REPS_FLOOR
+                        ? "bg-red-500/10 border border-red-500/30 text-red-400"
+                        : "bg-zinc-800/80 text-zinc-300"
+                    }`}
+                  >
+                    <span className="text-zinc-500">Mini-set {ms.order_index}</span>
+                    <span className="font-medium">{ms.reps} reps</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {atFloor && (
+              <div className="rounded-lg bg-orange-500/10 border border-orange-500/30 px-3 py-2 text-xs text-orange-400">
+                Last set dropped below {MIN_REPS_FLOOR} reps — good time to stop.
+              </div>
+            )}
+
+            {/* Log next mini-set */}
             <div className="space-y-2">
               <p className="text-sm text-zinc-400">
                 Mini-set {exerciseSession.mini_sets.length + 1} — reps completed
@@ -493,12 +409,12 @@ export default function MyoRepsPage() {
                   value={miniReps}
                   onChange={(e) => setMiniReps(e.target.value)}
                   placeholder="0"
-                  className="flex-1 bg-zinc-700 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
+                  className="flex-1 bg-zinc-800 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-yellow-500"
                 />
                 <button
                   onClick={handleLogMiniSet}
                   disabled={submitting}
-                  className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 font-medium text-sm active:bg-zinc-500 disabled:opacity-50"
+                  className="px-5 h-10 rounded-lg bg-zinc-700 text-zinc-100 font-medium text-sm active:bg-zinc-600 disabled:opacity-50"
                 >
                   {submitting ? "..." : "Log"}
                 </button>
@@ -508,7 +424,7 @@ export default function MyoRepsPage() {
 
             {exerciseSession.mini_sets.length > 0 && (
               <button
-                onClick={handleFinishMiniSets}
+                onClick={() => setStage("feedback")}
                 className="w-full h-11 rounded-lg bg-yellow-600 text-black font-medium text-sm active:bg-yellow-500"
               >
                 Done — {exerciseSession.mini_sets.length} mini-sets
@@ -518,57 +434,106 @@ export default function MyoRepsPage() {
         </div>
       )}
 
-      {/* Stage: feedback */}
+      {/* ── FEEDBACK ── */}
       {stage === "feedback" && exerciseSession && (
-        <div className="rounded-lg bg-zinc-800 p-4 space-y-4">
-          <h2 className="font-medium text-zinc-100">{exerciseSession.exercise_name}</h2>
-          <div className="flex justify-between text-sm text-zinc-400">
-            <span>Activation: {exerciseSession.activation_reps} reps</span>
-            <span>{exerciseSession.mini_sets.length} mini-sets</span>
+        <div className="rounded-xl border border-yellow-500/40 bg-yellow-500/5 overflow-hidden">
+          <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+            <span className="w-2.5 h-2.5 rounded-full bg-yellow-500 shrink-0" />
+            <span className="text-sm font-semibold text-zinc-100">
+              {exerciseSession.muscle_group ?? "Exercise"}
+            </span>
           </div>
-          <MiniSetList miniSets={exerciseSession.mini_sets} />
-          <WorkloadPicker value={workload} onChange={setWorkload} />
-          <button
-            onClick={handleSubmitFeedback}
-            disabled={submitting}
-            className="w-full h-11 rounded-lg bg-yellow-600 text-black font-medium text-sm active:bg-yellow-500 disabled:opacity-50"
-          >
-            {submitting ? "Saving..." : "Submit"}
-          </button>
+          <div className="px-4 pb-4 space-y-4">
+            <div className="flex justify-between items-center">
+              <p className="font-medium text-zinc-100">{exerciseSession.exercise_name}</p>
+              <span className="text-xs text-zinc-500">{exerciseSession.mini_sets.length} mini-sets</span>
+            </div>
+
+            {/* Mini-set recap */}
+            <div className="space-y-1">
+              {exerciseSession.mini_sets.map((ms) => (
+                <div
+                  key={ms.order_index}
+                  className={`flex justify-between items-center px-3 py-2 rounded-lg text-sm ${
+                    ms.reps < MIN_REPS_FLOOR
+                      ? "bg-red-500/10 border border-red-500/30 text-red-400"
+                      : "bg-zinc-800/80 text-zinc-300"
+                  }`}
+                >
+                  <span className="text-zinc-500">Mini-set {ms.order_index}</span>
+                  <span className="font-medium">{ms.reps} reps</span>
+                </div>
+              ))}
+            </div>
+
+            {/* Workload picker */}
+            <div className="space-y-2">
+              <p className="text-xs text-zinc-400">How was the workload?</p>
+              <div className="flex gap-1.5">
+                {WORKLOAD_LABELS.map((label, i) => {
+                  const v = i + 1;
+                  return (
+                    <button
+                      key={label}
+                      onClick={() => setWorkload(v)}
+                      className={`flex-1 py-2 px-1 rounded-lg text-xs font-medium text-center transition-colors
+                        ${workload === v
+                          ? "bg-yellow-600 text-black"
+                          : "bg-zinc-700 text-zinc-300 active:bg-zinc-600"
+                        }`}
+                    >
+                      {label}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            <button
+              onClick={handleSubmitFeedback}
+              disabled={submitting}
+              className="w-full h-11 rounded-lg bg-yellow-600 text-black font-medium text-sm active:bg-yellow-500 disabled:opacity-50"
+            >
+              {submitting ? "Saving..." : "Submit"}
+            </button>
+          </div>
         </div>
       )}
 
-      {/* Stage: done */}
+      {/* ── DONE ── */}
       {stage === "done" && exerciseSession && (
         <div className="space-y-4">
-          <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-4 space-y-2">
-            <p className="font-medium text-green-400">{exerciseSession.exercise_name} done</p>
-            <div className="flex justify-between text-sm text-zinc-400">
-              <span>Activation: {exerciseSession.activation_reps} reps</span>
-              <span>{exerciseSession.completed_mini_sets} mini-sets</span>
+          <div className="rounded-xl border border-green-500/30 bg-green-500/5 overflow-hidden">
+            <div className="flex items-center gap-2 px-4 pt-3 pb-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-green-500 shrink-0" />
+              <span className="text-sm font-semibold text-zinc-100">
+                {exerciseSession.muscle_group ?? "Exercise"} — Done
+              </span>
             </div>
-            {exerciseSession.calibrated && exerciseSession.target_mini_sets && (
-              <p className="text-xs text-zinc-500">
-                Next target:{" "}
-                <span className="text-zinc-300 font-medium">
-                  {/* The backend already updated target, so show it from the next recommendation */}
-                  {exerciseSession.completed_mini_sets! >= exerciseSession.target_mini_sets
-                    ? exerciseSession.target_mini_sets + 1
-                    : exerciseSession.target_mini_sets}{" "}
-                  mini-sets
-                </span>
-              </p>
-            )}
-            {!exerciseSession.calibrated && (
-              <p className="text-xs text-zinc-500">
-                Calibration session {exerciseSession.calibration_session} of 3 recorded.
-              </p>
-            )}
+            <div className="px-4 pb-4 space-y-2">
+              <div className="flex justify-between text-sm">
+                <span className="text-zinc-300">{exerciseSession.exercise_name}</span>
+                <span className="text-zinc-400">{exerciseSession.completed_mini_sets} mini-sets</span>
+              </div>
+              {exerciseSession.calibrated && exerciseSession.target_mini_sets && (
+                <p className="text-xs text-zinc-500">
+                  Next target: <span className="text-zinc-300 font-medium">
+                    {exerciseSession.completed_mini_sets! >= exerciseSession.target_mini_sets
+                      ? exerciseSession.target_mini_sets + 1
+                      : exerciseSession.target_mini_sets} mini-sets
+                  </span>
+                </p>
+              )}
+              {!exerciseSession.calibrated && (
+                <p className="text-xs text-zinc-500">
+                  Calibration session {exerciseSession.calibration_session} of 3 recorded.
+                </p>
+              )}
+            </div>
           </div>
 
-          {/* Full history */}
           {sessionHistory.length > 0 && (
-            <div className="rounded-lg bg-zinc-800/50 p-3 space-y-1">
+            <div className="rounded-lg bg-zinc-800/60 border border-zinc-700 p-3 space-y-1">
               <p className="text-xs text-zinc-500 uppercase tracking-wider mb-2">Today&apos;s session</p>
               {sessionHistory.map((s) => (
                 <div key={s.exercise_session_id} className="flex justify-between text-sm">
@@ -581,7 +546,7 @@ export default function MyoRepsPage() {
 
           <button
             onClick={handleAddAnother}
-            className="w-full h-11 rounded-lg bg-zinc-700 text-zinc-100 font-medium text-sm active:bg-zinc-600"
+            className="w-full h-11 rounded-lg bg-zinc-700 border border-zinc-600 text-zinc-100 font-medium text-sm active:bg-zinc-600"
           >
             Add another exercise
           </button>

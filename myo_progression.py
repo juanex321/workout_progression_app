@@ -31,7 +31,7 @@ def _get_or_create_calibration(db: OrmSession, exercise_id: int) -> MyoExerciseC
     if not cal:
         cal = MyoExerciseCalibration(exercise_id=exercise_id)
         db.add(cal)
-        db.flush()
+        db.commit()
     return cal
 
 
@@ -87,10 +87,10 @@ def record_session_result(
             cal.calibrated = 1
             cal.baseline_mini_sets = baseline
             cal.current_target = baseline
-            db.flush()
+            db.commit()
             return {"action": "calibrated", "new_target": baseline}
 
-        db.flush()
+        db.commit()
         return {"action": "calibrating", "new_target": None}
 
     hit_target = (target_mini_sets is None) or (mini_sets_completed >= target_mini_sets)
@@ -101,14 +101,14 @@ def record_session_result(
         if cal.consecutive_hard_sessions >= DELOAD_STRIKE_THRESHOLD:
             cal.current_target = cal.baseline_mini_sets
             cal.consecutive_hard_sessions = 0
-            db.flush()
+            db.commit()
             return {"action": "deloaded", "new_target": cal.current_target}
-        db.flush()
+        db.commit()
         return {"action": "held", "new_target": cal.current_target}
 
     if workload_feedback == WORKLOAD_HARD:
         cal.consecutive_hard_sessions = 0
-        db.flush()
+        db.commit()
         return {"action": "held", "new_target": cal.current_target}
 
     # workload 1-3: progress

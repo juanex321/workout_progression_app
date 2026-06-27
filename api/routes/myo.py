@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
 
 from deps import get_db
-from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program, Session as DbSession
+from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program
 from schemas import (
     MyoSessionResponse,
     MyoStartExerciseRequest,
@@ -20,8 +20,6 @@ from plan import EXERCISE_MUSCLE_GROUPS, get_session_exercises
 from services import get_current_session
 
 router = APIRouter()
-
-MIN_REPS_FLOOR = 3
 
 
 def _get_default_workout(db: OrmSession) -> Workout:
@@ -91,28 +89,29 @@ def get_or_create_session(db: OrmSession = Depends(get_db)):
     if not sess:
         sess = MyoSession(date=today)
         db.add(sess)
-        db.flush()
+        db.commit()
+        db.refresh(sess)
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
 
 
 @router.post("/sessions/{session_id}/complete", response_model=MyoSessionResponse)
 def complete_session(session_id: int, db: OrmSession = Depends(get_db)):
-    sess = db.query(MyoSession).get(session_id)
+    sess = db.get(MyoSession, session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Session not found")
     sess.completed = 1
-    db.flush()
+    db.commit()
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
 
 
 @router.post("/exercise-sessions", response_model=MyoExerciseSessionResponse)
 def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db)):
     """Start a new exercise within a myo session."""
-    sess = db.query(MyoSession).get(req.myo_session_id)
+    sess = db.get(MyoSession, req.myo_session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Myo session not found")
 
-    exercise = db.query(Exercise).get(req.exercise_id)
+    exercise = db.get(Exercise, req.exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
@@ -124,14 +123,15 @@ def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db
         target_mini_sets=rec["target_mini_sets"],
     )
     db.add(es)
-    db.flush()
+    db.commit()
+    db.refresh(es)
 
     return _exercise_session_response(es, rec)
 
 
 @router.get("/exercise-sessions/{exercise_session_id}", response_model=MyoExerciseSessionResponse)
 def get_exercise_session(exercise_session_id: int, db: OrmSession = Depends(get_db)):
-    es = db.query(MyoExerciseSession).get(exercise_session_id)
+    es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
     rec = get_recommendation(db, es.exercise_id)
@@ -144,7 +144,7 @@ def log_activation_set(
     req: MyoActivationSetRequest,
     db: OrmSession = Depends(get_db),
 ):
-    es = db.query(MyoExerciseSession).get(exercise_session_id)
+    es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
     if es.completed:
@@ -156,7 +156,8 @@ def log_activation_set(
     else:
         act = MyoActivationSet(exercise_session_id=exercise_session_id, weight=req.weight, reps=req.reps)
         db.add(act)
-    db.flush()
+    db.commit()
+    db.refresh(es)
 
     rec = get_recommendation(db, es.exercise_id)
     return _exercise_session_response(es, rec)
@@ -168,7 +169,7 @@ def log_mini_set(
     req: MyoMiniSetRequest,
     db: OrmSession = Depends(get_db),
 ):
-    es = db.query(MyoExerciseSession).get(exercise_session_id)
+    es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
     if es.completed:
@@ -179,7 +180,8 @@ def log_mini_set(
     next_index = len(es.mini_sets) + 1
     mini = MyoMiniSet(exercise_session_id=exercise_session_id, order_index=next_index, reps=req.reps)
     db.add(mini)
-    db.flush()
+    db.commit()
+    db.refresh(es)
 
     rec = get_recommendation(db, es.exercise_id)
     return _exercise_session_response(es, rec)
@@ -191,7 +193,7 @@ def complete_exercise_session(
     req: MyoCompleteRequest,
     db: OrmSession = Depends(get_db),
 ):
-    es = db.query(MyoExerciseSession).get(exercise_session_id)
+    es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
     if es.completed:
@@ -209,6 +211,9 @@ def complete_exercise_session(
         target_mini_sets=es.target_mini_sets,
         workload_feedback=req.workload_feedback,
     )
+
+    db.commit()
+    db.refresh(es)
 
     rec = get_recommendation(db, es.exercise_id)
     return _exercise_session_response(es, rec)
