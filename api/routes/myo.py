@@ -154,7 +154,7 @@ def finish_myo_session(session_id: int, db: OrmSession = Depends(get_db)):
 
 @router.post("/exercise-sessions", response_model=MyoExerciseSessionResponse)
 def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db)):
-    """Start a new exercise within a myo session."""
+    """Start a new exercise and optionally log the activation set in one round trip."""
     sess = db.get(MyoSession, req.myo_session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Myo session not found")
@@ -171,6 +171,16 @@ def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db
         target_mini_sets=rec["target_mini_sets"],
     )
     db.add(es)
+    db.flush()  # get es.id before creating activation set
+
+    if req.activation_reps:
+        act = MyoActivationSet(
+            exercise_session_id=es.id,
+            weight=req.activation_weight,
+            reps=req.activation_reps,
+        )
+        db.add(act)
+
     db.commit()
     db.refresh(es)
 

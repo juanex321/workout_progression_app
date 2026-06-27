@@ -125,17 +125,15 @@ function ExerciseCard({
     }
     onChange({ submitting: true, error: "" });
     try {
+      // Create session + log activation set in a single request
       const es = await fetchJSON<{ exercise_session_id: number }>("/api/myo/exercise-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ myo_session_id: myoSessionId, exercise_id: exercise.id }),
-      });
-      await fetchJSON(`/api/myo/exercise-sessions/${es.exercise_session_id}/activation`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          weight: weight ? parseFloat(weight) : null,
-          reps: parsedReps,
+          myo_session_id: myoSessionId,
+          exercise_id: exercise.id,
+          activation_weight: weight ? parseFloat(weight) : null,
+          activation_reps: parsedReps,
         }),
       });
       onChange({ sessionId: es.exercise_session_id, stage: "mini-sets", submitting: false });
@@ -351,9 +349,15 @@ function ExerciseCard({
             {miniSets.length > 0 && (
               <button
                 onClick={() => onChange({ stage: "feedback" })}
-                className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium active:bg-red-500"
+                className={`w-full h-10 rounded-lg text-sm font-medium transition-colors
+                  ${atFloor || (exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets)
+                    ? "bg-red-600 text-white active:bg-red-500"
+                    : "bg-zinc-700 text-zinc-400 active:bg-zinc-600"
+                  }`}
               >
-                Done — {miniSets.length} mini-sets
+                {atFloor || (exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets)
+                  ? `Done — ${miniSets.length} mini-sets`
+                  : `Stop here · ${miniSets.length} mini-sets${exercise.target_mini_sets ? ` (target: ${exercise.target_mini_sets})` : ""}`}
               </button>
             )}
           </div>
@@ -362,6 +366,12 @@ function ExerciseCard({
         {/* FEEDBACK stage */}
         {stage === "feedback" && (
           <div className="space-y-3">
+            <button
+              onClick={() => onChange({ stage: "mini-sets" })}
+              className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
+            >
+              ← Add more mini-sets
+            </button>
             <div className="grid grid-cols-4 gap-1">
               {miniSets.map((ms) => (
                 <div

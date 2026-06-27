@@ -108,6 +108,8 @@ class MyoSessionResponse(BaseModel):
 class MyoStartExerciseRequest(BaseModel):
     myo_session_id: int
     exercise_id: int
+    activation_weight: Optional[float] = None
+    activation_reps: Optional[int] = None
 
 
 class MyoActivationSetRequest(BaseModel):
