@@ -5,7 +5,7 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
 
 from deps import get_db
-from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program
+from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program, Set as DbSet, WorkoutExercise
 from schemas import (
     MyoSessionResponse,
     MyoStartExerciseRequest,
@@ -52,7 +52,7 @@ def _exercise_session_response(es: MyoExerciseSession, rec: dict) -> MyoExercise
 
 @router.get("/today")
 def get_today_exercises(db: OrmSession = Depends(get_db)):
-    """Return today's scheduled exercises based on the current session rotation."""
+    """Return today's scheduled exercises with calibration state and last session data."""
     workout = _get_default_workout(db)
     sess = get_current_session(db, workout.id)
     exercise_names = get_session_exercises(sess.rotation_index)
@@ -68,12 +68,43 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
     result = []
     for name in exercise_names:
         ex = ex_by_name.get(name.lower())
-        if ex:
-            result.append({
-                "id": ex.id,
-                "name": name,
-                "muscle_group": EXERCISE_MUSCLE_GROUPS.get(name, "Other"),
-            })
+        if not ex:
+            continue
+
+        rec = get_recommendation(db, ex.id)
+
+        # Pull last weight/reps from straight sets history (set_number=1 = top set)
+        last_set = (
+            db.query(DbSet)
+            .join(WorkoutExercise, DbSet.workout_exercise_id == WorkoutExercise.id)
+            .filter(WorkoutExercise.exercise_id == ex.id, DbSet.set_number == 1)
+            .order_by(DbSet.logged_at.desc())
+            .first()
+        )
+        last_weight = last_set.weight if last_set else None
+        last_reps = last_set.reps if last_set else None
+
+        # Last myo session mini-set count for reference
+        last_es = (
+            db.query(MyoExerciseSession)
+            .filter(MyoExerciseSession.exercise_id == ex.id, MyoExerciseSession.completed == 1)
+            .order_by(MyoExerciseSession.created_at.desc())
+            .first()
+        )
+        last_mini_sets = last_es.completed_mini_sets if last_es else None
+
+        result.append({
+            "id": ex.id,
+            "name": name,
+            "muscle_group": EXERCISE_MUSCLE_GROUPS.get(name, "Other"),
+            "calibrated": rec["calibrated"],
+            "calibration_session": rec.get("calibration_session"),
+            "target_mini_sets": rec.get("target_mini_sets"),
+            "baseline_mini_sets": rec.get("baseline"),
+            "last_weight": last_weight,
+            "last_reps": last_reps,
+            "last_mini_sets": last_mini_sets,
+        })
     return result
 
 
