@@ -111,6 +111,37 @@ function RepProgress({ current, target }: { current: number; target: number }) {
   );
 }
 
+function CompactRepSummary({
+  weight,
+  activationReps,
+  miniReps,
+  total,
+  target,
+}: {
+  weight: string | number | null;
+  activationReps: number;
+  miniReps: number;
+  total: number;
+  target: number;
+}) {
+  const remaining = Math.max(target - total, 0);
+  return (
+    <div className="rounded-lg border border-zinc-700/40 bg-zinc-900/45 px-3 py-2">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="text-zinc-300">
+          <span className="font-semibold text-zinc-100">{weight || "—"} × {activationReps}</span>
+          <span className="text-xs text-zinc-500"> activation</span>
+        </span>
+        <span className="font-semibold text-zinc-100">{total} / {target}</span>
+      </div>
+      <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
+        <span>{miniReps} mini reps</span>
+        <span>{remaining > 0 ? `${remaining} left` : "target hit"}</span>
+      </div>
+    </div>
+  );
+}
+
 function SorenessBlock({ muscleGroup, value, onChange }: { muscleGroup: string; value: number | null; onChange: (v: number) => void }) {
   const [expanded, setExpanded] = useState(value === null);
   if (!expanded && value !== null) {
@@ -187,6 +218,15 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
   const current = totalReps(state);
   const minis = miniTotal(state);
   const lastMini = miniSets.at(-1)?.reps ?? null;
+  const compactSummary = (
+    <CompactRepSummary
+      weight={weight || exercise.last_weight}
+      activationReps={activationLogged}
+      miniReps={minis}
+      total={current}
+      target={target}
+    />
+  );
 
   const logActivation = async () => {
     if (activationInput < 1) {
@@ -297,15 +337,10 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
 
         {stage === "mini" && (
           <div className="space-y-3">
-            <RepProgress current={current} target={target} />
-            <div className="grid grid-cols-3 gap-2 text-xs">
-              <div className="rounded-lg bg-zinc-900/60 border border-zinc-700/50 px-2 py-2"><p className="text-zinc-500">Activation</p><p className="font-semibold text-zinc-100">{weight || exercise.last_weight} × {activationLogged}</p></div>
-              <div className="rounded-lg bg-zinc-900/60 border border-zinc-700/50 px-2 py-2"><p className="text-zinc-500">Mini reps</p><p className="font-semibold text-zinc-100">{minis}</p></div>
-              <div className="rounded-lg bg-zinc-900/60 border border-zinc-700/50 px-2 py-2"><p className="text-zinc-500">Total</p><p className="font-semibold text-zinc-100">{current}</p></div>
-            </div>
+            {compactSummary}
             {activationLogged > ACTIVATION_HIGH && <p className="text-xs text-green-400">Activation was above {ACTIVATION_HIGH}; consider increasing weight next time.</p>}
             {activationLogged > 0 && activationLogged < ACTIVATION_LOW && <p className="text-xs text-orange-400">Activation was below {ACTIVATION_LOW}; weight may be too high today.</p>}
-            {miniSets.length > 0 && <div className="grid grid-cols-6 gap-1">{miniSets.map((ms) => <div key={ms.order_index} className={`text-center py-1.5 rounded text-xs font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`}>{ms.reps}</div>)}</div>}
+            {miniSets.length > 0 && <div className="grid grid-cols-8 gap-1">{miniSets.map((ms) => <div key={ms.order_index} className={`text-center py-1 rounded text-[11px] font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`}>{ms.reps}</div>)}</div>}
             {lastMini !== null && lastMini < MIN_REPS_FLOOR && <p className="text-xs text-orange-400">Dropped below {MIN_REPS_FLOOR} reps — stop here.</p>}
             <div className="flex gap-2">
               <input type="number" value={miniRepsInput} onChange={(e) => onChange({ miniRepsInput: e.target.value })} onKeyDown={(e) => e.key === "Enter" && logMiniSet()} placeholder="Mini-set reps" className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
@@ -317,16 +352,14 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
 
         {stage === "ready" && (
           <div className="space-y-2">
-            <RepProgress current={current} target={target} />
-            <div className="flex items-center justify-between text-sm text-zinc-400"><span>{weight || exercise.last_weight} × {activationLogged} activation</span><span>{minis} mini reps</span></div>
+            {compactSummary}
             <button onClick={() => onChange({ stage: "mini" })} className="text-xs text-zinc-500 underline underline-offset-2">Add more reps</button>
           </div>
         )}
 
         {stage === "done" && (
           <div className="space-y-2">
-            <RepProgress current={current} target={target} />
-            <div className="flex items-center justify-between text-sm text-zinc-400"><span>{weight || exercise.last_weight} × {activationLogged} activation</span><span>{minis} mini reps</span></div>
+            {compactSummary}
           </div>
         )}
       </div>
