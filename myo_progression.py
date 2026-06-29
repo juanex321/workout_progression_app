@@ -26,17 +26,15 @@ from db import MyoExerciseCalibration
 CALIBRATION_SESSIONS = 3
 MIN_REPS_FLOOR = 3
 
-WORKLOAD_LIGHT_MAX = 2     # 1-2 → add reps
-WORKLOAD_JUST_RIGHT = 3    # hold
-WORKLOAD_HARD = 4          # hold, no progression
-WORKLOAD_TOO_MUCH = 5      # deload strike
+WORKLOAD_LIGHT_MAX = 2
+WORKLOAD_JUST_RIGHT = 3
+WORKLOAD_HARD = 4
+WORKLOAD_TOO_MUCH = 5
 
 DELOAD_STRIKE_THRESHOLD = 2
 REP_STEP = 5
 MIN_TARGET_REPS = 25
 
-# Starting targets are intentionally conservative because myo-rep work is dense
-# and each activation/mini-set is expected to be near technical failure.
 DEFAULT_TARGET_REPS = 45
 MAJOR_MUSCLE_TARGET_REPS = 45
 MINOR_MUSCLE_TARGET_REPS = 55
@@ -57,11 +55,7 @@ def starting_total_rep_target(muscle_group: str | None, has_finisher: bool = Fal
 
 
 def allocate_muscle_reps(total_target: int, role: str) -> int:
-    """Split a muscle-level rep target between main and finisher exercises.
-
-    We keep this flexible in the UI by showing muscle-level progress. The allocation is
-    a guide so each exercise card has a local target, not a hard cap.
-    """
+    """Split a muscle-level rep target between main and finisher exercises."""
     if role == "finisher":
         return max(15, round(total_target * 0.33))
     if role == "main_with_finisher":
@@ -89,7 +83,7 @@ def get_recommendation(
     {
       "calibrated": bool,
       "target_total_reps": int,
-      "target_mini_sets": int | None,      # legacy alias, no longer used by UI
+      "target_mini_sets": int | None,
       "calibration_session": int | None,
       "baseline": int | None,
     }
@@ -107,6 +101,15 @@ def get_recommendation(
         }
 
     current_target = cal.current_target or fallback
+    # Backward-compatible guard: older calibrated rows may contain mini-set counts
+    # like 3-6. Those are not valid total-rep targets, so reset to the new baseline.
+    if current_target < MIN_TARGET_REPS:
+        current_target = fallback
+        cal.current_target = fallback
+        cal.baseline_mini_sets = max(cal.baseline_mini_sets or fallback, fallback)
+        cal.consecutive_hard_sessions = 0
+        db.commit()
+
     return {
         "calibrated": True,
         "target_total_reps": current_target,
@@ -132,14 +135,12 @@ def record_session_result(
 
     if not cal.calibrated:
         cal.calibration_sessions_done += 1
-        # Legacy DB column name; now stores total reps during calibration.
         cal.calibration_mini_sets_sum += total_reps_completed
 
         if cal.calibration_sessions_done >= CALIBRATION_SESSIONS:
             baseline = round(cal.calibration_mini_sets_sum / cal.calibration_sessions_done)
             baseline = max(baseline, MIN_TARGET_REPS)
             cal.calibrated = 1
-            # Legacy DB column name; now stores baseline total reps.
             cal.baseline_mini_sets = baseline
             cal.current_target = baseline
             db.commit()
@@ -149,6 +150,10 @@ def record_session_result(
         return {"action": "calibrating", "new_target": None}
 
     target = target_total_reps or cal.current_target or DEFAULT_TARGET_REPS
+    if target < MIN_TARGET_REPS:
+        target = DEFAULT_TARGET_REPS
+        cal.current_target = target
+
     missed_badly = total_reps_completed < max(MIN_TARGET_REPS, target - REP_STEP)
     is_overload = (workload_feedback >= WORKLOAD_TOO_MUCH) or (missed_badly and workload_feedback >= WORKLOAD_HARD)
 
@@ -163,13 +168,10 @@ def record_session_result(
         return {"action": "held", "new_target": cal.current_target}
 
     if workload_feedback >= WORKLOAD_JUST_RIGHT:
-        # Just Right or Hard should hold the target. In this training style, the user can
-        # add reps during the workout, so Just Right is the goal, not a reason to progress.
         cal.consecutive_hard_sessions = 0
         db.commit()
         return {"action": "held", "new_target": cal.current_target}
 
-    # workload 1-2: add reps next time
     cal.consecutive_hard_sessions = 0
     cal.current_target = max(MIN_TARGET_REPS, (cal.current_target or target) + REP_STEP)
     db.commit()
