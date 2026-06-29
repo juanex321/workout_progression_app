@@ -33,6 +33,16 @@ type ExistingExerciseSession = {
   workload_feedback: number | null;
 };
 
+type BootstrapPayload = {
+  session: {
+    session_id: number;
+    date: string;
+    completed: number;
+  };
+  exercises: TodayExercise[];
+  exercise_sessions: ExistingExerciseSession[];
+};
+
 type ExerciseState = {
   stage: Stage;
   sessionId: number | null;
@@ -321,17 +331,13 @@ export default function MyoRepsPage() {
   useEffect(() => {
     async function init() {
       try {
-        const sess = await fetchJSON<{ session_id: number }>("/api/myo/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
-        setMyoSessionId(sess.session_id);
-        const [exs, existingSessions] = await Promise.all([
-          fetchJSON<TodayExercise[]>("/api/myo/today"),
-          fetchJSON<ExistingExerciseSession[]>(`/api/myo/sessions/${sess.session_id}/exercise-sessions`),
-        ]);
-        setExercises(exs);
+        const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
+        setMyoSessionId(payload.session.session_id);
+        setExercises(payload.exercises);
         const existingByExerciseId = new Map<number, ExistingExerciseSession>();
-        for (const es of existingSessions) existingByExerciseId.set(es.exercise_id, es);
+        for (const es of payload.exercise_sessions) existingByExerciseId.set(es.exercise_id, es);
         const initial: Record<number, ExerciseState> = {};
-        for (const ex of exs) {
+        for (const ex of payload.exercises) {
           const existing = existingByExerciseId.get(ex.id);
           initial[ex.id] = {
             stage: existing?.completed === 1 ? "done" : existing?.activation_reps != null ? "mini" : "idle",
