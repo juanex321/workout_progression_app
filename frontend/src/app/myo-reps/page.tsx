@@ -1,128 +1,123 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useEffect, useState } from "react";
 
-// ---- Types ----
-interface TodayExercise {
+type Stage = "idle" | "mini" | "feedback" | "done";
+
+type MiniSet = { order_index: number; reps: number };
+
+type TodayExercise = {
   id: number;
   name: string;
   muscle_group: string | null;
+  exercise_role?: string;
   calibrated: boolean;
   calibration_session: number | null;
-  target_mini_sets: number | null;
-  baseline_mini_sets: number | null;
+  target_total_reps: number | null;
+  muscle_target_total_reps?: number | null;
+  baseline_total_reps?: number | null;
+  target_mini_sets?: number | null;
+  baseline_mini_sets?: number | null;
   last_weight: number | null;
   last_reps: number | null;
-  last_mini_sets: number | null;
-}
+  last_total_reps?: number | null;
+  last_mini_sets?: number | null;
+};
 
-interface MiniSetData {
-  order_index: number;
-  reps: number;
-}
-
-interface MyoExerciseSessionData {
+type ExistingExerciseSession = {
   exercise_session_id: number;
   exercise_id: number;
-  exercise_name: string;
-  muscle_group: string | null;
-  calibrated: boolean;
-  calibration_session: number | null;
-  target_mini_sets: number | null;
-  baseline_mini_sets: number | null;
   activation_weight: number | null;
   activation_reps: number | null;
-  mini_sets: MiniSetData[];
+  mini_sets: MiniSet[];
   completed: number;
   workload_feedback: number | null;
-}
+};
 
-type ExerciseStage = "idle" | "activation" | "mini-sets" | "feedback" | "done";
-
-interface ExerciseState {
-  stage: ExerciseStage;
+type ExerciseState = {
+  stage: Stage;
   sessionId: number | null;
   weight: string;
   reps: string;
-  miniSets: MiniSetData[];
+  miniSets: MiniSet[];
   miniRepsInput: string;
   workload: number;
   submitting: boolean;
   error: string;
-}
+};
 
 const WORKLOAD_LABELS = ["Easy", "Light", "Just Right", "Hard", "Too Much"];
-const SORENESS_LABELS = ["Never got sore", "Healed a while ago", "Healed right on time", "I'm still sore"];
+const SORENESS_LABELS = ["Never got sore", "Healed a while ago", "Healed right on time", "Still sore"];
 const MIN_REPS_FLOOR = 3;
+const ACTIVATION_LOW = 10;
+const ACTIVATION_HIGH = 20;
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   if (!res.ok) {
     const text = await res.text();
-    // Avoid dumping raw HTML error pages into the UI
-    const isHtml = text.trimStart().startsWith("<");
-    const detail = isHtml
-      ? `Server error (${res.status}) — please try again`
-      : text.length > 200
-        ? `${res.status}: ${text.slice(0, 200)}…`
-        : `${res.status}: ${text}`;
-    throw new Error(detail);
+    throw new Error(text.trimStart().startsWith("<") ? `Server error (${res.status})` : `${res.status}: ${text.slice(0, 200)}`);
   }
   return res.json();
 }
 
-function stageFromExisting(es: MyoExerciseSessionData | undefined): ExerciseStage {
-  if (!es) return "idle";
-  if (es.completed === 1) return "done";
-  if (es.activation_reps != null) return "mini-sets";
-  return "idle";
+function toInt(value: string): number {
+  const n = parseInt(value);
+  return Number.isFinite(n) ? n : 0;
 }
 
-// ---- Soreness Block ----
-function SorenessBlock({
-  muscleGroup,
-  value,
-  onChange,
-}: {
-  muscleGroup: string;
-  value: number | null;
-  onChange: (v: number) => void;
-}) {
-  const [expanded, setExpanded] = useState(value === null);
+function miniTotal(state?: ExerciseState): number {
+  return state?.miniSets.reduce((sum, set) => sum + set.reps, 0) ?? 0;
+}
 
+function totalReps(state?: ExerciseState): number {
+  if (!state) return 0;
+  return toInt(state.reps) + miniTotal(state);
+}
+
+function progressPercent(current: number, target: number): number {
+  return target > 0 ? Math.min((current / target) * 100, 100) : 0;
+}
+
+function RepProgress({ current, target }: { current: number; target: number }) {
+  const remaining = Math.max(target - current, 0);
+  return (
+    <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/50 px-3 py-3 space-y-2">
+      <div className="flex items-center justify-between text-xs">
+        <span className="text-zinc-400">Rep budget</span>
+        <span className="font-semibold text-zinc-100">{current} / {target}</span>
+      </div>
+      <div className="h-2 rounded-full bg-zinc-700 overflow-hidden">
+        <div className="h-2 rounded-full bg-red-500 transition-all" style={{ width: `${progressPercent(current, target)}%` }} />
+      </div>
+      <p className="text-[11px] text-zinc-500">
+        {remaining > 0 ? `${remaining} reps remaining` : "Target reached. Stop here unless it still feels too easy."}
+      </p>
+    </div>
+  );
+}
+
+function SorenessBlock({ muscleGroup, value, onChange }: { muscleGroup: string; value: number | null; onChange: (v: number) => void }) {
+  const [expanded, setExpanded] = useState(value === null);
   if (!expanded && value !== null) {
     return (
-      <div className="flex items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-900/40 px-3 py-2 text-xs mb-1">
+      <div className="flex items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-900/40 px-3 py-2 text-xs">
         <span className="text-zinc-500">Recovery:</span>
         <span className="font-medium text-zinc-200">{SORENESS_LABELS[value - 1]}</span>
-        <button
-          onClick={() => setExpanded(true)}
-          className="ml-auto text-zinc-500 underline underline-offset-2 hover:text-zinc-300"
-        >
-          edit
-        </button>
+        <button onClick={() => setExpanded(true)} className="ml-auto text-zinc-500 underline underline-offset-2 hover:text-zinc-300">edit</button>
       </div>
     );
   }
-
   return (
-    <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3 mb-1">
+    <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3">
       <p className="text-xs font-medium text-zinc-300 mb-2">How did {muscleGroup} recover?</p>
       <div className="grid grid-cols-2 gap-1.5">
         {SORENESS_LABELS.map((label, i) => {
           const v = i + 1;
-          const selected = v === value;
           return (
             <button
               key={label}
-              onClick={() => {
-                onChange(v);
-                setExpanded(false);
-              }}
-              className={`rounded-lg border px-2.5 py-2 text-left text-xs transition-colors
-                ${selected
-                  ? "border-red-500/60 bg-red-500/20 text-red-100"
-                  : "border-zinc-700 bg-zinc-800 text-zinc-300 hover:border-zinc-600 hover:bg-zinc-700"
-                }`}
+              onClick={() => { onChange(v); setExpanded(false); }}
+              className={`rounded-lg border px-2.5 py-2 text-left text-xs ${v === value ? "border-red-500/60 bg-red-500/20 text-red-100" : "border-zinc-700 bg-zinc-800 text-zinc-300"}`}
             >
               {label}
             </button>
@@ -133,42 +128,39 @@ function SorenessBlock({
   );
 }
 
-// ---- Exercise Card ----
-function ExerciseCard({
-  exercise,
-  myoSessionId,
-  state,
-  onChange,
-}: {
+function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
   exercise: TodayExercise;
   myoSessionId: number;
   state: ExerciseState;
   onChange: (patch: Partial<ExerciseState>) => void;
 }) {
   const { stage, sessionId, weight, reps, miniSets, miniRepsInput, workload, submitting, error } = state;
+  const target = exercise.target_total_reps ?? exercise.muscle_target_total_reps ?? 45;
+  const activation = toInt(reps);
+  const current = totalReps(state);
+  const minis = miniTotal(state);
+  const lastMini = miniSets.at(-1)?.reps ?? null;
 
   const logActivation = async () => {
-    const parsedReps = parseInt(reps);
-    if (!parsedReps || parsedReps < 1) {
-      onChange({ error: "Enter reps completed" });
+    if (activation < 1) {
+      onChange({ error: "Enter activation reps" });
       return;
     }
     onChange({ submitting: true, error: "" });
     try {
-      // Create or resume session + log/update activation set in a single request
-      const es = await fetchJSON<MyoExerciseSessionData>("/api/myo/exercise-sessions", {
+      const es = await fetchJSON<ExistingExerciseSession>("/api/myo/exercise-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           myo_session_id: myoSessionId,
           exercise_id: exercise.id,
           activation_weight: weight ? parseFloat(weight) : null,
-          activation_reps: parsedReps,
+          activation_reps: activation,
         }),
       });
       onChange({
         sessionId: es.exercise_session_id,
-        stage: es.completed === 1 ? "done" : "mini-sets",
+        stage: es.completed === 1 ? "done" : "mini",
         miniSets: es.mini_sets,
         weight: es.activation_weight != null ? String(es.activation_weight) : weight,
         reps: es.activation_reps != null ? String(es.activation_reps) : reps,
@@ -182,35 +174,29 @@ function ExerciseCard({
 
   const logMiniSet = async () => {
     if (!sessionId) {
-      onChange({ error: "Log activation set first" });
+      onChange({ error: "Log activation first" });
       return;
     }
-    const parsedReps = parseInt(miniRepsInput);
-    if (!parsedReps || parsedReps < 1) {
-      onChange({ error: "Enter reps" });
+    const parsed = parseInt(miniRepsInput);
+    if (!parsed || parsed < 1) {
+      onChange({ error: "Enter mini-set reps" });
       return;
     }
     onChange({ submitting: true, error: "" });
     try {
-      const es = await fetchJSON<MyoExerciseSessionData>(
-        `/api/myo/exercise-sessions/${sessionId}/miniset`,
-        {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reps: parsedReps }),
-        }
-      );
+      const es = await fetchJSON<ExistingExerciseSession>(`/api/myo/exercise-sessions/${sessionId}/miniset`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reps: parsed }),
+      });
       onChange({ miniSets: es.mini_sets, miniRepsInput: "", submitting: false });
     } catch (e) {
       onChange({ error: (e as Error).message, submitting: false });
     }
   };
 
-  const submitFeedback = async () => {
-    if (!sessionId) {
-      onChange({ error: "Log activation set first" });
-      return;
-    }
+  const completeExercise = async () => {
+    if (!sessionId) return;
     onChange({ submitting: true, error: "" });
     try {
       await fetchJSON(`/api/myo/exercise-sessions/${sessionId}/complete`, {
@@ -224,262 +210,93 @@ function ExerciseCard({
     }
   };
 
-  const lastMiniReps = miniSets.at(-1)?.reps ?? null;
-  const atFloor = lastMiniReps !== null && lastMiniReps < MIN_REPS_FLOOR;
-
   return (
     <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 overflow-hidden">
-      {/* Exercise header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/60">
-        <span className="font-medium text-zinc-100">{exercise.name}</span>
+        <div>
+          <span className="font-medium text-zinc-100">{exercise.name}</span>
+          <span className="ml-2 text-[10px] uppercase tracking-wider text-zinc-500">{exercise.exercise_role === "finisher" ? "Finisher" : "Main"}</span>
+        </div>
         <div className="flex items-center gap-2">
-          {exercise.calibrated && exercise.target_mini_sets && stage !== "done" && (
-            <span className="text-xs text-zinc-400">Target: {exercise.target_mini_sets} mini-sets</span>
-          )}
-          {!exercise.calibrated && (
-            <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded">
-              Cal {exercise.calibration_session}/3
-            </span>
-          )}
-          {stage === "done" && (
-            <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded">
-              Done
-            </span>
-          )}
+          <span className="text-xs text-zinc-400">{target} reps</span>
+          {!exercise.calibrated && <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded">Cal {exercise.calibration_session}/3</span>}
+          {stage === "done" && <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded">Done</span>}
         </div>
       </div>
 
       <div className="px-4 py-3 space-y-3">
-        {error && (
-          <div className="flex items-center justify-between gap-2 rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2">
-            <p className="text-xs text-red-400">{error}</p>
-            <button
-              onClick={() => onChange({ error: "" })}
-              className="text-xs text-zinc-500 shrink-0 hover:text-zinc-300"
-            >
-              dismiss
-            </button>
-          </div>
-        )}
+        {error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{error}</div>}
 
-        {/* Last session reference block */}
-        {(exercise.last_reps || exercise.last_weight || exercise.last_mini_sets != null) && stage !== "done" && (
-          <div className="rounded-lg bg-zinc-900/70 border border-zinc-700/40 px-3 py-2.5 space-y-2">
-            <p className="text-[10px] uppercase tracking-widest text-zinc-500">Last session</p>
-            <div className="flex items-center">
-              <div className="flex-1">
-                {(exercise.last_weight || exercise.last_reps) && (
-                  <div>
-                    <span className="text-sm font-semibold text-zinc-100">
-                      {exercise.last_weight ? `${exercise.last_weight}` : ""}
-                      {exercise.last_weight && exercise.last_reps ? " × " : ""}
-                      {exercise.last_reps ? `${exercise.last_reps} reps` : ""}
-                    </span>
-                    <span className="text-xs text-zinc-500 ml-1.5">activation</span>
-                  </div>
-                )}
-              </div>
-              {exercise.last_mini_sets != null && (
-                <div className="text-right">
-                  <span className="text-2xl font-bold text-red-400 leading-none">{exercise.last_mini_sets}</span>
-                  <p className="text-[10px] text-zinc-500 mt-0.5">mini-sets</p>
-                </div>
-              )}
+        {(exercise.last_weight || exercise.last_reps || exercise.last_total_reps != null || exercise.last_mini_sets != null) && stage !== "done" && (
+          <div className="rounded-lg bg-zinc-900/70 border border-zinc-700/40 px-3 py-2.5 flex items-center justify-between">
+            <div>
+              <p className="text-[10px] uppercase tracking-widest text-zinc-500">Last session</p>
+              <p className="text-sm font-semibold text-zinc-100">
+                {exercise.last_weight ? `${exercise.last_weight}` : ""}{exercise.last_weight && exercise.last_reps ? " × " : ""}{exercise.last_reps ? `${exercise.last_reps} activation` : ""}
+              </p>
             </div>
-            {exercise.last_reps != null && exercise.last_reps >= 15 && (
-              <div className="flex items-center gap-1.5 rounded-md bg-red-500/10 border border-red-500/25 px-2.5 py-1.5">
-                <span className="text-red-400 text-base leading-none">↑</span>
-                <span className="text-xs text-red-300">
-                  Consider increasing weight — hit {exercise.last_reps} reps last session
-                </span>
+            {(exercise.last_total_reps ?? exercise.last_mini_sets) != null && (
+              <div className="text-right">
+                <span className="text-2xl font-bold text-red-400 leading-none">{exercise.last_total_reps ?? exercise.last_mini_sets}</span>
+                <p className="text-[10px] text-zinc-500 mt-0.5">total reps</p>
               </div>
             )}
           </div>
         )}
 
-        {/* IDLE / ACTIVATION stage */}
-        {(stage === "idle" || stage === "activation") && (
+        {stage === "idle" && (
           <div className="space-y-3">
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Activation set — near failure</p>
+            <p className="text-xs text-zinc-400 uppercase tracking-wide">Activation set — hard set</p>
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className="text-xs text-zinc-500 block mb-1">Weight</label>
-                <input
-                  type="number"
-                  value={weight}
-                  onChange={(e) => onChange({ weight: e.target.value })}
-                  placeholder={exercise.last_weight ? String(exercise.last_weight) : "—"}
-                  className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-red-500"
-                />
+                <input type="number" value={weight} onChange={(e) => onChange({ weight: e.target.value })} placeholder={exercise.last_weight ? String(exercise.last_weight) : "—"} className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
               </div>
               <div className="flex-1">
                 <label className="text-xs text-zinc-500 block mb-1">Reps</label>
-                <input
-                  type="number"
-                  value={reps}
-                  onChange={(e) => onChange({ reps: e.target.value })}
-                  placeholder={exercise.last_reps ? String(exercise.last_reps) : "0"}
-                  className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-red-500"
-                />
+                <input type="number" value={reps} onChange={(e) => onChange({ reps: e.target.value })} placeholder={exercise.last_reps ? String(exercise.last_reps) : "0"} className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
               </div>
-              <div className="flex items-end">
-                <button
-                  onClick={logActivation}
-                  disabled={submitting}
-                  className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-medium active:bg-red-500 disabled:opacity-50 whitespace-nowrap"
-                >
-                  {submitting ? "..." : "Log"}
-                </button>
-              </div>
+              <div className="flex items-end"><button onClick={logActivation} disabled={submitting} className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Log"}</button></div>
             </div>
           </div>
         )}
 
-        {/* MINI-SETS stage */}
-        {stage === "mini-sets" && (
+        {stage === "mini" && (
           <div className="space-y-3">
-            <div className="text-xs text-zinc-400 uppercase tracking-wide">
-              Activation: {weight || exercise.last_weight} × {reps} reps
+            <RepProgress current={current} target={target} />
+            <div className="grid grid-cols-3 gap-2 text-xs">
+              <div className="rounded-lg bg-zinc-900/60 border border-zinc-700/50 px-2 py-2"><p className="text-zinc-500">Activation</p><p className="font-semibold text-zinc-100">{weight || exercise.last_weight} × {reps}</p></div>
+              <div className="rounded-lg bg-zinc-900/60 border border-zinc-700/50 px-2 py-2"><p className="text-zinc-500">Mini reps</p><p className="font-semibold text-zinc-100">{minis}</p></div>
+              <div className="rounded-lg bg-zinc-900/60 border border-zinc-700/50 px-2 py-2"><p className="text-zinc-500">Total</p><p className="font-semibold text-zinc-100">{current}</p></div>
             </div>
-
-            {exercise.target_mini_sets && (
-              <div className="space-y-1">
-                <div className="flex justify-between text-xs text-zinc-400">
-                  <span>{miniSets.length} / {exercise.target_mini_sets} mini-sets</span>
-                  <span>
-                    {miniSets.length >= exercise.target_mini_sets
-                      ? "Target reached!"
-                      : `${Math.round((miniSets.length / exercise.target_mini_sets) * 100)}%`}
-                  </span>
-                </div>
-                <div className="h-1 rounded-full bg-zinc-700">
-                  <div
-                    className="h-1 rounded-full bg-red-500 transition-all"
-                    style={{ width: `${Math.min((miniSets.length / exercise.target_mini_sets) * 100, 100)}%` }}
-                  />
-                </div>
-              </div>
-            )}
-
-            {miniSets.length > 0 && (
-              <div className="grid grid-cols-4 gap-1">
-                {miniSets.map((ms) => (
-                  <div
-                    key={ms.order_index}
-                    className={`text-center py-1.5 rounded text-xs font-medium ${
-                      ms.reps < MIN_REPS_FLOOR
-                        ? "bg-red-500/15 text-red-400"
-                        : "bg-zinc-700/80 text-zinc-300"
-                    }`}
-                  >
-                    {ms.reps}
-                  </div>
-                ))}
-              </div>
-            )}
-
-            {atFloor && (
-              <p className="text-xs text-orange-400">
-                Dropped below {MIN_REPS_FLOOR} reps — good place to stop.
-              </p>
-            )}
-
+            {activation > ACTIVATION_HIGH && <p className="text-xs text-green-400">Activation was above {ACTIVATION_HIGH}; consider increasing weight next time.</p>}
+            {activation > 0 && activation < ACTIVATION_LOW && <p className="text-xs text-orange-400">Activation was below {ACTIVATION_LOW}; weight may be too high today.</p>}
+            {miniSets.length > 0 && <div className="grid grid-cols-6 gap-1">{miniSets.map((ms) => <div key={ms.order_index} className={`text-center py-1.5 rounded text-xs font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`}>{ms.reps}</div>)}</div>}
+            {lastMini !== null && lastMini < MIN_REPS_FLOOR && <p className="text-xs text-orange-400">Dropped below {MIN_REPS_FLOOR} reps — stop here.</p>}
             <div className="flex gap-2">
-              <input
-                type="number"
-                value={miniRepsInput}
-                onChange={(e) => onChange({ miniRepsInput: e.target.value })}
-                onKeyDown={(e) => e.key === "Enter" && logMiniSet()}
-                placeholder={`Mini-set ${miniSets.length + 1} reps`}
-                className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 placeholder-zinc-600 outline-none focus:ring-1 focus:ring-red-500"
-              />
-              <button
-                onClick={logMiniSet}
-                disabled={submitting}
-                className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium active:bg-zinc-500 disabled:opacity-50"
-              >
-                {submitting ? "..." : "Log"}
-              </button>
+              <input type="number" value={miniRepsInput} onChange={(e) => onChange({ miniRepsInput: e.target.value })} onKeyDown={(e) => e.key === "Enter" && logMiniSet()} placeholder="Mini-set reps" className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
+              <button onClick={logMiniSet} disabled={submitting} className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Add"}</button>
             </div>
-
-            {miniSets.length > 0 && (
-              <button
-                onClick={() => onChange({ stage: "feedback" })}
-                className={`w-full h-10 rounded-lg text-sm font-medium transition-colors
-                  ${exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets
-                    ? "bg-red-600 text-white active:bg-red-500"
-                    : "bg-zinc-700 text-zinc-400 active:bg-zinc-600"
-                  }`}
-              >
-                {exercise.target_mini_sets != null && miniSets.length >= exercise.target_mini_sets
-                  ? `Done — ${miniSets.length} mini-sets ✓`
-                  : `Finish here · ${miniSets.length}${exercise.target_mini_sets ? ` of ${exercise.target_mini_sets}` : ""} mini-sets`}
-              </button>
-            )}
+            <button onClick={() => onChange({ stage: "feedback" })} disabled={miniSets.length === 0} className={`w-full h-10 rounded-lg text-sm font-medium disabled:opacity-50 ${current >= target ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>{current >= target ? `Done — ${current} reps` : `Finish here · ${current} of ${target}`}</button>
           </div>
         )}
 
-        {/* FEEDBACK stage */}
         {stage === "feedback" && (
           <div className="space-y-3">
-            <button
-              onClick={() => onChange({ stage: "mini-sets" })}
-              className="text-xs text-zinc-500 hover:text-zinc-300 underline underline-offset-2"
-            >
-              ← Add more mini-sets
-            </button>
-            <div className="grid grid-cols-4 gap-1">
-              {miniSets.map((ms) => (
-                <div
-                  key={ms.order_index}
-                  className={`text-center py-1.5 rounded text-xs font-medium ${
-                    ms.reps < MIN_REPS_FLOOR
-                      ? "bg-red-500/15 text-red-400"
-                      : "bg-zinc-700/80 text-zinc-300"
-                  }`}
-                >
-                  {ms.reps}
-                </div>
-              ))}
-            </div>
+            <button onClick={() => onChange({ stage: "mini" })} className="text-xs text-zinc-500 underline underline-offset-2">← Add more mini-set reps</button>
+            <RepProgress current={current} target={target} />
             <div className="space-y-1.5">
               <p className="text-xs text-zinc-400">How was the workload?</p>
-              <div className="flex gap-1">
-                {WORKLOAD_LABELS.map((label, i) => {
-                  const v = i + 1;
-                  return (
-                    <button
-                      key={label}
-                      onClick={() => onChange({ workload: v })}
-                      className={`flex-1 py-2 rounded-lg text-xs font-medium transition-colors
-                        ${workload === v
-                          ? "bg-red-600 text-white"
-                          : "bg-zinc-700 text-zinc-300 active:bg-zinc-600"
-                        }`}
-                    >
-                      {label}
-                    </button>
-                  );
-                })}
-              </div>
+              <div className="flex gap-1">{WORKLOAD_LABELS.map((label, i) => { const v = i + 1; return <button key={label} onClick={() => onChange({ workload: v })} className={`flex-1 py-2 rounded-lg text-xs font-medium ${workload === v ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{label}</button>; })}</div>
             </div>
-            <button
-              onClick={submitFeedback}
-              disabled={submitting}
-              className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium active:bg-red-500 disabled:opacity-50"
-            >
-              {submitting ? "Saving..." : "Submit"}
-            </button>
+            <button onClick={completeExercise} disabled={submitting} className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">{submitting ? "Saving..." : "Submit"}</button>
           </div>
         )}
 
-        {/* DONE stage */}
         {stage === "done" && (
-          <div className="flex items-center justify-between text-sm text-zinc-400">
-            <span>
-              {weight || exercise.last_weight} × {reps} reps activation
-            </span>
-            <span>{miniSets.length} mini-sets · {WORKLOAD_LABELS[workload - 1]}</span>
+          <div className="space-y-2">
+            <RepProgress current={current} target={target} />
+            <div className="flex items-center justify-between text-sm text-zinc-400"><span>{weight || exercise.last_weight} × {reps} activation</span><span>{minis} mini reps · {WORKLOAD_LABELS[workload - 1]}</span></div>
           </div>
         )}
       </div>
@@ -487,7 +304,6 @@ function ExerciseCard({
   );
 }
 
-// ---- Main page ----
 export default function MyoRepsPage() {
   const [exercises, setExercises] = useState<TodayExercise[]>([]);
   const [loading, setLoading] = useState(true);
@@ -499,49 +315,29 @@ export default function MyoRepsPage() {
   const [finishing, setFinishing] = useState(false);
 
   const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => {
-    setExStates((prev) => ({
-      ...prev,
-      [exerciseId]: { ...prev[exerciseId], ...patch },
-    }));
+    setExStates((prev) => ({ ...prev, [exerciseId]: { ...prev[exerciseId], ...patch } }));
   };
 
   useEffect(() => {
     async function init() {
       try {
-        const sess = await fetchJSON<{ session_id: number }>("/api/myo/sessions", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({}),
-        });
+        const sess = await fetchJSON<{ session_id: number }>("/api/myo/sessions", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({}) });
         setMyoSessionId(sess.session_id);
-
         const [exs, existingSessions] = await Promise.all([
           fetchJSON<TodayExercise[]>("/api/myo/today"),
-          fetchJSON<MyoExerciseSessionData[]>(`/api/myo/sessions/${sess.session_id}/exercise-sessions`),
+          fetchJSON<ExistingExerciseSession[]>(`/api/myo/sessions/${sess.session_id}/exercise-sessions`),
         ]);
         setExercises(exs);
-
-        const existingByExerciseId = new Map<number, MyoExerciseSessionData>();
-        for (const es of existingSessions) {
-          existingByExerciseId.set(es.exercise_id, es);
-        }
-
+        const existingByExerciseId = new Map<number, ExistingExerciseSession>();
+        for (const es of existingSessions) existingByExerciseId.set(es.exercise_id, es);
         const initial: Record<number, ExerciseState> = {};
         for (const ex of exs) {
           const existing = existingByExerciseId.get(ex.id);
           initial[ex.id] = {
-            stage: stageFromExisting(existing),
+            stage: existing?.completed === 1 ? "done" : existing?.activation_reps != null ? "mini" : "idle",
             sessionId: existing?.exercise_session_id ?? null,
-            weight: existing?.activation_weight != null
-              ? String(existing.activation_weight)
-              : ex.last_weight != null
-                ? String(ex.last_weight)
-                : "",
-            reps: existing?.activation_reps != null
-              ? String(existing.activation_reps)
-              : ex.last_reps != null
-                ? String(ex.last_reps)
-                : "",
+            weight: existing?.activation_weight != null ? String(existing.activation_weight) : ex.last_weight != null ? String(ex.last_weight) : "",
+            reps: existing?.activation_reps != null ? String(existing.activation_reps) : ex.last_reps != null ? String(ex.last_reps) : "",
             miniSets: existing?.mini_sets ?? [],
             miniRepsInput: "",
             workload: existing?.workload_feedback ?? 3,
@@ -559,15 +355,11 @@ export default function MyoRepsPage() {
     init();
   }, []);
 
-  // Group exercises by muscle group preserving order
   const grouped: Record<string, TodayExercise[]> = {};
   const orderedGroups: string[] = [];
   for (const ex of exercises) {
     const mg = ex.muscle_group ?? "Other";
-    if (!grouped[mg]) {
-      grouped[mg] = [];
-      orderedGroups.push(mg);
-    }
+    if (!grouped[mg]) { grouped[mg] = []; orderedGroups.push(mg); }
     grouped[mg].push(ex);
   }
 
@@ -588,99 +380,33 @@ export default function MyoRepsPage() {
     }
   };
 
-  if (loading) {
-    return (
-      <div className="flex items-center justify-center min-h-screen">
-        <p className="text-zinc-400">Loading...</p>
-      </div>
-    );
-  }
+  if (loading) return <div className="flex items-center justify-center min-h-screen"><p className="text-zinc-400">Loading...</p></div>;
 
   return (
     <main className="mx-auto max-w-xl px-3 pb-24 pt-4 space-y-4">
-      {/* Header */}
       <div className="flex items-center justify-between">
-        <div>
-          <h1 className="text-lg font-semibold text-zinc-100">Myo Reps</h1>
-          <p className="text-xs text-zinc-500">Today&apos;s session — myo reps style</p>
-        </div>
-        <a
-          href="/straight-sets"
-          className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-red-600 hover:text-red-500 transition-colors"
-        >
-          Straight Sets
-        </a>
+        <div><h1 className="text-lg font-semibold text-zinc-100">Myo Reps</h1><p className="text-xs text-zinc-500">Activation drives weight. Total reps drive workload.</p></div>
+        <a href="/straight-sets" className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-red-600 hover:text-red-500 transition-colors">Straight Sets</a>
       </div>
 
-      {pageError && (
-        <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">
-          {pageError}
-        </div>
-      )}
+      {pageError && <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">{pageError}</div>}
+      {sessionDone && <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center"><p className="text-green-400 font-semibold">Session complete!</p><p className="text-xs text-zinc-400 mt-1">Rotation advanced.</p></div>}
 
-      {/* Session complete banner */}
-      {sessionDone && (
-        <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center">
-          <p className="text-green-400 font-semibold">Session complete!</p>
-          <p className="text-xs text-zinc-400 mt-1">Rotation advanced — next session is queued for both modes.</p>
-          <a href="/straight-sets" className="mt-3 inline-block text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-200">
-            Open straight sets view
-          </a>
-        </div>
-      )}
-
-      {/* Muscle group sections */}
-      {!sessionDone && myoSessionId && orderedGroups.map((mg) => (
-        <div key={mg} className="space-y-2">
-          {/* Muscle group header */}
-          <div className="flex items-center gap-2 px-1">
-            <span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" />
-            <span className="text-sm font-semibold text-zinc-100">{mg}</span>
+      {!sessionDone && myoSessionId && orderedGroups.map((mg) => {
+        const muscleExercises = grouped[mg];
+        const current = muscleExercises.reduce((sum, ex) => sum + totalReps(exStates[ex.id]), 0);
+        const target = muscleExercises.reduce((sum, ex) => sum + (ex.target_total_reps ?? 0), 0) || muscleExercises[0]?.muscle_target_total_reps || 45;
+        return (
+          <div key={mg} className="space-y-2">
+            <div className="flex items-center gap-2 px-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" /><span className="text-sm font-semibold text-zinc-100">{mg}</span><span className="ml-auto text-xs text-zinc-500">{current} / {target} reps</span></div>
+            <RepProgress current={current} target={target} />
+            <SorenessBlock muscleGroup={mg} value={sorenessState[mg] ?? null} onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))} />
+            {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} onChange={(patch) => patchExState(ex.id, patch)} />)}
           </div>
+        );
+      })}
 
-          {/* Soreness question */}
-          <SorenessBlock
-            muscleGroup={mg}
-            value={sorenessState[mg] ?? null}
-            onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))}
-          />
-
-          {/* Exercise cards */}
-          {grouped[mg].map((ex) => (
-            <ExerciseCard
-              key={ex.id}
-              exercise={ex}
-              myoSessionId={myoSessionId}
-              state={exStates[ex.id] ?? {
-                stage: "idle", sessionId: null, weight: "", reps: "",
-                miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "",
-              }}
-              onChange={(patch) => patchExState(ex.id, patch)}
-            />
-          ))}
-        </div>
-      ))}
-
-      {/* Finish session button */}
-      {!sessionDone && myoSessionId && totalCount > 0 && (
-        <div className="pt-2">
-          <button
-            onClick={finishSession}
-            disabled={finishing || !allDone}
-            className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50
-              ${allDone
-                ? "border-green-400/30 bg-green-500 text-zinc-950 active:bg-green-400"
-                : "border-zinc-600 bg-zinc-800 text-zinc-300 active:bg-zinc-700"
-              }`}
-          >
-            {finishing
-              ? "Finishing..."
-              : allDone
-                ? "Finish Session"
-                : `Finish Session · ${doneCount} / ${totalCount} done`}
-          </button>
-        </div>
-      )}
+      {!sessionDone && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allDone} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allDone ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allDone ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} done`}</button></div>}
     </main>
   );
 }
