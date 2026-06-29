@@ -5,7 +5,18 @@ from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
 
 from deps import get_db
-from db import Exercise, MyoSession, MyoExerciseSession, MyoActivationSet, MyoMiniSet, Workout, Program, Set as DbSet, WorkoutExercise, Session as StraightSetsSession
+from db import (
+    Exercise,
+    MyoSession,
+    MyoExerciseSession,
+    MyoActivationSet,
+    MyoMiniSet,
+    Workout,
+    Program,
+    Set as DbSet,
+    WorkoutExercise,
+    Session as StraightSetsSession,
+)
 from schemas import (
     MyoSessionResponse,
     MyoStartExerciseRequest,
@@ -33,6 +44,7 @@ def _get_default_workout(db: OrmSession) -> Workout:
 
 
 def _exercise_session_response(es: MyoExerciseSession, rec: dict) -> MyoExerciseSessionResponse:
+    mini_sets = sorted(es.mini_sets, key=lambda m: m.order_index)
     return MyoExerciseSessionResponse(
         exercise_session_id=es.id,
         exercise_id=es.exercise_id,
@@ -44,9 +56,33 @@ def _exercise_session_response(es: MyoExerciseSession, rec: dict) -> MyoExercise
         baseline_mini_sets=rec.get("baseline"),
         activation_weight=es.activation_set.weight if es.activation_set else None,
         activation_reps=es.activation_set.reps if es.activation_set else None,
-        mini_sets=[MyoMiniSetData(order_index=m.order_index, reps=m.reps) for m in es.mini_sets],
+        mini_sets=[MyoMiniSetData(order_index=m.order_index, reps=m.reps) for m in mini_sets],
         completed=es.completed,
         workload_feedback=es.workload_feedback,
+    )
+
+
+def _open_exercise_session(
+    db: OrmSession,
+    *,
+    myo_session_id: int,
+    exercise_id: int,
+) -> MyoExerciseSession | None:
+    """Return the in-progress row for this exercise in this myo session, if one exists.
+
+    The myo UI can be refreshed, double-tapped, or used across multiple exercises. This
+    helper makes activation logging idempotent so we do not create duplicate exercise
+    sessions and then accidentally send later mini sets to the wrong row.
+    """
+    return (
+        db.query(MyoExerciseSession)
+        .filter(
+            MyoExerciseSession.myo_session_id == myo_session_id,
+            MyoExerciseSession.exercise_id == exercise_id,
+            MyoExerciseSession.completed == 0,
+        )
+        .order_by(MyoExerciseSession.created_at.desc(), MyoExerciseSession.id.desc())
+        .first()
     )
 
 
@@ -125,6 +161,29 @@ def get_or_create_session(db: OrmSession = Depends(get_db)):
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
 
 
+@router.get("/sessions/{session_id}/exercise-sessions", response_model=list[MyoExerciseSessionResponse])
+def get_session_exercise_sessions(session_id: int, db: OrmSession = Depends(get_db)):
+    """Return all exercise sessions already logged in a myo session.
+
+    This lets the frontend restore activation sets, mini sets, feedback, and done state
+    after a reload instead of losing track of per-exercise mini-set rows.
+    """
+    sess = db.get(MyoSession, session_id)
+    if not sess:
+        raise HTTPException(status_code=404, detail="Myo session not found")
+
+    exercise_sessions = (
+        db.query(MyoExerciseSession)
+        .filter(MyoExerciseSession.myo_session_id == session_id)
+        .order_by(MyoExerciseSession.created_at.asc(), MyoExerciseSession.id.asc())
+        .all()
+    )
+    return [
+        _exercise_session_response(es, get_recommendation(db, es.exercise_id))
+        for es in exercise_sessions
+    ]
+
+
 @router.post("/sessions/{session_id}/complete", response_model=MyoSessionResponse)
 def finish_myo_session(session_id: int, db: OrmSession = Depends(get_db)):
     sess = db.get(MyoSession, session_id)
@@ -154,32 +213,51 @@ def finish_myo_session(session_id: int, db: OrmSession = Depends(get_db)):
 
 @router.post("/exercise-sessions", response_model=MyoExerciseSessionResponse)
 def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db)):
-    """Start a new exercise and optionally log the activation set in one round trip."""
+    """Start or resume an exercise and optionally log/update the activation set.
+
+    This endpoint is intentionally idempotent for an open exercise in an open myo
+    session. Re-clicking Log, refreshing, or switching between exercises should not
+    create duplicate exercise-session rows.
+    """
     sess = db.get(MyoSession, req.myo_session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Myo session not found")
+    if sess.completed:
+        raise HTTPException(status_code=400, detail="Myo session already completed")
 
     exercise = db.get(Exercise, req.exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
     rec = get_recommendation(db, req.exercise_id)
-
-    es = MyoExerciseSession(
+    es = _open_exercise_session(
+        db,
         myo_session_id=req.myo_session_id,
         exercise_id=req.exercise_id,
-        target_mini_sets=rec["target_mini_sets"],
     )
-    db.add(es)
-    db.flush()  # get es.id before creating activation set
+
+    if not es:
+        es = MyoExerciseSession(
+            myo_session_id=req.myo_session_id,
+            exercise_id=req.exercise_id,
+            target_mini_sets=rec["target_mini_sets"],
+        )
+        db.add(es)
+        db.flush()  # get es.id before creating activation set
+    elif es.target_mini_sets is None:
+        es.target_mini_sets = rec["target_mini_sets"]
 
     if req.activation_reps:
-        act = MyoActivationSet(
-            exercise_session=es,  # wire backref in-memory so expire_on_commit=False doesn't hide it
-            weight=req.activation_weight,
-            reps=req.activation_reps,
-        )
-        db.add(act)
+        if es.activation_set:
+            es.activation_set.weight = req.activation_weight
+            es.activation_set.reps = req.activation_reps
+        else:
+            act = MyoActivationSet(
+                exercise_session=es,
+                weight=req.activation_weight,
+                reps=req.activation_reps,
+            )
+            db.add(act)
 
     db.commit()
     db.refresh(es)
@@ -235,7 +313,7 @@ def log_mini_set(
     if not es.activation_set:
         raise HTTPException(status_code=400, detail="Log activation set first")
 
-    next_index = len(es.mini_sets) + 1
+    next_index = (max((m.order_index for m in es.mini_sets), default=0) + 1)
     mini = MyoMiniSet(exercise_session_id=exercise_session_id, order_index=next_index, reps=req.reps)
     db.add(mini)
     db.commit()
