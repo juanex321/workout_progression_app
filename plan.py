@@ -33,8 +33,6 @@ DEFAULT_TARGET_REPS = 10
 EXERCISE_DEFAULT_SETS = {
     # chest finisher
     "Single-arm Chest Fly": 1,
-    # quad finisher
-    "Sissy Squat": 1,
     # lat finisher
     "Straight-arm Pulldown": 1,
     # biceps finisher
@@ -56,7 +54,6 @@ EXERCISE_DEFAULT_REPS = {
 EXERCISE_MUSCLE_GROUPS = {
     # Legs
     "Leg Extension": "Quads",
-    "Sissy Squat": "Quads",
     "Leg Curl": "Hamstrings",
     "Hip Thrust": "Glutes",
     "Glute Kickbacks": "Glutes",
@@ -91,7 +88,7 @@ def get_session_exercises(session_index: int) -> list[str]:
       - Push / Pull alternates each session.
       - Pull days alternate Lat Pulldown / Cable Row.
       - Finish every session with lateral raises.
-      - Certain muscles get 1-set "finisher" exercises.
+      - Certain upper muscles get finisher exercises.
     """
     # ----- leg block -----
     leg_ex = LEG_ROTATION[session_index % len(LEG_ROTATION)]
@@ -102,10 +99,6 @@ def get_session_exercises(session_index: int) -> list[str]:
         leg_ex = GLUTE_PUSH_EXERCISE if is_push_day else GLUTE_PULL_EXERCISE
 
     leg_block = [leg_ex]
-
-    # add quad finisher only on Leg Extension day
-    if leg_ex == "Leg Extension":
-        leg_block.append("Sissy Squat")
 
     # ----- upper block -----
     if is_push_day:
