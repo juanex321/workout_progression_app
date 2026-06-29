@@ -20,6 +20,22 @@ interface MiniSetData {
   reps: number;
 }
 
+interface MyoExerciseSessionData {
+  exercise_session_id: number;
+  exercise_id: number;
+  exercise_name: string;
+  muscle_group: string | null;
+  calibrated: boolean;
+  calibration_session: number | null;
+  target_mini_sets: number | null;
+  baseline_mini_sets: number | null;
+  activation_weight: number | null;
+  activation_reps: number | null;
+  mini_sets: MiniSetData[];
+  completed: number;
+  workload_feedback: number | null;
+}
+
 type ExerciseStage = "idle" | "activation" | "mini-sets" | "feedback" | "done";
 
 interface ExerciseState {
@@ -52,6 +68,13 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
     throw new Error(detail);
   }
   return res.json();
+}
+
+function stageFromExisting(es: MyoExerciseSessionData | undefined): ExerciseStage {
+  if (!es) return "idle";
+  if (es.completed === 1) return "done";
+  if (es.activation_reps != null) return "mini-sets";
+  return "idle";
 }
 
 // ---- Soreness Block ----
@@ -132,8 +155,8 @@ function ExerciseCard({
     }
     onChange({ submitting: true, error: "" });
     try {
-      // Create session + log activation set in a single request
-      const es = await fetchJSON<{ exercise_session_id: number }>("/api/myo/exercise-sessions", {
+      // Create or resume session + log/update activation set in a single request
+      const es = await fetchJSON<MyoExerciseSessionData>("/api/myo/exercise-sessions", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -143,13 +166,25 @@ function ExerciseCard({
           activation_reps: parsedReps,
         }),
       });
-      onChange({ sessionId: es.exercise_session_id, stage: "mini-sets", submitting: false });
+      onChange({
+        sessionId: es.exercise_session_id,
+        stage: es.completed === 1 ? "done" : "mini-sets",
+        miniSets: es.mini_sets,
+        weight: es.activation_weight != null ? String(es.activation_weight) : weight,
+        reps: es.activation_reps != null ? String(es.activation_reps) : reps,
+        workload: es.workload_feedback ?? workload,
+        submitting: false,
+      });
     } catch (e) {
       onChange({ error: (e as Error).message, submitting: false });
     }
   };
 
   const logMiniSet = async () => {
+    if (!sessionId) {
+      onChange({ error: "Log activation set first" });
+      return;
+    }
     const parsedReps = parseInt(miniRepsInput);
     if (!parsedReps || parsedReps < 1) {
       onChange({ error: "Enter reps" });
@@ -157,7 +192,7 @@ function ExerciseCard({
     }
     onChange({ submitting: true, error: "" });
     try {
-      const es = await fetchJSON<{ mini_sets: MiniSetData[] }>(
+      const es = await fetchJSON<MyoExerciseSessionData>(
         `/api/myo/exercise-sessions/${sessionId}/miniset`,
         {
           method: "POST",
@@ -172,6 +207,10 @@ function ExerciseCard({
   };
 
   const submitFeedback = async () => {
+    if (!sessionId) {
+      onChange({ error: "Log activation set first" });
+      return;
+    }
     onChange({ submitting: true, error: "" });
     try {
       await fetchJSON(`/api/myo/exercise-sessions/${sessionId}/complete`, {
@@ -469,27 +508,43 @@ export default function MyoRepsPage() {
   useEffect(() => {
     async function init() {
       try {
-        const [exs, sess] = await Promise.all([
+        const sess = await fetchJSON<{ session_id: number }>("/api/myo/sessions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({}),
+        });
+        setMyoSessionId(sess.session_id);
+
+        const [exs, existingSessions] = await Promise.all([
           fetchJSON<TodayExercise[]>("/api/myo/today"),
-          fetchJSON<{ session_id: number }>("/api/myo/sessions", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({}),
-          }),
+          fetchJSON<MyoExerciseSessionData[]>(`/api/myo/sessions/${sess.session_id}/exercise-sessions`),
         ]);
         setExercises(exs);
-        setMyoSessionId(sess.session_id);
+
+        const existingByExerciseId = new Map<number, MyoExerciseSessionData>();
+        for (const es of existingSessions) {
+          existingByExerciseId.set(es.exercise_id, es);
+        }
 
         const initial: Record<number, ExerciseState> = {};
         for (const ex of exs) {
+          const existing = existingByExerciseId.get(ex.id);
           initial[ex.id] = {
-            stage: "idle",
-            sessionId: null,
-            weight: ex.last_weight != null ? String(ex.last_weight) : "",
-            reps: ex.last_reps != null ? String(ex.last_reps) : "",
-            miniSets: [],
+            stage: stageFromExisting(existing),
+            sessionId: existing?.exercise_session_id ?? null,
+            weight: existing?.activation_weight != null
+              ? String(existing.activation_weight)
+              : ex.last_weight != null
+                ? String(ex.last_weight)
+                : "",
+            reps: existing?.activation_reps != null
+              ? String(existing.activation_reps)
+              : ex.last_reps != null
+                ? String(ex.last_reps)
+                : "",
+            miniSets: existing?.mini_sets ?? [],
             miniRepsInput: "",
-            workload: 3,
+            workload: existing?.workload_feedback ?? 3,
             submitting: false,
             error: "",
           };
@@ -550,10 +605,10 @@ export default function MyoRepsPage() {
           <p className="text-xs text-zinc-500">Today&apos;s session — myo reps style</p>
         </div>
         <a
-          href="/"
+          href="/straight-sets"
           className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-red-600 hover:text-red-500 transition-colors"
         >
-          Back to Straight Sets
+          Straight Sets
         </a>
       </div>
 
@@ -568,8 +623,8 @@ export default function MyoRepsPage() {
         <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center">
           <p className="text-green-400 font-semibold">Session complete!</p>
           <p className="text-xs text-zinc-400 mt-1">Rotation advanced — next session is queued for both modes.</p>
-          <a href="/" className="mt-3 inline-block text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-200">
-            Back to Straight Sets
+          <a href="/straight-sets" className="mt-3 inline-block text-xs text-zinc-400 underline underline-offset-2 hover:text-zinc-200">
+            Open straight sets view
           </a>
         </div>
       )}
@@ -611,7 +666,7 @@ export default function MyoRepsPage() {
         <div className="pt-2">
           <button
             onClick={finishSession}
-            disabled={finishing}
+            disabled={finishing || !allDone}
             className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50
               ${allDone
                 ? "border-green-400/30 bg-green-500 text-zinc-950 active:bg-green-400"
