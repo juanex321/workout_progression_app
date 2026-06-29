@@ -137,8 +137,18 @@ class MyoExerciseSessionResponse(BaseModel):
     muscle_group: Optional[str]
     calibrated: bool
     calibration_session: Optional[int]
-    target_mini_sets: Optional[int]
-    baseline_mini_sets: Optional[int]
+
+    # New rep-budget fields. Mini-set count is no longer a target.
+    target_total_reps: Optional[int] = None
+    baseline_total_reps: Optional[int] = None
+    total_reps_completed: int = 0
+    mini_reps_completed: int = 0
+    exercise_role: str = "main"
+
+    # Legacy aliases kept so old clients do not immediately break.
+    target_mini_sets: Optional[int] = None
+    baseline_mini_sets: Optional[int] = None
+
     activation_weight: Optional[float]
     activation_reps: Optional[int]
     mini_sets: list[MyoMiniSetData]
