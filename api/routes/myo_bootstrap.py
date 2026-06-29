@@ -85,12 +85,7 @@ def _today_exercises_payload(db: OrmSession, exercise_names: list[str]) -> list[
 
 @router.get("/current")
 def get_current_myo_payload(db: OrmSession = Depends(get_db)):
-    """One round-trip bootstrap for the myo page.
-
-    Returns the open myo session, today's exercises, and any already-logged exercise
-    sessions. This replaces the frontend sequence of /sessions + /today +
-    /sessions/{id}/exercise-sessions.
-    """
+    """One round-trip bootstrap for the myo page."""
     myo_session = _get_or_create_open_myo_session(db)
     workout = _get_default_workout(db)
     straight_session = get_current_session(db, workout.id)
@@ -109,6 +104,7 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
             "date": str(myo_session.date),
             "completed": myo_session.completed,
         },
+        "straight_session_id": straight_session.id,
         "exercises": _today_exercises_payload(db, exercise_names),
         "exercise_sessions": [
             _exercise_session_response(
