@@ -11,15 +11,36 @@
   --line-soft: rgba(255, 255, 255, 0.08);
 }
 
+html {
+  background: #050507;
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
   background:
     radial-gradient(circle at top, rgba(120, 119, 198, 0.16), transparent 34%),
     radial-gradient(circle at 20% 20%, rgba(34, 197, 94, 0.14), transparent 26%),
     linear-gradient(180deg, #101114 0%, #09090b 42%, #050507 100%);
+  background-attachment: fixed;
   color: #ededed;
   -webkit-tap-highlight-color: transparent;
   min-height: 100vh;
+  min-height: 100dvh;
+  padding-top: env(safe-area-inset-top);
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  touch-action: manipulation;
+}
+
+input[type="number"] {
+  font-size: 16px;
 }
 
 /* Hide number input spinners for mobile */
