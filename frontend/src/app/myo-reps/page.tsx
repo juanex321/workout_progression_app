@@ -1,8 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 
-type Stage = "idle" | "mini" | "feedback" | "done";
-
+type Stage = "idle" | "mini" | "ready" | "done";
 type MiniSet = { order_index: number; reps: number };
 
 type TodayExercise = {
@@ -34,11 +33,8 @@ type ExistingExerciseSession = {
 };
 
 type BootstrapPayload = {
-  session: {
-    session_id: number;
-    date: string;
-    completed: number;
-  };
+  session: { session_id: number; date: string; completed: number };
+  straight_session_id: number;
   exercises: TodayExercise[];
   exercise_sessions: ExistingExerciseSession[];
 };
@@ -55,7 +51,15 @@ type ExerciseState = {
   error: string;
 };
 
+type MuscleFeedbackState = {
+  workload: number;
+  pump: number;
+  submitting: boolean;
+  error: string;
+};
+
 const WORKLOAD_LABELS = ["Easy", "Light", "Just Right", "Hard", "Too Much"];
+const PUMP_LABELS = ["Low", "Okay", "Good", "Great", "Huge"];
 const SORENESS_LABELS = ["Never got sore", "Healed a while ago", "Healed right on time", "Still sore"];
 const MIN_REPS_FLOOR = 3;
 const ACTIVATION_LOW = 10;
@@ -124,16 +128,52 @@ function SorenessBlock({ muscleGroup, value, onChange }: { muscleGroup: string; 
         {SORENESS_LABELS.map((label, i) => {
           const v = i + 1;
           return (
-            <button
-              key={label}
-              onClick={() => { onChange(v); setExpanded(false); }}
-              className={`rounded-lg border px-2.5 py-2 text-left text-xs ${v === value ? "border-red-500/60 bg-red-500/20 text-red-100" : "border-zinc-700 bg-zinc-800 text-zinc-300"}`}
-            >
+            <button key={label} onClick={() => { onChange(v); setExpanded(false); }} className={`rounded-lg border px-2.5 py-2 text-left text-xs ${v === value ? "border-red-500/60 bg-red-500/20 text-red-100" : "border-zinc-700 bg-zinc-800 text-zinc-300"}`}>
               {label}
             </button>
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function MuscleFeedbackBlock({
+  muscleGroup,
+  feedback,
+  onChange,
+  onSubmit,
+}: {
+  muscleGroup: string;
+  feedback: MuscleFeedbackState;
+  onChange: (patch: Partial<MuscleFeedbackState>) => void;
+  onSubmit: () => void;
+}) {
+  return (
+    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 space-y-3">
+      {feedback.error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-300">{feedback.error}</div>}
+      <p className="text-sm font-semibold text-zinc-100">{muscleGroup} feedback</p>
+      <div className="space-y-1.5">
+        <p className="text-xs text-zinc-400">How was the workload?</p>
+        <div className="flex gap-1">
+          {WORKLOAD_LABELS.map((label, i) => {
+            const v = i + 1;
+            return <button key={label} onClick={() => onChange({ workload: v })} className={`flex-1 py-2 rounded-lg text-xs font-medium ${feedback.workload === v ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{label}</button>;
+          })}
+        </div>
+      </div>
+      <div className="space-y-1.5">
+        <p className="text-xs text-zinc-400">How was the pump?</p>
+        <div className="flex gap-1">
+          {PUMP_LABELS.map((label, i) => {
+            const v = i + 1;
+            return <button key={label} onClick={() => onChange({ pump: v })} className={`flex-1 py-2 rounded-lg text-xs font-medium ${feedback.pump === v ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{label}</button>;
+          })}
+        </div>
+      </div>
+      <button onClick={onSubmit} disabled={feedback.submitting} className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">
+        {feedback.submitting ? "Saving..." : "Submit muscle feedback"}
+      </button>
     </div>
   );
 }
@@ -144,7 +184,7 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
   state: ExerciseState;
   onChange: (patch: Partial<ExerciseState>) => void;
 }) {
-  const { stage, sessionId, weight, reps, miniSets, miniRepsInput, workload, submitting, error } = state;
+  const { stage, sessionId, weight, reps, miniSets, miniRepsInput, submitting, error } = state;
   const target = exercise.target_total_reps ?? exercise.muscle_target_total_reps ?? 45;
   const activation = toInt(reps);
   const current = totalReps(state);
@@ -174,7 +214,7 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
         miniSets: es.mini_sets,
         weight: es.activation_weight != null ? String(es.activation_weight) : weight,
         reps: es.activation_reps != null ? String(es.activation_reps) : reps,
-        workload: es.workload_feedback ?? workload,
+        workload: es.workload_feedback ?? 3,
         submitting: false,
       });
     } catch (e) {
@@ -205,21 +245,6 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
     }
   };
 
-  const completeExercise = async () => {
-    if (!sessionId) return;
-    onChange({ submitting: true, error: "" });
-    try {
-      await fetchJSON(`/api/myo/exercise-sessions/${sessionId}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workload_feedback: workload }),
-      });
-      onChange({ stage: "done", submitting: false });
-    } catch (e) {
-      onChange({ error: (e as Error).message, submitting: false });
-    }
-  };
-
   return (
     <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/60">
@@ -230,6 +255,7 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
         <div className="flex items-center gap-2">
           <span className="text-xs text-zinc-400">{target} reps</span>
           {!exercise.calibrated && <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded">Cal {exercise.calibration_session}/3</span>}
+          {stage === "ready" && <span className="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-2 py-0.5 rounded">Logged</span>}
           {stage === "done" && <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded">Done</span>}
         </div>
       </div>
@@ -287,26 +313,22 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
               <input type="number" value={miniRepsInput} onChange={(e) => onChange({ miniRepsInput: e.target.value })} onKeyDown={(e) => e.key === "Enter" && logMiniSet()} placeholder="Mini-set reps" className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
               <button onClick={logMiniSet} disabled={submitting} className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Add"}</button>
             </div>
-            <button onClick={() => onChange({ stage: "feedback" })} disabled={miniSets.length === 0} className={`w-full h-10 rounded-lg text-sm font-medium disabled:opacity-50 ${current >= target ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>{current >= target ? `Done — ${current} reps` : `Finish here · ${current} of ${target}`}</button>
+            <button onClick={() => onChange({ stage: "ready" })} disabled={miniSets.length === 0} className={`w-full h-10 rounded-lg text-sm font-medium disabled:opacity-50 ${current >= target ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>{current >= target ? `Exercise logged — ${current} reps` : `Log exercise · ${current} of ${target}`}</button>
           </div>
         )}
 
-        {stage === "feedback" && (
-          <div className="space-y-3">
-            <button onClick={() => onChange({ stage: "mini" })} className="text-xs text-zinc-500 underline underline-offset-2">← Add more mini-set reps</button>
+        {stage === "ready" && (
+          <div className="space-y-2">
             <RepProgress current={current} target={target} />
-            <div className="space-y-1.5">
-              <p className="text-xs text-zinc-400">How was the workload?</p>
-              <div className="flex gap-1">{WORKLOAD_LABELS.map((label, i) => { const v = i + 1; return <button key={label} onClick={() => onChange({ workload: v })} className={`flex-1 py-2 rounded-lg text-xs font-medium ${workload === v ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{label}</button>; })}</div>
-            </div>
-            <button onClick={completeExercise} disabled={submitting} className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">{submitting ? "Saving..." : "Submit"}</button>
+            <div className="flex items-center justify-between text-sm text-zinc-400"><span>{weight || exercise.last_weight} × {reps} activation</span><span>{minis} mini reps</span></div>
+            <button onClick={() => onChange({ stage: "mini" })} className="text-xs text-zinc-500 underline underline-offset-2">Add more reps</button>
           </div>
         )}
 
         {stage === "done" && (
           <div className="space-y-2">
             <RepProgress current={current} target={target} />
-            <div className="flex items-center justify-between text-sm text-zinc-400"><span>{weight || exercise.last_weight} × {reps} activation</span><span>{minis} mini reps · {WORKLOAD_LABELS[workload - 1]}</span></div>
+            <div className="flex items-center justify-between text-sm text-zinc-400"><span>{weight || exercise.last_weight} × {reps} activation</span><span>{minis} mini reps</span></div>
           </div>
         )}
       </div>
@@ -318,9 +340,11 @@ export default function MyoRepsPage() {
   const [exercises, setExercises] = useState<TodayExercise[]>([]);
   const [loading, setLoading] = useState(true);
   const [myoSessionId, setMyoSessionId] = useState<number | null>(null);
+  const [straightSessionId, setStraightSessionId] = useState<number | null>(null);
   const [pageError, setPageError] = useState("");
   const [exStates, setExStates] = useState<Record<number, ExerciseState>>({});
   const [sorenessState, setSorenessState] = useState<Record<string, number | null>>({});
+  const [muscleFeedback, setMuscleFeedback] = useState<Record<string, MuscleFeedbackState>>({});
   const [sessionDone, setSessionDone] = useState(false);
   const [finishing, setFinishing] = useState(false);
 
@@ -328,11 +352,19 @@ export default function MyoRepsPage() {
     setExStates((prev) => ({ ...prev, [exerciseId]: { ...prev[exerciseId], ...patch } }));
   };
 
+  const patchMuscleFeedback = (muscleGroup: string, patch: Partial<MuscleFeedbackState>) => {
+    setMuscleFeedback((prev) => ({
+      ...prev,
+      [muscleGroup]: { ...(prev[muscleGroup] ?? { workload: 3, pump: 3, submitting: false, error: "" }), ...patch },
+    }));
+  };
+
   useEffect(() => {
     async function init() {
       try {
         const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
         setMyoSessionId(payload.session.session_id);
+        setStraightSessionId(payload.straight_session_id);
         setExercises(payload.exercises);
         const existingByExerciseId = new Map<number, ExistingExerciseSession>();
         for (const es of payload.exercise_sessions) existingByExerciseId.set(es.exercise_id, es);
@@ -369,6 +401,40 @@ export default function MyoRepsPage() {
     grouped[mg].push(ex);
   }
 
+  const submitMuscleFeedback = async (muscleGroup: string, muscleExercises: TodayExercise[]) => {
+    const feedback = muscleFeedback[muscleGroup] ?? { workload: 3, pump: 3, submitting: false, error: "" };
+    patchMuscleFeedback(muscleGroup, { submitting: true, error: "" });
+    try {
+      const readyExercises = muscleExercises.filter((ex) => exStates[ex.id]?.stage === "ready" && exStates[ex.id]?.sessionId);
+      await Promise.all(readyExercises.map((ex) => fetchJSON(`/api/myo/exercise-sessions/${exStates[ex.id].sessionId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workload_feedback: feedback.workload }),
+      })));
+
+      if (straightSessionId) {
+        await fetchJSON("/api/feedback/muscle-group", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            session_id: straightSessionId,
+            muscle_group: muscleGroup,
+            soreness: sorenessState[muscleGroup] ?? 3,
+            pump: feedback.pump,
+            workload: feedback.workload,
+          }),
+        });
+      }
+
+      for (const ex of readyExercises) {
+        patchExState(ex.id, { stage: "done", workload: feedback.workload });
+      }
+      patchMuscleFeedback(muscleGroup, { submitting: false });
+    } catch (e) {
+      patchMuscleFeedback(muscleGroup, { error: (e as Error).message, submitting: false });
+    }
+  };
+
   const doneCount = exercises.filter((ex) => exStates[ex.id]?.stage === "done").length;
   const totalCount = exercises.length;
   const allDone = doneCount === totalCount && totalCount > 0;
@@ -402,12 +468,16 @@ export default function MyoRepsPage() {
         const muscleExercises = grouped[mg];
         const current = muscleExercises.reduce((sum, ex) => sum + totalReps(exStates[ex.id]), 0);
         const target = muscleExercises.reduce((sum, ex) => sum + (ex.target_total_reps ?? 0), 0) || muscleExercises[0]?.muscle_target_total_reps || 45;
+        const muscleReady = muscleExercises.every((ex) => ["ready", "done"].includes(exStates[ex.id]?.stage));
+        const muscleDone = muscleExercises.every((ex) => exStates[ex.id]?.stage === "done");
+        const feedback = muscleFeedback[mg] ?? { workload: 3, pump: 3, submitting: false, error: "" };
         return (
           <div key={mg} className="space-y-2">
             <div className="flex items-center gap-2 px-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" /><span className="text-sm font-semibold text-zinc-100">{mg}</span><span className="ml-auto text-xs text-zinc-500">{current} / {target} reps</span></div>
             <RepProgress current={current} target={target} />
             <SorenessBlock muscleGroup={mg} value={sorenessState[mg] ?? null} onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))} />
             {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} onChange={(patch) => patchExState(ex.id, patch)} />)}
+            {muscleReady && !muscleDone && <MuscleFeedbackBlock muscleGroup={mg} feedback={feedback} onChange={(patch) => patchMuscleFeedback(mg, patch)} onSubmit={() => submitMuscleFeedback(mg, muscleExercises)} />}
           </div>
         );
       })}
