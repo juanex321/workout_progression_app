@@ -1,5 +1,5 @@
 "use client";
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 
 type Stage = "idle" | "mini" | "ready" | "done";
 type MiniSet = { order_index: number; reps: number };
@@ -78,6 +78,16 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 function toInt(value: string): number {
   const n = parseInt(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function toNumber(value: string): number {
+  const n = parseFloat(value);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function stepValue(value: string, delta: number, min: number): string {
+  const next = Math.max(min, toNumber(value) + delta);
+  return String(Number.isInteger(next) ? next : Number(next.toFixed(1)));
 }
 
 function miniTotal(state?: ExerciseState): number {
@@ -166,6 +176,63 @@ function SorenessBlock({ muscleGroup, value, onChange }: { muscleGroup: string; 
           );
         })}
       </div>
+    </div>
+  );
+}
+
+function InlineStepper({
+  value,
+  onChange,
+  step,
+  min,
+  placeholder,
+  suffix,
+  inputMode,
+  disabled,
+  onEnter,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  step: number;
+  min: number;
+  placeholder?: string;
+  suffix?: string;
+  inputMode: "decimal" | "numeric";
+  disabled?: boolean;
+  onEnter?: () => void;
+}) {
+  const numericValue = toNumber(value);
+  return (
+    <div className="flex min-w-0 flex-1 items-center">
+      <button
+        type="button"
+        onClick={() => onChange(stepValue(value, -step, min))}
+        disabled={disabled || numericValue <= min}
+        className="h-10 w-10 shrink-0 rounded-l-lg border border-zinc-600 bg-zinc-700 text-lg font-bold text-zinc-100 active:bg-zinc-600 disabled:opacity-30"
+      >
+        -
+      </button>
+      <div className="relative h-10 min-w-0 flex-1 border-y border-zinc-600 bg-zinc-900/70">
+        <input
+          type="number"
+          inputMode={inputMode}
+          value={value}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
+          placeholder={placeholder}
+          disabled={disabled}
+          className="h-full w-full bg-transparent px-4 text-center text-sm font-semibold text-zinc-100 outline-none focus:ring-1 focus:ring-red-500 disabled:opacity-50"
+        />
+        {suffix && <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-widest text-zinc-500">{suffix}</span>}
+      </div>
+      <button
+        type="button"
+        onClick={() => onChange(stepValue(value, step, min))}
+        disabled={disabled}
+        className="h-10 w-10 shrink-0 rounded-r-lg border border-zinc-600 bg-zinc-700 text-lg font-bold text-zinc-100 active:bg-zinc-600 disabled:opacity-30"
+      >
+        +
+      </button>
     </div>
   );
 }
@@ -277,7 +344,7 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ reps: parsed }),
       });
-      onChange({ miniSets: es.mini_sets, miniRepsInput: "", submitting: false });
+      onChange({ miniSets: es.mini_sets, miniRepsInput: String(parsed), submitting: false });
     } catch (e) {
       onChange({ error: (e as Error).message, submitting: false });
     }
@@ -324,13 +391,13 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
             <div className="flex gap-2">
               <div className="flex-1">
                 <label className="text-xs text-zinc-500 block mb-1">Weight</label>
-                <input type="number" value={weight} onChange={(e) => onChange({ weight: e.target.value })} placeholder={exercise.last_weight ? String(exercise.last_weight) : "—"} className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
+                <InlineStepper value={weight} onChange={(value) => onChange({ weight: value })} step={2.5} min={0} placeholder={exercise.last_weight ? String(exercise.last_weight) : "--"} suffix="lb" inputMode="decimal" disabled={submitting} />
               </div>
               <div className="flex-1">
                 <label className="text-xs text-zinc-500 block mb-1">Reps</label>
-                <input type="number" value={reps} onChange={(e) => onChange({ reps: e.target.value })} placeholder={exercise.last_reps ? String(exercise.last_reps) : "0"} className="w-full bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
+                <InlineStepper value={reps} onChange={(value) => onChange({ reps: value })} step={1} min={1} placeholder={exercise.last_reps ? String(exercise.last_reps) : "0"} suffix="reps" inputMode="numeric" disabled={submitting} />
               </div>
-              <div className="flex items-end"><button onClick={logActivation} disabled={submitting} className="h-9 px-4 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Log"}</button></div>
+              <div className="flex items-end"><button onClick={logActivation} disabled={submitting} className="h-10 px-4 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Log"}</button></div>
             </div>
           </div>
         )}
@@ -343,7 +410,7 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
             {miniSets.length > 0 && <div className="grid grid-cols-8 gap-1">{miniSets.map((ms) => <div key={ms.order_index} className={`text-center py-1 rounded text-[11px] font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`}>{ms.reps}</div>)}</div>}
             {lastMini !== null && lastMini < MIN_REPS_FLOOR && <p className="text-xs text-orange-400">Dropped below {MIN_REPS_FLOOR} reps — stop here.</p>}
             <div className="flex gap-2">
-              <input type="number" value={miniRepsInput} onChange={(e) => onChange({ miniRepsInput: e.target.value })} onKeyDown={(e) => e.key === "Enter" && logMiniSet()} placeholder="Mini-set reps" className="flex-1 bg-zinc-700/80 rounded-lg px-3 py-2 text-sm text-zinc-100 outline-none focus:ring-1 focus:ring-red-500" />
+              <InlineStepper value={miniRepsInput} onChange={(value) => onChange({ miniRepsInput: value })} step={1} min={1} placeholder="Mini-set reps" suffix="reps" inputMode="numeric" disabled={submitting} onEnter={logMiniSet} />
               <button onClick={logMiniSet} disabled={submitting} className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Add"}</button>
             </div>
             <button onClick={() => onChange({ stage: "ready" })} disabled={miniSets.length === 0} className={`w-full h-10 rounded-lg text-sm font-medium disabled:opacity-50 ${current >= target ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>{current >= target ? `Exercise logged — ${current} reps` : `Log exercise · ${current} of ${target}`}</button>
@@ -378,6 +445,7 @@ export default function MyoRepsPage() {
   const [muscleFeedback, setMuscleFeedback] = useState<Record<string, MuscleFeedbackState>>({});
   const [sessionDone, setSessionDone] = useState(false);
   const [finishing, setFinishing] = useState(false);
+  const [loadingNextSession, setLoadingNextSession] = useState(false);
 
   const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => {
     setExStates((prev) => ({ ...prev, [exerciseId]: { ...prev[exerciseId], ...patch } }));
@@ -390,32 +458,38 @@ export default function MyoRepsPage() {
     }));
   };
 
+  const loadCurrentSession = useCallback(async () => {
+    const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
+    setMyoSessionId(payload.session.session_id);
+    setStraightSessionId(payload.straight_session_id);
+    setExercises(payload.exercises);
+    setSorenessState({});
+    setMuscleFeedback({});
+    const existingByExerciseId = new Map<number, ExistingExerciseSession>();
+    for (const es of payload.exercise_sessions) existingByExerciseId.set(es.exercise_id, es);
+    const initial: Record<number, ExerciseState> = {};
+    for (const ex of payload.exercises) {
+      const existing = existingByExerciseId.get(ex.id);
+      initial[ex.id] = {
+        stage: existing?.completed === 1 ? "done" : existing?.activation_reps != null ? "mini" : "idle",
+        sessionId: existing?.exercise_session_id ?? null,
+        weight: existing?.activation_weight != null ? String(existing.activation_weight) : ex.last_weight != null ? String(ex.last_weight) : "",
+        reps: existing?.activation_reps != null ? String(existing.activation_reps) : ex.last_reps != null ? String(ex.last_reps) : "",
+        loggedActivationReps: existing?.activation_reps ?? null,
+        miniSets: existing?.mini_sets ?? [],
+        miniRepsInput: existing?.mini_sets.at(-1)?.reps != null ? String(existing.mini_sets.at(-1)?.reps) : "",
+        workload: existing?.workload_feedback ?? 3,
+        submitting: false,
+        error: "",
+      };
+    }
+    setExStates(initial);
+  }, []);
+
   useEffect(() => {
     async function init() {
       try {
-        const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
-        setMyoSessionId(payload.session.session_id);
-        setStraightSessionId(payload.straight_session_id);
-        setExercises(payload.exercises);
-        const existingByExerciseId = new Map<number, ExistingExerciseSession>();
-        for (const es of payload.exercise_sessions) existingByExerciseId.set(es.exercise_id, es);
-        const initial: Record<number, ExerciseState> = {};
-        for (const ex of payload.exercises) {
-          const existing = existingByExerciseId.get(ex.id);
-          initial[ex.id] = {
-            stage: existing?.completed === 1 ? "done" : existing?.activation_reps != null ? "mini" : "idle",
-            sessionId: existing?.exercise_session_id ?? null,
-            weight: existing?.activation_weight != null ? String(existing.activation_weight) : ex.last_weight != null ? String(ex.last_weight) : "",
-            reps: existing?.activation_reps != null ? String(existing.activation_reps) : ex.last_reps != null ? String(ex.last_reps) : "",
-            loggedActivationReps: existing?.activation_reps ?? null,
-            miniSets: existing?.mini_sets ?? [],
-            miniRepsInput: "",
-            workload: existing?.workload_feedback ?? 3,
-            submitting: false,
-            error: "",
-          };
-        }
-        setExStates(initial);
+        await loadCurrentSession();
       } catch (e) {
         setPageError((e as Error).message);
       } finally {
@@ -423,7 +497,7 @@ export default function MyoRepsPage() {
       }
     }
     init();
-  }, []);
+  }, [loadCurrentSession]);
 
   const grouped: Record<string, TodayExercise[]> = {};
   const orderedGroups: string[] = [];
@@ -441,7 +515,11 @@ export default function MyoRepsPage() {
       await Promise.all(readyExercises.map((ex) => fetchJSON(`/api/myo/exercise-sessions/${exStates[ex.id].sessionId}/complete`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ workload_feedback: feedback.workload }),
+        body: JSON.stringify({
+          workload_feedback: feedback.workload,
+          soreness_feedback: sorenessState[muscleGroup] ?? 3,
+          pump_feedback: feedback.pump,
+        }),
       })));
 
       if (straightSessionId) {
@@ -474,12 +552,17 @@ export default function MyoRepsPage() {
   const finishSession = async () => {
     if (!myoSessionId) return;
     setFinishing(true);
+    setPageError("");
     try {
       await fetchJSON(`/api/myo/sessions/${myoSessionId}/complete`, { method: "POST" });
       setSessionDone(true);
+      setLoadingNextSession(true);
+      await loadCurrentSession();
+      setSessionDone(false);
     } catch (e) {
       setPageError((e as Error).message);
     } finally {
+      setLoadingNextSession(false);
       setFinishing(false);
     }
   };
@@ -494,7 +577,7 @@ export default function MyoRepsPage() {
       </div>
 
       {pageError && <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">{pageError}</div>}
-      {sessionDone && <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center"><p className="text-green-400 font-semibold">Session complete!</p><p className="text-xs text-zinc-400 mt-1">Rotation advanced.</p></div>}
+      {sessionDone && <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center"><p className="text-green-400 font-semibold">Session complete!</p><p className="text-xs text-zinc-400 mt-1">{loadingNextSession ? "Loading next session..." : "Rotation advanced."}</p></div>}
 
       {!sessionDone && myoSessionId && orderedGroups.map((mg) => {
         const muscleExercises = grouped[mg];

@@ -409,6 +409,8 @@ def complete_exercise_session(
         total_reps_completed=total_reps_completed,
         target_total_reps=es.target_mini_sets,
         workload_feedback=req.workload_feedback,
+        soreness_feedback=req.soreness_feedback or 3,
+        pump_feedback=req.pump_feedback or 3,
     )
 
     db.commit()

@@ -123,6 +123,8 @@ class MyoMiniSetRequest(BaseModel):
 
 class MyoCompleteRequest(BaseModel):
     workload_feedback: int  # 1-5
+    soreness_feedback: Optional[int] = None  # 1-4
+    pump_feedback: Optional[int] = None  # 1-5
 
 
 class MyoMiniSetData(BaseModel):
