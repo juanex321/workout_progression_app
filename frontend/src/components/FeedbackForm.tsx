@@ -2,11 +2,15 @@
 import { useState } from "react";
 import { useFeedback } from "@/hooks/useFeedback";
 
+type FeedbackValues = { soreness: number; pump: number; workload: number };
+
 interface FeedbackFormProps {
   muscleGroup: string;
   sessionId: number;
-  initialValues?: { soreness: number; pump: number; workload: number };
+  initialValues?: FeedbackValues;
   initialSoreness?: number;
+  onSaved?: (values: FeedbackValues) => void;
+  onCancel?: () => void;
 }
 
 const LABELS: Record<string, string[]> = {
@@ -31,11 +35,9 @@ function Slider({
 
   return (
     <div>
-      <div className="flex justify-between items-center mb-1">
-        <label className="text-xs text-zinc-400">{label}</label>
-        <span className="text-xs text-zinc-500">
-          {descriptions[value - 1] ?? value}
-        </span>
+      <div className="mb-2 flex items-center justify-between gap-3">
+        <label className="text-sm font-medium text-zinc-200">{label}</label>
+        <span className="text-sm text-zinc-400">{descriptions[value - 1] ?? value}</span>
       </div>
       <input
         type="range"
@@ -44,7 +46,7 @@ function Slider({
         step={1}
         value={value}
         onChange={(e) => onChange(parseInt(e.target.value))}
-        className="w-full h-2 rounded-lg appearance-none bg-zinc-700 accent-yellow-500"
+        className="h-3 w-full appearance-none rounded-lg bg-zinc-700 accent-yellow-500"
       />
     </div>
   );
@@ -63,20 +65,21 @@ function ChipSelect({
 }) {
   return (
     <div>
-      <p className="text-xs text-zinc-400 mb-1.5">{label}</p>
-      <div className="flex gap-1.5">
+      <p className="mb-2 text-sm font-medium text-zinc-200">{label}</p>
+      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
         {options.map((opt, i) => {
           const v = i + 1;
           const selected = value === v;
           return (
             <button
               key={opt}
+              type="button"
               onClick={() => onChange(v)}
-              className={`flex-1 py-2 px-1 rounded-lg text-xs font-medium text-center transition-colors
-                ${selected
-                  ? "bg-yellow-600 text-black"
-                  : "bg-zinc-700 text-zinc-300 active:bg-zinc-600"
-                }`}
+              className={`min-h-12 rounded-xl px-2 py-2 text-sm font-semibold transition-colors ${
+                selected
+                  ? "bg-yellow-500 text-zinc-950 shadow-[0_0_0_2px_rgba(250,204,21,0.22)]"
+                  : "border border-white/10 bg-zinc-700 text-zinc-200 active:bg-zinc-600"
+              }`}
             >
               {opt}
             </button>
@@ -92,62 +95,60 @@ export function FeedbackForm({
   sessionId,
   initialValues,
   initialSoreness,
+  onSaved,
+  onCancel,
 }: FeedbackFormProps) {
-  // Clamp to 4 since the soreness scale is now 1–4
-  const [soreness, setSoreness] = useState(Math.min(initialValues?.soreness ?? initialSoreness ?? 3, 4));
+  const [soreness, setSoreness] = useState(
+    Math.min(initialValues?.soreness ?? initialSoreness ?? 3, 4)
+  );
   const [pump, setPump] = useState(initialValues?.pump ?? 3);
   const [workload, setWorkload] = useState(initialValues?.workload ?? 3);
-  const [submitted, setSubmitted] = useState(false);
-
   const feedback = useFeedback(sessionId);
 
   const handleSubmit = () => {
+    const values = { soreness, pump, workload };
     feedback.mutate(
       {
         session_id: sessionId,
         muscle_group: muscleGroup,
-        soreness,
-        pump,
-        workload,
+        ...values,
       },
-      { onSuccess: () => setSubmitted(true) }
+      { onSuccess: () => onSaved?.(values) }
     );
   };
 
-  if (submitted) {
-    return (
-      <div className="rounded-lg bg-green-500/10 border border-green-500/20 p-3 text-center">
-        <p className="text-sm text-green-400">Feedback submitted</p>
-      </div>
-    );
-  }
-
   return (
-    <div className="rounded-lg bg-zinc-800/50 p-3 space-y-3">
-      <h4 className="text-sm font-medium text-zinc-300">
-        {muscleGroup} Feedback
-      </h4>
+    <div className="space-y-5 rounded-2xl border border-yellow-400/20 bg-zinc-900/95 p-4 shadow-[0_16px_35px_rgba(0,0,0,0.3)]">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-yellow-400">Session feedback</p>
+        <h4 className="mt-1 text-lg font-bold text-zinc-50">{muscleGroup}</h4>
+      </div>
       <Slider label="Soreness" value={soreness} onChange={setSoreness} max={4} />
       <ChipSelect label="Pump" options={LABELS.pump} value={pump} onChange={setPump} />
       <ChipSelect label="Workload" options={LABELS.workload} value={workload} onChange={setWorkload} />
       {feedback.isError && (
-        <p className="text-xs text-red-400">
-          Failed to submit — tap again to retry
-        </p>
+        <p className="text-sm text-red-300">Save failed. Review the selections and try again.</p>
       )}
-      <button
-        onClick={handleSubmit}
-        disabled={feedback.isPending}
-        className="w-full h-10 rounded-lg bg-yellow-600 text-black font-medium text-sm
-                   active:bg-yellow-500 disabled:opacity-50"
-      >
-        {feedback.isPending ? "Saving..." : feedback.isError ? "Retry Submit" : "Submit Feedback"}
-      </button>
-      {feedback.isError && (
-        <p className="text-xs text-red-400 text-center mt-1">
-          Save failed — tap Submit Feedback to retry
-        </p>
-      )}
+      <div className="flex gap-2">
+        {onCancel && (
+          <button
+            type="button"
+            onClick={onCancel}
+            disabled={feedback.isPending}
+            className="h-12 flex-1 rounded-xl border border-white/15 bg-zinc-800 text-sm font-semibold text-zinc-200 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={handleSubmit}
+          disabled={feedback.isPending}
+          className="h-12 flex-[2] rounded-xl bg-yellow-500 text-base font-bold text-zinc-950 active:bg-yellow-400 disabled:opacity-50"
+        >
+          {feedback.isPending ? "Saving..." : initialValues ? "Save Changes" : "Submit Feedback"}
+        </button>
+      </div>
     </div>
   );
 }
