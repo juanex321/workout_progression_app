@@ -41,12 +41,13 @@ function Stepper({
         type="button"
         onClick={() => onChange(Math.max(min, value - step))}
         disabled={disabled || value <= min}
-        className="h-11 w-10 shrink-0 rounded-l-xl border border-white/15 bg-zinc-600 text-lg font-bold text-zinc-100 transition-colors active:bg-zinc-500 disabled:opacity-30"
+        className="h-14 w-12 shrink-0 rounded-l-2xl border border-white/20 bg-zinc-600 text-2xl font-bold text-zinc-50 transition-colors active:bg-zinc-500 disabled:opacity-30"
+        aria-label={`Decrease ${suffix ?? "value"}`}
       >
-        -
+        −
       </button>
       <div
-        className="relative h-11 flex-1 cursor-text border-y border-white/10 bg-zinc-900/80"
+        className="relative h-14 flex-1 cursor-text border-y border-white/15 bg-zinc-950"
         onClick={() => {
           inputRef.current?.focus();
           inputRef.current?.select();
@@ -65,10 +66,10 @@ function Stepper({
             onChange(Math.max(min, parsed));
           }}
           disabled={disabled}
-          className="h-full w-full bg-transparent px-5 text-center text-base font-semibold text-zinc-100 focus:outline-none disabled:opacity-50"
+          className="h-full w-full bg-transparent px-7 text-center text-xl font-bold text-zinc-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-yellow-400 disabled:opacity-50"
         />
         {suffix && (
-          <span className="absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-[0.18em] text-zinc-500">
+          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
             {suffix}
           </span>
         )}
@@ -77,7 +78,8 @@ function Stepper({
         type="button"
         onClick={() => onChange(value + step)}
         disabled={disabled}
-        className="h-11 w-10 shrink-0 rounded-r-xl border border-white/15 bg-zinc-600 text-lg font-bold text-zinc-100 transition-colors active:bg-zinc-500 disabled:opacity-30"
+        className="h-14 w-12 shrink-0 rounded-r-2xl border border-white/20 bg-zinc-600 text-2xl font-bold text-zinc-50 transition-colors active:bg-zinc-500 disabled:opacity-30"
+        aria-label={`Increase ${suffix ?? "value"}`}
       >
         +
       </button>
@@ -100,22 +102,28 @@ export function SetRow({
   onLog,
 }: SetRowProps) {
   const logButtonClass = logged
-    ? "border border-emerald-500/50 bg-emerald-500/25 text-emerald-200"
+    ? "border border-emerald-500/50 bg-emerald-500/25 text-emerald-100"
     : saveError
-      ? "border border-red-500/30 bg-red-500/15 text-red-300 active:bg-red-500/25"
-      : "bg-zinc-200 text-zinc-950 active:bg-white disabled:opacity-30";
+      ? "border border-red-500/30 bg-red-500/15 text-red-200 active:bg-red-500/25"
+      : "bg-yellow-400 text-zinc-950 active:bg-yellow-300 disabled:opacity-30";
 
-  const logButtonLabel = pending ? "..." : logged ? "Done" : saveError ? "Retry" : "Log";
+  const logButtonLabel = pending ? "Saving..." : logged ? "Done" : saveError ? "Retry" : "Log Set";
 
   return (
     <div
-      className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-2 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] ${highlight ? "rounded-2xl border border-white/10 bg-white/5 p-2.5" : ""}`}
+      className={`grid grid-cols-[auto_minmax(0,1fr)] items-center gap-3 sm:grid-cols-[auto_minmax(0,1fr)_minmax(0,1fr)_auto] ${
+        highlight
+          ? "rounded-3xl border-2 border-yellow-400/45 bg-yellow-400/8 p-4 shadow-[0_18px_45px_rgba(0,0,0,0.4)]"
+          : logged
+            ? "rounded-2xl border border-emerald-400/10 bg-emerald-500/5 p-2 opacity-75"
+            : ""
+      }`}
     >
       <span
-        className={`shrink-0 text-right text-xs ${
+        className={`shrink-0 text-right font-bold ${
           highlight
-            ? "flex h-8 w-8 items-center justify-center rounded-full bg-zinc-800 text-zinc-200"
-            : "w-4 text-zinc-500"
+            ? "flex h-10 w-10 items-center justify-center rounded-full bg-yellow-400 text-base text-zinc-950"
+            : "w-5 text-sm text-zinc-500"
         }`}
       >
         {setNumber}
@@ -126,13 +134,14 @@ export function SetRow({
           type="button"
           onClick={onLog}
           disabled={disabled || !!sorenessLocked || !weight || !reps || !!pending}
-          className={`h-11 w-full rounded-xl px-3 text-sm font-semibold transition-colors ${logButtonClass}`}
+          className={`h-14 w-full rounded-2xl px-4 text-base font-bold transition-colors ${logButtonClass}`}
         >
           {logButtonLabel}
         </button>
       </div>
 
       <div className="col-span-2 min-w-0 sm:col-span-1">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Weight</p>
         <Stepper
           value={weight}
           onChange={onWeightChange}
@@ -145,6 +154,7 @@ export function SetRow({
       </div>
 
       <div className="col-span-2 min-w-0 sm:col-span-1">
+        <p className="mb-1 text-xs font-semibold uppercase tracking-[0.14em] text-zinc-500">Reps</p>
         <Stepper
           value={reps}
           onChange={onRepsChange}
@@ -160,7 +170,7 @@ export function SetRow({
         type="button"
         onClick={onLog}
         disabled={disabled || !!sorenessLocked || !weight || !reps || !!pending}
-        className={`hidden h-11 shrink-0 rounded-xl px-3 text-sm font-semibold transition-colors sm:block ${logButtonClass}`}
+        className={`hidden h-14 shrink-0 rounded-2xl px-5 text-base font-bold transition-colors sm:block ${logButtonClass}`}
       >
         {logButtonLabel}
       </button>
