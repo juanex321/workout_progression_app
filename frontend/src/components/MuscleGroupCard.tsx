@@ -65,12 +65,14 @@ function getCompactPhaseLabel(phase: string, targetRir: number): string {
 }
 
 const RIR_EMOJI: Record<number, string> = {
-  0: "\uD83D\uDD34",
-  1: "\uD83D\uDFE1",
-  2: "\uD83D\uDFE2",
-  3: "\u26AA",
-  4: "\uD83D\uDD35",
+  0: "🔴",
+  1: "🟡",
+  2: "🟢",
+  3: "⚪",
+  4: "🔵",
 };
+
+type FeedbackValues = { soreness: number; pump: number; workload: number };
 
 interface MuscleGroupCardProps {
   muscleGroup: string;
@@ -95,7 +97,6 @@ export function MuscleGroupCard({
   const regularExercises = data.exercises.filter((exercise) => !exercise.is_finisher);
   const finisherExercises = data.exercises.filter((exercise) => exercise.is_finisher);
 
-  // Track which exercises have all sets logged
   const [loggedMap, setLoggedMap] = useState<Record<number, boolean>>(() => {
     const initial: Record<number, boolean> = {};
     for (const ex of data.exercises) {
@@ -106,15 +107,18 @@ export function MuscleGroupCard({
     return initial;
   });
 
-  // Local soreness state — restore from draft if available, otherwise null until user picks
   const [localSoreness, setLocalSoreness] = useState<number | null>(() => {
     if (data.soreness_value !== null && data.soreness_value !== undefined) return null;
     const draft = getDraft(sessionId);
     return draft?.soreness[muscleGroup] ?? null;
   });
+  const [feedbackValues, setFeedbackValues] = useState<FeedbackValues | null>(
+    data.feedback_values
+  );
+  const [feedbackComplete, setFeedbackComplete] = useState(data.feedback_exists);
+  const [collapsed, setCollapsed] = useState(sessionCompleted || data.feedback_exists);
   const saveSoreness = useSoreness(sessionId);
 
-  // Effective soreness: local pick takes priority over server-persisted value
   const effectiveSoreness = localSoreness ?? data.soreness_value;
 
   const handleSorenessChange = useCallback(
@@ -130,7 +134,14 @@ export function MuscleGroupCard({
     setLoggedMap((prev) => (prev[weId] === allLogged ? prev : { ...prev, [weId]: allLogged }));
   }, []);
 
-  const allSetsLogged = Object.values(loggedMap).every(Boolean);
+  const handleFeedbackSaved = useCallback((values: FeedbackValues) => {
+    setFeedbackValues(values);
+    setFeedbackComplete(true);
+    setCollapsed(true);
+  }, []);
+
+  const allSetsLogged =
+    data.exercises.length > 0 && Object.values(loggedMap).every(Boolean);
   const regularExercisesComplete =
     regularExercises.length === 0 || regularExercises.every((exercise) => loggedMap[exercise.we_id]);
   const visibleExercises = [
@@ -139,86 +150,112 @@ export function MuscleGroupCard({
       (exercise) => regularExercisesComplete || loggedMap[exercise.we_id] || sessionCompleted
     ),
   ];
-  const showFeedback = allSetsLogged || data.feedback_exists || sessionCompleted;
-
-  // Sets are locked until soreness is selected (unless session is already completed
-  // or full feedback already exists — in those cases everything is read-only anyway)
-  const sorenessLocked = effectiveSoreness === null && !sessionCompleted && !data.feedback_exists;
+  const showFeedback = allSetsLogged || feedbackComplete || sessionCompleted;
+  const sorenessLocked = effectiveSoreness === null && !sessionCompleted && !feedbackComplete;
+  const canCollapse = feedbackComplete || sessionCompleted;
+  const loggedExerciseCount = Object.values(loggedMap).filter(Boolean).length;
 
   return (
     <section
-      className={`mb-4 overflow-hidden rounded-[28px] border ${borderColor} ${bgColor} bg-zinc-950/85 shadow-[0_18px_50px_rgba(0,0,0,0.35)] backdrop-blur`}
+      className={`mb-5 overflow-hidden rounded-[28px] border ${borderColor} ${bgColor} bg-zinc-950/90 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur transition-all`}
     >
-      {/* Header */}
-      <div className="px-4 py-3">
+      <button
+        type="button"
+        onClick={() => canCollapse && setCollapsed((prev) => !prev)}
+        className={`w-full px-5 py-4 text-left ${canCollapse ? "cursor-pointer" : "cursor-default"}`}
+        aria-expanded={!collapsed}
+      >
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
-            <div className="flex items-center gap-2">
-              <h2 className="text-xl font-bold tracking-tight text-zinc-50">
+            <div className="flex flex-wrap items-center gap-2">
+              <h2 className="text-2xl font-bold tracking-tight text-zinc-50">
                 {emoji} {muscleGroup}
               </h2>
-              <span className="truncate text-sm text-zinc-400">
-                {compactPhase}
-              </span>
+              <span className="text-sm font-medium text-zinc-400">{compactPhase}</span>
             </div>
+            <p className="mt-1 text-sm text-zinc-500">
+              {feedbackComplete || sessionCompleted
+                ? `${loggedExerciseCount}/${data.exercises.length} exercises complete · feedback saved`
+                : allSetsLogged
+                  ? "All sets complete · feedback ready"
+                  : `${loggedExerciseCount}/${data.exercises.length} exercises complete`}
+            </p>
           </div>
-          <span className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold ${rirPill}`}>
-            RIR {targetRir}
-          </span>
-        </div>
-      </div>
-
-      {/* Exercises */}
-      <div className="space-y-4 px-4 py-4">
-        {/* Soreness selector — always shown before full feedback is submitted */}
-        {!data.feedback_exists && (
-          <div>
-            <SorenessSelector
-              muscleGroup={muscleGroup}
-              value={effectiveSoreness}
-              onChange={handleSorenessChange}
-              disabled={sessionCompleted}
-            />
-            {saveSoreness.isError && (
-              <p className="mt-1 text-xs text-red-300">
-                Soreness save failed — tap again to retry
-              </p>
+          <div className="flex shrink-0 items-center gap-2">
+            <span className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold ${rirPill}`}>
+              RIR {targetRir}
+            </span>
+            {canCollapse && (
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/25 text-lg text-zinc-300">
+                {collapsed ? "+" : "−"}
+              </span>
             )}
           </div>
-        )}
-
-        {visibleExercises.map((exercise) => (
-          <ExerciseSets
-            key={exercise.we_id}
-            exercise={exercise}
-            sessionId={sessionId}
-            targetRir={targetRir}
-            disabled={sessionCompleted}
-            sorenessLocked={sorenessLocked}
-            feedbackSummary={data.feedback_summary}
-            onAllLogged={(allLogged) => handleAllLogged(exercise.we_id, allLogged)}
-          />
-        ))}
-      </div>
-
-      {/* Feedback - only shown after all sets are logged */}
-      {showFeedback && (
-        <div className="px-4 pb-4">
-          {data.feedback_exists ? (
-            <FeedbackSummary
-              muscleGroup={muscleGroup}
-              values={data.feedback_values}
-              sessionId={sessionId}
-              disabled={sessionCompleted}
-            />
-          ) : !sessionCompleted ? (
-            <FeedbackForm
-              muscleGroup={muscleGroup}
-              sessionId={sessionId}
-              initialSoreness={effectiveSoreness ?? undefined}
-            />
-          ) : null}
         </div>
+      </button>
+
+      {collapsed && feedbackValues ? (
+        <div className="border-t border-white/8 px-4 pb-4 pt-3">
+          <FeedbackSummary
+            muscleGroup={muscleGroup}
+            values={feedbackValues}
+            sessionId={sessionId}
+            disabled={sessionCompleted}
+            onSaved={handleFeedbackSaved}
+          />
+        </div>
+      ) : (
+        <>
+          <div className="space-y-5 border-t border-white/8 px-4 py-5">
+            {!feedbackComplete && (
+              <div>
+                <SorenessSelector
+                  muscleGroup={muscleGroup}
+                  value={effectiveSoreness}
+                  onChange={handleSorenessChange}
+                  disabled={sessionCompleted}
+                />
+                {saveSoreness.isError && (
+                  <p className="mt-1 text-xs text-red-300">Soreness save failed — tap again to retry</p>
+                )}
+              </div>
+            )}
+
+            {visibleExercises.map((exercise) => (
+              <ExerciseSets
+                key={exercise.we_id}
+                exercise={exercise}
+                sessionId={sessionId}
+                targetRir={targetRir}
+                disabled={sessionCompleted}
+                sorenessLocked={sorenessLocked}
+                feedbackSummary={data.feedback_summary}
+                onAllLogged={(allLogged) => handleAllLogged(exercise.we_id, allLogged)}
+              />
+            ))}
+          </div>
+
+          {showFeedback && (
+            <div className="px-4 pb-4">
+              {feedbackComplete && feedbackValues ? (
+                <FeedbackSummary
+                  muscleGroup={muscleGroup}
+                  values={feedbackValues}
+                  sessionId={sessionId}
+                  disabled={sessionCompleted}
+                  onSaved={handleFeedbackSaved}
+                />
+              ) : !sessionCompleted ? (
+                <FeedbackForm
+                  muscleGroup={muscleGroup}
+                  sessionId={sessionId}
+                  initialSoreness={effectiveSoreness ?? undefined}
+                  onSaved={handleFeedbackSaved}
+                />
+              ) : null}
+            </div>
+          )}
+        </>
       )}
     </section>
   );
