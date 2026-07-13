@@ -8,6 +8,7 @@ interface FeedbackSummaryProps {
   muscleGroup: string;
   values: FeedbackValues | null;
   sessionId: number;
+  disabled?: boolean;
   onSaved?: (values: FeedbackValues) => void;
 }
 
