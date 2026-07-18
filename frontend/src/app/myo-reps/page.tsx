@@ -592,15 +592,34 @@ export default function MyoRepsPage() {
     }
   };
 
-  const doneCount = exercises.filter((ex) => exStates[ex.id]?.stage === "done").length;
+  const doneCount = exercises.filter((ex) => ["ready", "done"].includes(exStates[ex.id]?.stage)).length;
   const totalCount = exercises.length;
-  const allDone = doneCount === totalCount && totalCount > 0;
+  const allLogged = doneCount === totalCount && totalCount > 0;
 
   const finishSession = async () => {
     if (!myoSessionId) return;
     setFinishing(true);
     setPageError("");
     try {
+      await Promise.all(exercises
+        .filter((ex) => exStates[ex.id]?.stage === "ready" && exStates[ex.id]?.sessionId)
+        .map((ex) => {
+          const feedback = muscleFeedback[ex.muscle_group ?? "Other"] ?? {
+            workload: 3,
+            pump: 3,
+            submitting: false,
+            error: "",
+          };
+          return fetchJSON(`/api/myo/exercise-sessions/${exStates[ex.id].sessionId}/complete`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              workload_feedback: feedback.workload,
+              soreness_feedback: sorenessState[ex.muscle_group ?? "Other"] ?? 3,
+              pump_feedback: feedback.pump,
+            }),
+          });
+        }));
       await fetchJSON(`/api/myo/sessions/${myoSessionId}/complete`, { method: "POST" });
       setSessionDone(true);
       setLoadingNextSession(true);
@@ -653,7 +672,7 @@ export default function MyoRepsPage() {
         );
       })}
 
-      {!sessionDone && !sessionCompleted && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allDone} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allDone ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allDone ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} done`}</button></div>}
+      {!sessionDone && !sessionCompleted && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allLogged} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allLogged ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allLogged ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} logged`}</button></div>}
     </main>
   );
 }

@@ -153,16 +153,19 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
 
 @router.get("/sessions/by-number/{session_number}")
 def get_myo_session_by_number(session_number: int, db: OrmSession = Depends(get_db)):
-    """Return a completed Myo session for read-only review."""
+    """Return the requested completed Myo session, skipping unfinished entries."""
     sessions = _ordered_myo_sessions(db)
     if session_number < 1 or session_number > len(sessions):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Myo session {session_number} not found")
 
-    myo_session = sessions[session_number - 1]
-    if not myo_session.completed:
-        # The active session must use /current so it remains tied to the live plan.
-        return get_current_myo_payload(db)
+    myo_session = next(
+        (session for session in reversed(sessions[:session_number]) if session.completed),
+        None,
+    )
+    if not myo_session:
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail="No completed Myo session found")
 
     existing_sessions = (
         db.query(MyoExerciseSession)
