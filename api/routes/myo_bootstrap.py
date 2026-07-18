@@ -8,6 +8,7 @@ from deps import get_db
 from db import Exercise, MyoExerciseSession, MyoSession, Set as DbSet, WorkoutExercise
 from myo_progression import allocate_muscle_reps, get_recommendation, starting_total_rep_target
 from plan import EXERCISE_DEFAULT_SETS, EXERCISE_MUSCLE_GROUPS, get_session_exercises
+from progression import INITIAL_EXERCISE_WEIGHTS
 from routes.myo import _default_exercise_target, _exercise_role, _exercise_session_response, _get_default_workout
 from services import get_current_session
 
@@ -29,6 +30,13 @@ def _today_exercises_payload(db: OrmSession, exercise_names: list[str]) -> list[
     lower_names = [name.lower() for name in exercise_names]
     exercises = db.query(Exercise).filter(func.lower(Exercise.name).in_(lower_names)).all()
     ex_by_name = {e.name.lower(): e for e in exercises}
+
+    for name in exercise_names:
+        if name.lower() not in ex_by_name:
+            exercise = Exercise(name=name, muscle_group=EXERCISE_MUSCLE_GROUPS.get(name))
+            db.add(exercise)
+            ex_by_name[name.lower()] = exercise
+    db.flush()
 
     muscle_counts: dict[str, list[str]] = {}
     for name in exercise_names:
@@ -75,7 +83,11 @@ def _today_exercises_payload(db: OrmSession, exercise_names: list[str]) -> list[
             "baseline_total_reps": rec.get("baseline"),
             "target_mini_sets": None,
             "baseline_mini_sets": None,
-            "last_weight": last_set.weight if last_set else None,
+            "last_weight": (
+                last_set.weight
+                if last_set
+                else INITIAL_EXERCISE_WEIGHTS.get(name)
+            ),
             "last_reps": last_set.reps if last_set else None,
             "last_total_reps": last_total_reps,
             "last_mini_sets": last_total_reps,

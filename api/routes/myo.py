@@ -33,6 +33,7 @@ from myo_progression import (
     starting_total_rep_target,
 )
 from plan import EXERCISE_DEFAULT_SETS, EXERCISE_MUSCLE_GROUPS, get_session_exercises
+from progression import INITIAL_EXERCISE_WEIGHTS
 from services import get_current_session, complete_session as advance_straight_sets_session
 
 router = APIRouter()
@@ -142,6 +143,13 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
     )
     ex_by_name = {e.name.lower(): e for e in exercises}
 
+    for name in exercise_names:
+        if name.lower() not in ex_by_name:
+            exercise = Exercise(name=name, muscle_group=EXERCISE_MUSCLE_GROUPS.get(name))
+            db.add(exercise)
+            ex_by_name[name.lower()] = exercise
+    db.flush()
+
     muscle_counts: dict[str, list[str]] = {}
     for name in exercise_names:
         mg = EXERCISE_MUSCLE_GROUPS.get(name, "Other")
@@ -168,7 +176,7 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
             .order_by(DbSet.logged_at.desc())
             .first()
         )
-        last_weight = last_set.weight if last_set else None
+        last_weight = last_set.weight if last_set else INITIAL_EXERCISE_WEIGHTS.get(name)
         last_reps = last_set.reps if last_set else None
 
         # Last myo session total-rep count for reference. completed_mini_sets is legacy-named
