@@ -15,6 +15,27 @@ from services import get_myo_session_exercises
 router = APIRouter()
 
 
+def _delete_empty_historical_sessions(db: OrmSession, active_session_id: int) -> int:
+    """Delete non-active Myo session shells that contain no exercise records."""
+    empty_sessions = (
+        db.query(MyoSession)
+        .outerjoin(
+            MyoExerciseSession,
+            MyoExerciseSession.myo_session_id == MyoSession.id,
+        )
+        .filter(
+            MyoSession.id != active_session_id,
+            MyoExerciseSession.id.is_(None),
+        )
+        .all()
+    )
+    for session in empty_sessions:
+        db.delete(session)
+    if empty_sessions:
+        db.commit()
+    return len(empty_sessions)
+
+
 def _reconcile_logged_sessions(db: OrmSession, active_session_id: int) -> None:
     """Mark non-active sessions complete when every logged exercise was finalized.
 
@@ -170,6 +191,7 @@ def _session_payload(
 def get_current_myo_payload(db: OrmSession = Depends(get_db)):
     """One round-trip bootstrap for the myo page."""
     myo_session = _get_or_create_open_myo_session(db)
+    _delete_empty_historical_sessions(db, myo_session.id)
     _reconcile_logged_sessions(db, myo_session.id)
     exercise_names = get_myo_session_exercises(db, myo_session)
 
