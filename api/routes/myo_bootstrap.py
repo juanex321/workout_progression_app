@@ -15,20 +15,20 @@ from services import get_current_session
 router = APIRouter()
 
 
-def _reconcile_historical_logged_sessions(db: OrmSession) -> None:
-    """Mark past sessions complete when every logged exercise was finalized.
+def _reconcile_logged_sessions(db: OrmSession, active_session_id: int) -> None:
+    """Mark non-active sessions complete when every logged exercise was finalized.
 
     Older app versions could save completed exercise records while leaving their
     parent Myo session open. This repair deliberately does not advance the
     current straight-sets rotation: these are historical records.
     """
-    historical_sessions = (
+    sessions = (
         db.query(MyoSession)
-        .filter(MyoSession.completed == 0, MyoSession.date < date.today())
+        .filter(MyoSession.completed == 0, MyoSession.id != active_session_id)
         .all()
     )
     changed = False
-    for session in historical_sessions:
+    for session in sessions:
         exercise_sessions = (
             db.query(MyoExerciseSession)
             .filter(MyoExerciseSession.myo_session_id == session.id)
@@ -169,8 +169,8 @@ def _session_payload(
 @router.get("/current")
 def get_current_myo_payload(db: OrmSession = Depends(get_db)):
     """One round-trip bootstrap for the myo page."""
-    _reconcile_historical_logged_sessions(db)
     myo_session = _get_or_create_open_myo_session(db)
+    _reconcile_logged_sessions(db, myo_session.id)
     workout = _get_default_workout(db)
     straight_session = get_current_session(db, workout.id)
     exercise_names = get_session_exercises(straight_session.rotation_index)
