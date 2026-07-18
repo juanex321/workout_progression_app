@@ -179,28 +179,17 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
 @router.get("/sessions/by-number/{session_number}")
 def get_myo_session_by_number(
     session_number: int,
-    direction: str = "back",
     db: OrmSession = Depends(get_db),
 ):
-    """Return a navigable Myo session while skipping unfinished historical entries."""
+    """Return the exact numbered Myo session for read-only review."""
     sessions = _ordered_myo_sessions(db)
     if session_number < 1 or session_number > len(sessions):
         from fastapi import HTTPException
         raise HTTPException(status_code=404, detail=f"Myo session {session_number} not found")
 
-    if direction == "forward":
-        myo_session = next(
-            (session for session in sessions[session_number - 1:] if session.completed),
-            sessions[-1],
-        )
-    else:
-        myo_session = next(
-            (session for session in reversed(sessions[:session_number]) if session.completed),
-            None,
-        )
-    if not myo_session:
-        from fastapi import HTTPException
-        raise HTTPException(status_code=404, detail="No completed Myo session found")
+    myo_session = sessions[session_number - 1]
+    if myo_session.id == sessions[-1].id and not myo_session.completed:
+        return get_current_myo_payload(db)
 
     existing_sessions = (
         db.query(MyoExerciseSession)

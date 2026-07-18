@@ -524,11 +524,7 @@ export default function MyoRepsPage() {
     try {
       const payload = newSessionNumber === latestSessionNumber
         ? await fetchJSON<BootstrapPayload>("/api/myo/current")
-        : await fetchJSON<BootstrapPayload>(
-          `/api/myo/sessions/by-number/${newSessionNumber}?direction=${
-            newSessionNumber > sessionNumber ? "forward" : "back"
-          }`
-        );
+        : await fetchJSON<BootstrapPayload>(`/api/myo/sessions/by-number/${newSessionNumber}`);
       applySessionPayload(payload);
     } catch (e) {
       setPageError((e as Error).message);
@@ -670,13 +666,14 @@ export default function MyoRepsPage() {
             <div className="flex items-center gap-2 px-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" /><span className="text-sm font-semibold text-zinc-100">{mg}</span><span className="ml-auto text-xs text-zinc-500">{current} / {target} reps</span></div>
             <RepProgress current={current} target={target} />
             <SorenessBlock muscleGroup={mg} value={sorenessState[mg] ?? null} onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))} />
-            {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", loggedActivationReps: null, miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} readOnly={sessionCompleted === 1} onChange={(patch) => patchExState(ex.id, patch)} />)}
-            {!sessionCompleted && muscleReady && !muscleDone && <MuscleFeedbackBlock muscleGroup={mg} feedback={feedback} onChange={(patch) => patchMuscleFeedback(mg, patch)} onSubmit={() => submitMuscleFeedback(mg, muscleExercises)} />}
+            {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", loggedActivationReps: null, miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} readOnly={sessionCompleted === 1 || sessionNumber < latestSessionNumber} onChange={(patch) => patchExState(ex.id, patch)} />)}
+            {sessionNumber === latestSessionNumber && !sessionCompleted && muscleReady && !muscleDone && <MuscleFeedbackBlock muscleGroup={mg} feedback={feedback} onChange={(patch) => patchMuscleFeedback(mg, patch)} onSubmit={() => submitMuscleFeedback(mg, muscleExercises)} />}
           </div>
         );
       })}
 
-      {!sessionDone && !sessionCompleted && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allLogged} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allLogged ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allLogged ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} logged`}</button></div>}
+      {!sessionDone && sessionNumber < latestSessionNumber && totalCount === 0 && <p className="text-center text-sm text-zinc-500">No exercises were logged for this session.</p>}
+      {!sessionDone && sessionNumber === latestSessionNumber && !sessionCompleted && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allLogged} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allLogged ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allLogged ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} logged`}</button></div>}
     </main>
   );
 }
