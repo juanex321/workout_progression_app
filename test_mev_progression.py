@@ -167,11 +167,15 @@ class MevProgressionTests(unittest.TestCase):
 
         self.assertEqual(target_sets, 5)
 
-    def test_hamstrings_follow_the_chest_back_rotation(self):
-        self.assertEqual(get_session_exercises(0)[0], "Romanian Deadlift")
+    def test_lower_body_and_upper_body_rotations_are_independent(self):
+        self.assertEqual(get_session_exercises(0)[0], "Leg Extension")
         self.assertEqual(get_session_exercises(1)[0], "Leg Curl")
-        self.assertEqual(get_session_exercises(2)[0], "Romanian Deadlift")
-        self.assertEqual(get_session_exercises(3)[0], "Leg Curl")
+        self.assertEqual(get_session_exercises(2)[0], "Glute Kickbacks")
+        self.assertEqual(get_session_exercises(3)[0], "Leg Extension")
+        self.assertEqual(get_session_exercises(4)[0], "Romanian Deadlift")
+        self.assertEqual(get_session_exercises(5)[0], "Hip Thrust")
+        self.assertIn("Incline DB Bench Press", get_session_exercises(4))
+        self.assertIn("Lat Pulldown", get_session_exercises(5))
 
     def test_new_rdls_start_at_fifty_pounds(self):
         rdl = self.add_we("Romanian Deadlift", "Hamstrings")

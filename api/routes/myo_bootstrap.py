@@ -9,8 +9,8 @@ from db import Exercise, MyoExerciseSession, MyoSession, Set as DbSet, WorkoutEx
 from myo_progression import allocate_muscle_reps, get_recommendation, starting_total_rep_target
 from plan import EXERCISE_DEFAULT_SETS, EXERCISE_MUSCLE_GROUPS, get_session_exercises
 from progression import INITIAL_EXERCISE_WEIGHTS
-from routes.myo import _default_exercise_target, _exercise_role, _exercise_session_response, _get_default_workout
-from services import get_current_session
+from routes.myo import _default_exercise_target, _exercise_role, _exercise_session_response
+from services import get_myo_session_exercises
 
 router = APIRouter()
 
@@ -171,11 +171,9 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
     """One round-trip bootstrap for the myo page."""
     myo_session = _get_or_create_open_myo_session(db)
     _reconcile_logged_sessions(db, myo_session.id)
-    workout = _get_default_workout(db)
-    straight_session = get_current_session(db, workout.id)
-    exercise_names = get_session_exercises(straight_session.rotation_index)
+    exercise_names = get_myo_session_exercises(db)
 
-    return _session_payload(db, myo_session, exercise_names, straight_session.id)
+    return _session_payload(db, myo_session, exercise_names, None)
 
 
 @router.get("/sessions/by-number/{session_number}")

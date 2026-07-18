@@ -34,7 +34,7 @@ from myo_progression import (
 )
 from plan import EXERCISE_DEFAULT_SETS, EXERCISE_MUSCLE_GROUPS, get_session_exercises
 from progression import INITIAL_EXERCISE_WEIGHTS
-from services import get_current_session, complete_session as advance_straight_sets_session
+from services import get_myo_session_exercises
 
 router = APIRouter()
 
@@ -131,9 +131,7 @@ def _open_exercise_session(
 @router.get("/today")
 def get_today_exercises(db: OrmSession = Depends(get_db)):
     """Return today's scheduled exercises with calibration state and last session data."""
-    workout = _get_default_workout(db)
-    sess = get_current_session(db, workout.id)
-    exercise_names = get_session_exercises(sess.rotation_index)
+    exercise_names = get_myo_session_exercises(db)
 
     lower_names = [name.lower() for name in exercise_names]
     exercises = (
@@ -233,16 +231,13 @@ def get_session_exercise_sessions(session_id: int, db: OrmSession = Depends(get_
     if not sess:
         raise HTTPException(status_code=404, detail="Myo session not found")
 
-    workout = _get_default_workout(db)
-    straight_sess = get_current_session(db, workout.id)
-    exercise_names = get_session_exercises(straight_sess.rotation_index)
-
     exercise_sessions = (
         db.query(MyoExerciseSession)
         .filter(MyoExerciseSession.myo_session_id == session_id)
         .order_by(MyoExerciseSession.created_at.asc(), MyoExerciseSession.id.asc())
         .all()
     )
+    exercise_names = [es.exercise.name for es in exercise_sessions] or get_myo_session_exercises(db)
     return [
         _exercise_session_response(
             es,
@@ -265,20 +260,6 @@ def finish_myo_session(session_id: int, db: OrmSession = Depends(get_db)):
     sess.completed = 1
     db.commit()
 
-    # Advance straight sets rotation so both modes stay in sync.
-    workout = _get_default_workout(db)
-    straight_sess = (
-        db.query(StraightSetsSession)
-        .filter(
-            StraightSetsSession.workout_id == workout.id,
-            StraightSetsSession.completed == 0,
-        )
-        .order_by(StraightSetsSession.session_number.desc())
-        .first()
-    )
-    if straight_sess:
-        advance_straight_sets_session(db, straight_sess.id)
-
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
 
 
@@ -295,9 +276,7 @@ def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
-    workout = _get_default_workout(db)
-    straight_sess = get_current_session(db, workout.id)
-    exercise_names = get_session_exercises(straight_sess.rotation_index)
+    exercise_names = get_myo_session_exercises(db)
     default_target = _default_exercise_target(exercise.name, exercise_names)
     rec = get_recommendation(db, req.exercise_id, default_total_reps=default_target)
     es = _open_exercise_session(

@@ -268,10 +268,10 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
 
     def test_get_workout_data_serializes_last_session_fields(self):
         workout = self.seed_workout()
-        romanian_deadlift = api_services.get_or_create_workout_exercise(
+        leg_extension = api_services.get_or_create_workout_exercise(
             self.db,
             workout,
-            "Romanian Deadlift",
+            "Leg Extension",
             0,
         )
         self.db.flush()
@@ -279,26 +279,24 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         previous_session = self.add_session(workout.id, session_number=1, completed=1)
         current_session = self.add_session(workout.id, session_number=2, completed=0)
 
-        self.add_sets(previous_session.id, romanian_deadlift.id, reps=[15, 12, 12, 11], weight=150.0, rir=2)
+        self.add_sets(previous_session.id, leg_extension.id, reps=[15, 12, 12, 11], weight=150.0, rir=2)
         self.db.commit()
 
         result = exercise_routes.get_workout_data(session_id=current_session.id, db=self.db)
-        hamstring_exercises = result.muscle_groups["Hamstrings"].exercises
-        romanian_deadlift_payload = next(
-            ex for ex in hamstring_exercises if ex.name == "Romanian Deadlift"
-        )
+        quad_exercises = result.muscle_groups["Quads"].exercises
+        leg_extension_payload = next(ex for ex in quad_exercises if ex.name == "Leg Extension")
 
-        self.assertIsNotNone(romanian_deadlift_payload.last_session_summary)
-        self.assertEqual(romanian_deadlift_payload.last_session_summary.last_weight, 150.0)
-        self.assertEqual(romanian_deadlift_payload.last_session_summary.avg_reps, 12)
-        self.assertEqual(romanian_deadlift_payload.last_session_summary.recommended_rir, 2)
-        self.assertIsNotNone(romanian_deadlift_payload.weight_recommendation)
-        self.assertEqual(romanian_deadlift_payload.weight_recommendation.level, "apply")
+        self.assertIsNotNone(leg_extension_payload.last_session_summary)
+        self.assertEqual(leg_extension_payload.last_session_summary.last_weight, 150.0)
+        self.assertEqual(leg_extension_payload.last_session_summary.avg_reps, 12)
+        self.assertEqual(leg_extension_payload.last_session_summary.recommended_rir, 2)
+        self.assertIsNotNone(leg_extension_payload.weight_recommendation)
+        self.assertEqual(leg_extension_payload.weight_recommendation.level, "apply")
         self.assertEqual(
-            romanian_deadlift_payload.weight_recommendation.message,
+            leg_extension_payload.weight_recommendation.message,
             api_services.WEIGHT_RECOMMENDATION_APPLY,
         )
-        self.assertIsNone(romanian_deadlift_payload.weight_recommendation.context_note)
+        self.assertIsNone(leg_extension_payload.weight_recommendation.context_note)
 
 
 if __name__ == "__main__":

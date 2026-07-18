@@ -7,7 +7,15 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
-from db import Session as DbSession, WorkoutExercise, Exercise, Set, Feedback
+from db import (
+    Session as DbSession,
+    WorkoutExercise,
+    Exercise,
+    Set,
+    Feedback,
+    MyoSession,
+    MyoExerciseSession,
+)
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
@@ -43,7 +51,7 @@ def get_current_session(db, workout_id: int) -> DbSession:
         next_session_number = last_session.session_number + 1
         # Import get_session_exercises here to avoid circular import
         from plan import get_session_exercises
-        total_workouts = 2  # Chest/RDL and back/leg-curl sessions alternate.
+        total_workouts = 6  # LCM of three lower-body and two upper-body rotations.
         next_rotation_index = (last_session.rotation_index + 1) % total_workouts
     else:
         next_session_number = 1
@@ -97,6 +105,57 @@ def get_or_create_today_session(db, workout_id: int) -> DbSession:
     This function is kept for backward compatibility during migration.
     """
     return get_current_session(db, workout_id)
+
+
+def get_myo_session_exercises(db) -> list[str]:
+    """Build the next Myo workout from the last completed Myo workout only."""
+    from plan import (
+        GLUTE_PULL_EXERCISE,
+        GLUTE_PUSH_EXERCISE,
+        HAMSTRING_PULL_EXERCISE,
+        HAMSTRING_PUSH_EXERCISE,
+        QUAD_EXERCISE,
+        SHOULDER_ROTATION,
+        get_session_exercises_for_focus,
+    )
+
+    last_session = (
+        db.query(MyoSession)
+        .filter(MyoSession.completed == 1)
+        .order_by(MyoSession.date.desc(), MyoSession.id.desc())
+        .first()
+    )
+    if not last_session:
+        return get_session_exercises_for_focus(0, True, 0)
+
+    names = {
+        name
+        for (name,) in (
+            db.query(Exercise.name)
+            .join(MyoExerciseSession, MyoExerciseSession.exercise_id == Exercise.id)
+            .filter(MyoExerciseSession.myo_session_id == last_session.id)
+            .all()
+        )
+    }
+    if QUAD_EXERCISE in names:
+        next_leg_index = 1
+    elif names & {HAMSTRING_PUSH_EXERCISE, HAMSTRING_PULL_EXERCISE}:
+        next_leg_index = 2
+    elif names & {GLUTE_PUSH_EXERCISE, GLUTE_PULL_EXERCISE}:
+        next_leg_index = 0
+    else:
+        next_leg_index = 0
+
+    is_push_day = not bool(names & {"Incline DB Bench Press", "Single-arm Chest Fly"})
+    last_shoulder_index = next(
+        (index for index, name in enumerate(SHOULDER_ROTATION) if name in names),
+        -1,
+    )
+    return get_session_exercises_for_focus(
+        next_leg_index,
+        is_push_day,
+        last_shoulder_index + 1,
+    )
 
 
 def get_or_create_workout_exercise(db, workout, ex_name: str, order_index: int) -> WorkoutExercise:

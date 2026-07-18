@@ -3,10 +3,14 @@ from __future__ import annotations
 
 # ----------------- ROTATION CONFIG -----------------
 
-# Hamstrings alternate with the upper-body focus: RDLs on chest/push days
-# and the existing leg curl on back/pull days.
+# Hamstrings use RDLs on chest/push days and the existing leg curl on back/pull days.
 HAMSTRING_PUSH_EXERCISE = "Romanian Deadlift"
 HAMSTRING_PULL_EXERCISE = "Leg Curl"
+
+LEG_ROTATION = ["Quads", "Hamstrings", "Glutes"]
+QUAD_EXERCISE = "Leg Extension"
+GLUTE_PUSH_EXERCISE = "Glute Kickbacks"
+GLUTE_PULL_EXERCISE = "Hip Thrust"
 
 PULL_MAIN_ROTATION = [
     "Lat Pulldown",
@@ -48,8 +52,11 @@ EXERCISE_DEFAULT_REPS = {
 # Mapping of exercise names to muscle groups
 EXERCISE_MUSCLE_GROUPS = {
     # Legs
+    "Leg Extension": "Quads",
     "Leg Curl": "Hamstrings",
     "Romanian Deadlift": "Hamstrings",
+    "Hip Thrust": "Glutes",
+    "Glute Kickbacks": "Glutes",
     
     # Chest
     "Incline DB Bench Press": "Chest",
@@ -71,41 +78,55 @@ EXERCISE_MUSCLE_GROUPS = {
     "Dumbbell Upright Row": "Shoulders",
 }
 
+def get_session_exercises_for_focus(
+    leg_index: int,
+    is_push_day: bool,
+    shoulder_index: int,
+) -> list[str]:
+    """Build one workout from independent lower-, upper-, and shoulder rotations."""
+    leg_focus = LEG_ROTATION[leg_index % len(LEG_ROTATION)]
+    if leg_focus == "Quads":
+        leg_exercise = QUAD_EXERCISE
+    elif leg_focus == "Hamstrings":
+        leg_exercise = HAMSTRING_PUSH_EXERCISE if is_push_day else HAMSTRING_PULL_EXERCISE
+    else:
+        leg_exercise = GLUTE_PUSH_EXERCISE if is_push_day else GLUTE_PULL_EXERCISE
+
+    if is_push_day:
+        upper_block = [
+            "Incline DB Bench Press",
+            "Single-arm Chest Fly",
+            "Cable Tricep Pushdown",
+            "Overhead Cable Extension",
+        ]
+    else:
+        pull_main = PULL_MAIN_ROTATION[(shoulder_index // 2) % len(PULL_MAIN_ROTATION)]
+        upper_block = [
+            pull_main,
+            "Straight-arm Pulldown",
+            PULL_SECONDARY,
+            "Incline DB Curl",
+        ]
+
+    shoulder_exercise = SHOULDER_ROTATION[shoulder_index % len(SHOULDER_ROTATION)]
+    return [leg_exercise] + upper_block + [shoulder_exercise]
+
+
 def get_session_exercises(session_index: int) -> list[str]:
     """
     session_index: 0-based training session number.
     Returns an ordered list of exercise names for that session.
 
     Pattern:
-      - Push / Pull alternates each session, with RDLs on push days and
-        leg curls on pull days.
+      - Lower body progresses Quads → Hamstrings → Glutes independently.
+      - Push / Pull alternates each session.
       - Pull days alternate Lat Pulldown / Cable Row.
       - Finish every session with lateral raises.
       - Certain upper muscles get finisher exercises.
     """
-    # ----- hamstring block -----
     is_push_day = (session_index % 2 == 0)
-    hamstring_exercise = (
-        HAMSTRING_PUSH_EXERCISE if is_push_day else HAMSTRING_PULL_EXERCISE
+    return get_session_exercises_for_focus(
+        leg_index=session_index % len(LEG_ROTATION),
+        is_push_day=is_push_day,
+        shoulder_index=session_index,
     )
-
-    # ----- upper block -----
-    if is_push_day:
-        upper_block = [
-            "Incline DB Bench Press",
-            "Single-arm Chest Fly",      # finisher, 1 set
-            "Cable Tricep Pushdown",
-            "Overhead Cable Extension",  # finisher, 1 set
-        ]
-    else:
-        pull_session_number = session_index // 2  # counts only pull days
-        pull_main = PULL_MAIN_ROTATION[pull_session_number % len(PULL_MAIN_ROTATION)]
-        upper_block = [
-            pull_main,
-            "Straight-arm Pulldown",  # lat finisher
-            PULL_SECONDARY,           # Cable Curl
-            "Incline DB Curl",        # biceps finisher
-        ]
-
-    shoulder_ex = SHOULDER_ROTATION[session_index % len(SHOULDER_ROTATION)]
-    return [hamstring_exercise] + upper_block + [shoulder_ex]
