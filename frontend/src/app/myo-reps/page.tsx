@@ -524,7 +524,11 @@ export default function MyoRepsPage() {
     try {
       const payload = newSessionNumber === latestSessionNumber
         ? await fetchJSON<BootstrapPayload>("/api/myo/current")
-        : await fetchJSON<BootstrapPayload>(`/api/myo/sessions/by-number/${newSessionNumber}`);
+        : await fetchJSON<BootstrapPayload>(
+          `/api/myo/sessions/by-number/${newSessionNumber}?direction=${
+            newSessionNumber > sessionNumber ? "forward" : "back"
+          }`
+        );
       applySessionPayload(payload);
     } catch (e) {
       setPageError((e as Error).message);
