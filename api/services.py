@@ -7,6 +7,8 @@ from typing import Optional
 from sqlalchemy import func
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 
+import json
+
 from db import (
     Session as DbSession,
     WorkoutExercise,
@@ -107,8 +109,8 @@ def get_or_create_today_session(db, workout_id: int) -> DbSession:
     return get_current_session(db, workout_id)
 
 
-def get_myo_session_exercises(db) -> list[str]:
-    """Build the next Myo workout from the last completed Myo workout only."""
+def get_myo_session_exercises(db, myo_session: MyoSession | None = None) -> list[str]:
+    """Return a Myo session's persisted schedule, deriving it only once if needed."""
     from plan import (
         GLUTE_PULL_EXERCISE,
         GLUTE_PUSH_EXERCISE,
@@ -119,6 +121,14 @@ def get_myo_session_exercises(db) -> list[str]:
         get_session_exercises_for_focus,
     )
 
+    if myo_session and myo_session.schedule_json:
+        try:
+            schedule = json.loads(myo_session.schedule_json)
+            if isinstance(schedule, list) and all(isinstance(name, str) for name in schedule):
+                return schedule
+        except (TypeError, json.JSONDecodeError):
+            pass
+
     last_session = (
         db.query(MyoSession)
         .filter(MyoSession.completed == 1)
@@ -126,36 +136,41 @@ def get_myo_session_exercises(db) -> list[str]:
         .first()
     )
     if not last_session:
-        return get_session_exercises_for_focus(0, True, 0)
-
-    names = {
-        name
-        for (name,) in (
-            db.query(Exercise.name)
-            .join(MyoExerciseSession, MyoExerciseSession.exercise_id == Exercise.id)
-            .filter(MyoExerciseSession.myo_session_id == last_session.id)
-            .all()
-        )
-    }
-    if QUAD_EXERCISE in names:
-        next_leg_index = 1
-    elif names & {HAMSTRING_PUSH_EXERCISE, HAMSTRING_PULL_EXERCISE}:
-        next_leg_index = 2
-    elif names & {GLUTE_PUSH_EXERCISE, GLUTE_PULL_EXERCISE}:
-        next_leg_index = 0
+        schedule = get_session_exercises_for_focus(0, True, 0)
     else:
-        next_leg_index = 0
+        names = {
+            name
+            for (name,) in (
+                db.query(Exercise.name)
+                .join(MyoExerciseSession, MyoExerciseSession.exercise_id == Exercise.id)
+                .filter(MyoExerciseSession.myo_session_id == last_session.id)
+                .all()
+            )
+        }
+        if QUAD_EXERCISE in names:
+            next_leg_index = 1
+        elif names & {HAMSTRING_PUSH_EXERCISE, HAMSTRING_PULL_EXERCISE}:
+            next_leg_index = 2
+        elif names & {GLUTE_PUSH_EXERCISE, GLUTE_PULL_EXERCISE}:
+            next_leg_index = 0
+        else:
+            next_leg_index = 0
 
-    is_push_day = not bool(names & {"Incline DB Bench Press", "Single-arm Chest Fly"})
-    last_shoulder_index = next(
-        (index for index, name in enumerate(SHOULDER_ROTATION) if name in names),
-        -1,
-    )
-    return get_session_exercises_for_focus(
-        next_leg_index,
-        is_push_day,
-        last_shoulder_index + 1,
-    )
+        is_push_day = not bool(names & {"Incline DB Bench Press", "Single-arm Chest Fly"})
+        last_shoulder_index = next(
+            (index for index, name in enumerate(SHOULDER_ROTATION) if name in names),
+            -1,
+        )
+        schedule = get_session_exercises_for_focus(
+            next_leg_index,
+            is_push_day,
+            last_shoulder_index + 1,
+        )
+
+    if myo_session:
+        myo_session.schedule_json = json.dumps(schedule)
+        db.commit()
+    return schedule
 
 
 def get_or_create_workout_exercise(db, workout, ex_name: str, order_index: int) -> WorkoutExercise:

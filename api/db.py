@@ -14,6 +14,7 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
+    Text,
     UniqueConstraint,
     create_engine,
     func,
@@ -268,6 +269,7 @@ class MyoSession(Base):
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
     completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    schedule_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     exercise_sessions = relationship("MyoExerciseSession", back_populates="myo_session")
 
@@ -363,7 +365,21 @@ def get_session():
 def init_db():
     """Initialize database tables."""
     Base.metadata.create_all(engine)
+    ensure_myo_schedule_column()
     ensure_performance_indexes()
+
+
+def ensure_myo_schedule_column() -> None:
+    """Add the persisted Myo schedule column to existing deployments."""
+    from sqlalchemy import inspect
+
+    inspector = inspect(engine)
+    if "myo_sessions" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("myo_sessions")}
+    if "schedule_json" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE myo_sessions ADD COLUMN schedule_json TEXT"))
 
 
 def ensure_performance_indexes() -> None:

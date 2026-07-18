@@ -171,7 +171,7 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
     """One round-trip bootstrap for the myo page."""
     myo_session = _get_or_create_open_myo_session(db)
     _reconcile_logged_sessions(db, myo_session.id)
-    exercise_names = get_myo_session_exercises(db)
+    exercise_names = get_myo_session_exercises(db, myo_session)
 
     return _session_payload(db, myo_session, exercise_names, None)
 

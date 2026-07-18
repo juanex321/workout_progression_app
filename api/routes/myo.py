@@ -131,7 +131,17 @@ def _open_exercise_session(
 @router.get("/today")
 def get_today_exercises(db: OrmSession = Depends(get_db)):
     """Return today's scheduled exercises with calibration state and last session data."""
-    exercise_names = get_myo_session_exercises(db)
+    today = date.today()
+    myo_session = (
+        db.query(MyoSession)
+        .filter(MyoSession.date == today, MyoSession.completed == 0)
+        .first()
+    )
+    if not myo_session:
+        myo_session = MyoSession(date=today)
+        db.add(myo_session)
+        db.flush()
+    exercise_names = get_myo_session_exercises(db, myo_session)
 
     lower_names = [name.lower() for name in exercise_names]
     exercises = (
@@ -219,6 +229,8 @@ def get_or_create_session(db: OrmSession = Depends(get_db)):
     if not sess:
         sess = MyoSession(date=today)
         db.add(sess)
+        db.flush()
+        get_myo_session_exercises(db, sess)
         db.commit()
         db.refresh(sess)
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
@@ -237,7 +249,7 @@ def get_session_exercise_sessions(session_id: int, db: OrmSession = Depends(get_
         .order_by(MyoExerciseSession.created_at.asc(), MyoExerciseSession.id.asc())
         .all()
     )
-    exercise_names = [es.exercise.name for es in exercise_sessions] or get_myo_session_exercises(db)
+    exercise_names = [es.exercise.name for es in exercise_sessions] or get_myo_session_exercises(db, sess)
     return [
         _exercise_session_response(
             es,
@@ -276,7 +288,7 @@ def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
 
-    exercise_names = get_myo_session_exercises(db)
+    exercise_names = get_myo_session_exercises(db, sess)
     default_target = _default_exercise_target(exercise.name, exercise_names)
     rec = get_recommendation(db, req.exercise_id, default_total_reps=default_target)
     es = _open_exercise_session(
