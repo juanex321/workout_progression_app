@@ -4,6 +4,8 @@ interface SessionHeaderProps {
   sessionNumber: number;
   completed: number;
   maxSession: number;
+  isNavigating: boolean;
+  showForward: boolean;
   onNavigate: (sessionNumber: number) => void;
 }
 
@@ -11,6 +13,8 @@ export function SessionHeader({
   sessionNumber,
   completed,
   maxSession,
+  isNavigating,
+  showForward,
   onNavigate,
 }: SessionHeaderProps) {
   return (
@@ -19,7 +23,7 @@ export function SessionHeader({
         <button
           type="button"
           onClick={() => onNavigate(sessionNumber - 1)}
-          disabled={sessionNumber <= 1}
+          disabled={isNavigating || sessionNumber <= 1}
           className="h-12 w-12 rounded-2xl border border-white/10 bg-white/5 text-lg font-bold text-zinc-200 transition-colors active:bg-white/10 disabled:opacity-30"
         >
           &larr;
@@ -33,14 +37,18 @@ export function SessionHeader({
           )}
         </div>
 
-        <button
-          type="button"
-          onClick={() => onNavigate(sessionNumber + 1)}
-          disabled={sessionNumber >= maxSession}
-          className="h-12 w-12 rounded-2xl border border-white/10 bg-white/5 text-lg font-bold text-zinc-200 transition-colors active:bg-white/10 disabled:opacity-30"
-        >
-          &rarr;
-        </button>
+        {showForward ? (
+          <button
+            type="button"
+            onClick={() => onNavigate(sessionNumber + 1)}
+            disabled={isNavigating || sessionNumber >= maxSession}
+            className="h-12 w-12 rounded-2xl border border-white/10 bg-white/5 text-lg font-bold text-zinc-200 transition-colors active:bg-white/10 disabled:opacity-30"
+          >
+            &rarr;
+          </button>
+        ) : (
+          <div className="h-12 w-12" aria-hidden="true" />
+        )}
       </div>
     </div>
   );

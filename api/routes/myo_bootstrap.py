@@ -83,14 +83,19 @@ def _today_exercises_payload(db: OrmSession, exercise_names: list[str]) -> list[
     return payload
 
 
-@router.get("/current")
-def get_current_myo_payload(db: OrmSession = Depends(get_db)):
-    """One round-trip bootstrap for the myo page."""
-    myo_session = _get_or_create_open_myo_session(db)
-    workout = _get_default_workout(db)
-    straight_session = get_current_session(db, workout.id)
-    exercise_names = get_session_exercises(straight_session.rotation_index)
+def _ordered_myo_sessions(db: OrmSession) -> list[MyoSession]:
+    return db.query(MyoSession).order_by(MyoSession.date.asc(), MyoSession.id.asc()).all()
 
+
+def _session_payload(
+    db: OrmSession,
+    myo_session: MyoSession,
+    exercise_names: list[str],
+    straight_session_id: int | None,
+) -> dict:
+    """Build the page payload for either the active or a reviewed Myo session."""
+    sessions = _ordered_myo_sessions(db)
+    session_number = next(index for index, session in enumerate(sessions, start=1) if session.id == myo_session.id)
     existing_sessions = (
         db.query(MyoExerciseSession)
         .filter(MyoExerciseSession.myo_session_id == myo_session.id)
@@ -101,10 +106,12 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
     return {
         "session": {
             "session_id": myo_session.id,
+            "session_number": session_number,
+            "latest_session_number": len(sessions),
             "date": str(myo_session.date),
             "completed": myo_session.completed,
         },
-        "straight_session_id": straight_session.id,
+        "straight_session_id": straight_session_id,
         "exercises": _today_exercises_payload(db, exercise_names),
         "exercise_sessions": [
             _exercise_session_response(
@@ -119,3 +126,37 @@ def get_current_myo_payload(db: OrmSession = Depends(get_db)):
             for es in existing_sessions
         ],
     }
+
+
+@router.get("/current")
+def get_current_myo_payload(db: OrmSession = Depends(get_db)):
+    """One round-trip bootstrap for the myo page."""
+    myo_session = _get_or_create_open_myo_session(db)
+    workout = _get_default_workout(db)
+    straight_session = get_current_session(db, workout.id)
+    exercise_names = get_session_exercises(straight_session.rotation_index)
+
+    return _session_payload(db, myo_session, exercise_names, straight_session.id)
+
+
+@router.get("/sessions/by-number/{session_number}")
+def get_myo_session_by_number(session_number: int, db: OrmSession = Depends(get_db)):
+    """Return a completed Myo session for read-only review."""
+    sessions = _ordered_myo_sessions(db)
+    if session_number < 1 or session_number > len(sessions):
+        from fastapi import HTTPException
+        raise HTTPException(status_code=404, detail=f"Myo session {session_number} not found")
+
+    myo_session = sessions[session_number - 1]
+    if not myo_session.completed:
+        # The active session must use /current so it remains tied to the live plan.
+        return get_current_myo_payload(db)
+
+    existing_sessions = (
+        db.query(MyoExerciseSession)
+        .filter(MyoExerciseSession.myo_session_id == myo_session.id)
+        .order_by(MyoExerciseSession.created_at.asc(), MyoExerciseSession.id.asc())
+        .all()
+    )
+    exercise_names = [es.exercise.name for es in existing_sessions]
+    return _session_payload(db, myo_session, exercise_names, None)

@@ -9,6 +9,9 @@ from db import Set, Session, Feedback, WorkoutExercise, Exercise
 # ------- constants / config -------
 
 DEFAULT_BASE_WEIGHT = 50.0
+INITIAL_EXERCISE_WEIGHTS = {
+    "Romanian Deadlift": 50.0,
+}
 
 MIN_SETS = 1
 
@@ -573,7 +576,8 @@ def recommend_weights_and_reps(
 
     # 4) weight — always carry forward last session's weight, no auto-cut
     if not last_sets:
-        next_weight = DEFAULT_BASE_WEIGHT
+        exercise_name = we.exercise.name if we.exercise else ""
+        next_weight = INITIAL_EXERCISE_WEIGHTS.get(exercise_name, DEFAULT_BASE_WEIGHT)
     else:
         next_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
 

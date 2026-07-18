@@ -1,6 +1,7 @@
 "use client";
 import { useState, useEffect } from "react";
 import { useCurrentSession, useSessionData } from "@/hooks/useSessionData";
+import { api } from "@/lib/api";
 import { SessionHeader } from "@/components/SessionHeader";
 import { MuscleGroupCard } from "@/components/MuscleGroupCard";
 import { FinishButton } from "@/components/FinishButton";
@@ -8,6 +9,8 @@ import { FinishButton } from "@/components/FinishButton";
 export default function StraightSetsPage() {
   const [sessionNumber, setSessionNumber] = useState<number | null>(null);
   const [sessionId, setSessionId] = useState<number | null>(null);
+  const [isNavigating, setIsNavigating] = useState(false);
+  const [navigationError, setNavigationError] = useState<string | null>(null);
 
   const {
     data: currentSession,
@@ -18,40 +21,31 @@ export default function StraightSetsPage() {
   // Set initial session from current (syncing React Query data → local state is intentional here)
   useEffect(() => {
     if (currentSession && sessionNumber === null) {
-      /* eslint-disable react-hooks/set-state-in-effect */
       setSessionNumber(currentSession.session_number);
       setSessionId(currentSession.session_id);
-      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [currentSession, sessionNumber]);
 
   const { data: workoutData, isLoading: loadingData, error: workoutDataError } =
     useSessionData(sessionId);
 
-  // Update session ID when navigating by number (syncing query result → local state is intentional)
-  useEffect(() => {
-    if (
-      workoutData &&
-      workoutData.session_number === sessionNumber &&
-      workoutData.session_id !== sessionId
-    ) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setSessionId(workoutData.session_id);
-    }
-  }, [workoutData, sessionNumber, sessionId]);
-
   const handleNavigate = async (newNumber: number) => {
-    if (newNumber < 1) return;
-    setSessionNumber(newNumber);
-    // Fetch session by number to get the ID
+    if (
+      isNavigating ||
+      newNumber < 1 ||
+      newNumber > (currentSession?.session_number ?? 1)
+    ) return;
+
+    setIsNavigating(true);
+    setNavigationError(null);
     try {
-      const res = await fetch(`/api/sessions/${newNumber}`);
-      if (res.ok) {
-        const sess = await res.json();
-        setSessionId(sess.session_id);
-      }
+      const session = await api.getSessionByNumber(newNumber);
+      setSessionNumber(session.session_number);
+      setSessionId(session.session_id);
     } catch {
-      // Session doesn't exist yet
+      setNavigationError(`Unable to load session ${newNumber}. Please try again.`);
+    } finally {
+      setIsNavigating(false);
     }
   };
 
@@ -87,8 +81,14 @@ export default function StraightSetsPage() {
         sessionNumber={sessionNumber ?? 1}
         completed={workoutData?.completed ?? 0}
         maxSession={currentSession?.session_number ?? 1}
+        isNavigating={isNavigating}
+        showForward={(sessionNumber ?? 1) < (currentSession?.session_number ?? 1)}
         onNavigate={handleNavigate}
       />
+
+      {navigationError && (
+        <p className="mb-4 text-center text-sm text-red-400">{navigationError}</p>
+      )}
 
       {workoutDataError && !workoutData ? (
         <p className="text-center text-red-400 mt-8">

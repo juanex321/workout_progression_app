@@ -43,7 +43,7 @@ def get_current_session(db, workout_id: int) -> DbSession:
         next_session_number = last_session.session_number + 1
         # Import get_session_exercises here to avoid circular import
         from plan import get_session_exercises
-        total_workouts = 6  # Based on the rotation pattern (3 leg rotations * 2 push/pull = 6)
+        total_workouts = 2  # Chest/RDL and back/leg-curl sessions alternate.
         next_rotation_index = (last_session.rotation_index + 1) % total_workouts
     else:
         next_session_number = 1

@@ -16,6 +16,7 @@ from progression import (
     get_recent_muscle_group_feedback,
     recommend_weights_and_reps,
 )
+from plan import get_session_exercises
 from rir_progression import RIR_DELOAD, RIR_FAILURE, RIR_HARD, get_rir_for_muscle_group
 
 
@@ -165,6 +166,21 @@ class MevProgressionTests(unittest.TestCase):
         target_sets = adjust_sets_based_on_feedback(self.db, leg_curl)
 
         self.assertEqual(target_sets, 5)
+
+    def test_hamstrings_follow_the_chest_back_rotation(self):
+        self.assertEqual(get_session_exercises(0)[0], "Romanian Deadlift")
+        self.assertEqual(get_session_exercises(1)[0], "Leg Curl")
+        self.assertEqual(get_session_exercises(2)[0], "Romanian Deadlift")
+        self.assertEqual(get_session_exercises(3)[0], "Leg Curl")
+
+    def test_new_rdls_start_at_fifty_pounds(self):
+        rdl = self.add_we("Romanian Deadlift", "Hamstrings")
+        self.db.commit()
+
+        recommendations = recommend_weights_and_reps(self.db, rdl, "Hamstrings")
+
+        self.assertTrue(recommendations)
+        self.assertTrue(all(row["weight"] == 50.0 for row in recommendations))
 
 
 if __name__ == "__main__":

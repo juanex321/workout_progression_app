@@ -37,7 +37,7 @@ Log Sets -> Submit Feedback -> App Adjusts Next Session
 
 The app rotates through exercises automatically:
 
-- **Legs**: Leg Extension → Leg Curl → Glute Kickbacks (push day) / Hip Thrust (pull day)
+- **Hamstrings**: Romanian deadlifts (50 lb starting weight) on push/chest days; leg curls on pull/back days
 - **Upper**: Push day (Chest/Triceps) alternates with Pull day (Back/Biceps)
 - **Every session**: Lateral raises for shoulders
 
@@ -134,10 +134,9 @@ SQLite database (`workout.db`) is created automatically for local dev.
 Edit `plan.py` to customize:
 
 ```python
-# Exercise rotations
-LEG_ROTATION = ["Leg Extension", "Leg Curl", "GLUTE"]
-GLUTE_PUSH_EXERCISE = "Glute Kickbacks"
-GLUTE_PULL_EXERCISE = "Hip Thrust"
+# Hamstring exercise by upper-body focus
+HAMSTRING_PUSH_EXERCISE = "Romanian Deadlift"
+HAMSTRING_PULL_EXERCISE = "Leg Curl"
 
 # Default targets
 DEFAULT_TARGET_SETS = 4

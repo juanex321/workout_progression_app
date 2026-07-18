@@ -3,15 +3,10 @@ from __future__ import annotations
 
 # ----------------- ROTATION CONFIG -----------------
 
-LEG_ROTATION = [
-    "Leg Extension",                # leg session 1
-    "Leg Curl",                     # leg session 2
-    "GLUTE",                        # leg session 3 (resolved dynamically)
-]
-
-# Glute exercises alternate based on push/pull day
-GLUTE_PUSH_EXERCISE = "Glute Kickbacks"   # Chest/push days
-GLUTE_PULL_EXERCISE = "Hip Thrust"         # Back/pull days
+# Hamstrings alternate with the upper-body focus: RDLs on chest/push days
+# and the existing leg curl on back/pull days.
+HAMSTRING_PUSH_EXERCISE = "Romanian Deadlift"
+HAMSTRING_PULL_EXERCISE = "Leg Curl"
 
 PULL_MAIN_ROTATION = [
     "Lat Pulldown",
@@ -53,10 +48,8 @@ EXERCISE_DEFAULT_REPS = {
 # Mapping of exercise names to muscle groups
 EXERCISE_MUSCLE_GROUPS = {
     # Legs
-    "Leg Extension": "Quads",
     "Leg Curl": "Hamstrings",
-    "Hip Thrust": "Glutes",
-    "Glute Kickbacks": "Glutes",
+    "Romanian Deadlift": "Hamstrings",
     
     # Chest
     "Incline DB Bench Press": "Chest",
@@ -84,21 +77,17 @@ def get_session_exercises(session_index: int) -> list[str]:
     Returns an ordered list of exercise names for that session.
 
     Pattern:
-      - Legs rotate over LEG_ROTATION.
-      - Push / Pull alternates each session.
+      - Push / Pull alternates each session, with RDLs on push days and
+        leg curls on pull days.
       - Pull days alternate Lat Pulldown / Cable Row.
       - Finish every session with lateral raises.
       - Certain upper muscles get finisher exercises.
     """
-    # ----- leg block -----
-    leg_ex = LEG_ROTATION[session_index % len(LEG_ROTATION)]
-
-    # Resolve dynamic glute placeholder based on push/pull day
+    # ----- hamstring block -----
     is_push_day = (session_index % 2 == 0)
-    if leg_ex == "GLUTE":
-        leg_ex = GLUTE_PUSH_EXERCISE if is_push_day else GLUTE_PULL_EXERCISE
-
-    leg_block = [leg_ex]
+    hamstring_exercise = (
+        HAMSTRING_PUSH_EXERCISE if is_push_day else HAMSTRING_PULL_EXERCISE
+    )
 
     # ----- upper block -----
     if is_push_day:
@@ -119,4 +108,4 @@ def get_session_exercises(session_index: int) -> list[str]:
         ]
 
     shoulder_ex = SHOULDER_ROTATION[session_index % len(SHOULDER_ROTATION)]
-    return leg_block + upper_block + [shoulder_ex]
+    return [hamstring_exercise] + upper_block + [shoulder_ex]

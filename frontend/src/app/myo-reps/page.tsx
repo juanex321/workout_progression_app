@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
+import { SessionHeader } from "@/components/SessionHeader";
 
 type Stage = "idle" | "mini" | "ready" | "done";
 type MiniSet = { order_index: number; reps: number };
@@ -33,8 +34,14 @@ type ExistingExerciseSession = {
 };
 
 type BootstrapPayload = {
-  session: { session_id: number; date: string; completed: number };
-  straight_session_id: number;
+  session: {
+    session_id: number;
+    session_number: number;
+    latest_session_number: number;
+    date: string;
+    completed: number;
+  };
+  straight_session_id: number | null;
   exercises: TodayExercise[];
   exercise_sessions: ExistingExerciseSession[];
 };
@@ -272,10 +279,11 @@ function MuscleFeedbackBlock({ muscleGroup, feedback, onChange, onSubmit }: {
   );
 }
 
-function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
+function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
   exercise: TodayExercise;
   myoSessionId: number;
   state: ExerciseState;
+  readOnly: boolean;
   onChange: (patch: Partial<ExerciseState>) => void;
 }) {
   const { stage, sessionId, weight, reps, loggedActivationReps, miniSets, miniRepsInput, submitting, error } = state;
@@ -294,6 +302,18 @@ function ExerciseCard({ exercise, myoSessionId, state, onChange }: {
       target={target}
     />
   );
+
+  if (readOnly) {
+    return (
+      <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 overflow-hidden">
+        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/60">
+          <span className="font-medium text-zinc-100">{exercise.name}</span>
+          <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded">Completed</span>
+        </div>
+        <div className="px-4 py-3">{compactSummary}</div>
+      </div>
+    );
+  }
 
   const logActivation = async () => {
     if (activationInput < 1) {
@@ -446,6 +466,10 @@ export default function MyoRepsPage() {
   const [sessionDone, setSessionDone] = useState(false);
   const [finishing, setFinishing] = useState(false);
   const [loadingNextSession, setLoadingNextSession] = useState(false);
+  const [sessionNumber, setSessionNumber] = useState(1);
+  const [latestSessionNumber, setLatestSessionNumber] = useState(1);
+  const [sessionCompleted, setSessionCompleted] = useState(0);
+  const [isNavigating, setIsNavigating] = useState(false);
 
   const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => {
     setExStates((prev) => ({ ...prev, [exerciseId]: { ...prev[exerciseId], ...patch } }));
@@ -458,10 +482,12 @@ export default function MyoRepsPage() {
     }));
   };
 
-  const loadCurrentSession = useCallback(async () => {
-    const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
+  const applySessionPayload = useCallback((payload: BootstrapPayload) => {
     setMyoSessionId(payload.session.session_id);
     setStraightSessionId(payload.straight_session_id);
+    setSessionNumber(payload.session.session_number);
+    setLatestSessionNumber(payload.session.latest_session_number);
+    setSessionCompleted(payload.session.completed);
     setExercises(payload.exercises);
     setSorenessState({});
     setMuscleFeedback({});
@@ -485,6 +511,27 @@ export default function MyoRepsPage() {
     }
     setExStates(initial);
   }, []);
+
+  const loadCurrentSession = useCallback(async () => {
+    const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
+    applySessionPayload(payload);
+  }, [applySessionPayload]);
+
+  const navigateSession = async (newSessionNumber: number) => {
+    if (isNavigating || newSessionNumber < 1 || newSessionNumber > latestSessionNumber) return;
+    setIsNavigating(true);
+    setPageError("");
+    try {
+      const payload = newSessionNumber === latestSessionNumber
+        ? await fetchJSON<BootstrapPayload>("/api/myo/current")
+        : await fetchJSON<BootstrapPayload>(`/api/myo/sessions/by-number/${newSessionNumber}`);
+      applySessionPayload(payload);
+    } catch (e) {
+      setPageError((e as Error).message);
+    } finally {
+      setIsNavigating(false);
+    }
+  };
 
   useEffect(() => {
     async function init() {
@@ -576,6 +623,15 @@ export default function MyoRepsPage() {
         <a href="/straight-sets" className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-red-600 hover:text-red-500 transition-colors">Straight Sets</a>
       </div>
 
+      <SessionHeader
+        sessionNumber={sessionNumber}
+        completed={sessionCompleted}
+        maxSession={latestSessionNumber}
+        isNavigating={isNavigating}
+        showForward={sessionNumber < latestSessionNumber}
+        onNavigate={navigateSession}
+      />
+
       {pageError && <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">{pageError}</div>}
       {sessionDone && <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center"><p className="text-green-400 font-semibold">Session complete!</p><p className="text-xs text-zinc-400 mt-1">{loadingNextSession ? "Loading next session..." : "Rotation advanced."}</p></div>}
 
@@ -591,13 +647,13 @@ export default function MyoRepsPage() {
             <div className="flex items-center gap-2 px-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" /><span className="text-sm font-semibold text-zinc-100">{mg}</span><span className="ml-auto text-xs text-zinc-500">{current} / {target} reps</span></div>
             <RepProgress current={current} target={target} />
             <SorenessBlock muscleGroup={mg} value={sorenessState[mg] ?? null} onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))} />
-            {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", loggedActivationReps: null, miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} onChange={(patch) => patchExState(ex.id, patch)} />)}
-            {muscleReady && !muscleDone && <MuscleFeedbackBlock muscleGroup={mg} feedback={feedback} onChange={(patch) => patchMuscleFeedback(mg, patch)} onSubmit={() => submitMuscleFeedback(mg, muscleExercises)} />}
+            {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", loggedActivationReps: null, miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} readOnly={sessionCompleted === 1} onChange={(patch) => patchExState(ex.id, patch)} />)}
+            {!sessionCompleted && muscleReady && !muscleDone && <MuscleFeedbackBlock muscleGroup={mg} feedback={feedback} onChange={(patch) => patchMuscleFeedback(mg, patch)} onSubmit={() => submitMuscleFeedback(mg, muscleExercises)} />}
           </div>
         );
       })}
 
-      {!sessionDone && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allDone} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allDone ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allDone ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} done`}</button></div>}
+      {!sessionDone && !sessionCompleted && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allDone} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allDone ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allDone ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} done`}</button></div>}
     </main>
   );
 }

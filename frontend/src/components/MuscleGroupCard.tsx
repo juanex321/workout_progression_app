@@ -138,7 +138,7 @@ export function MuscleGroupCard({
     setFeedbackValues(values);
     setFeedbackComplete(true);
     setCollapsed(true);
-  }, []);
+  }, [setCollapsed]);
 
   const allSetsLogged =
     data.exercises.length > 0 && Object.values(loggedMap).every(Boolean);
