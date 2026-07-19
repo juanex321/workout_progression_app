@@ -384,6 +384,41 @@ def log_mini_set(
     return _exercise_session_response(es, rec)
 
 
+@router.put(
+    "/exercise-sessions/{exercise_session_id}/miniset/{order_index}",
+    response_model=MyoExerciseSessionResponse,
+)
+def update_mini_set(
+    exercise_session_id: int,
+    order_index: int,
+    req: MyoMiniSetRequest,
+    db: OrmSession = Depends(get_db),
+):
+    """Correct a mini-set rep entry before the exercise is finalized."""
+    es = db.get(MyoExerciseSession, exercise_session_id)
+    if not es:
+        raise HTTPException(status_code=404, detail="Exercise session not found")
+    if es.completed:
+        raise HTTPException(status_code=400, detail="Exercise session already completed")
+
+    mini = (
+        db.query(MyoMiniSet)
+        .filter(
+            MyoMiniSet.exercise_session_id == exercise_session_id,
+            MyoMiniSet.order_index == order_index,
+        )
+        .first()
+    )
+    if not mini:
+        raise HTTPException(status_code=404, detail="Mini-set not found")
+
+    mini.reps = req.reps
+    db.commit()
+    db.refresh(es)
+    rec = get_recommendation(db, es.exercise_id)
+    return _exercise_session_response(es, rec)
+
+
 @router.post("/exercise-sessions/{exercise_session_id}/complete", response_model=MyoExerciseSessionResponse)
 def complete_exercise_session(
     exercise_session_id: int,

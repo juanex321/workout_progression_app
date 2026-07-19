@@ -293,6 +293,7 @@ function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
   const current = totalReps(state);
   const minis = miniTotal(state);
   const lastMini = miniSets.at(-1)?.reps ?? null;
+  const [miniEdit, setMiniEdit] = useState<{ orderIndex: number; reps: string } | null>(null);
   const compactSummary = (
     <CompactRepSummary
       weight={weight || exercise.last_weight}
@@ -370,6 +371,30 @@ function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
     }
   };
 
+  const saveMiniSetEdit = async () => {
+    if (!sessionId || !miniEdit) return;
+    const parsed = toInt(miniEdit.reps);
+    if (parsed < 1) {
+      onChange({ error: "Enter mini-set reps" });
+      return;
+    }
+    onChange({ submitting: true, error: "" });
+    try {
+      const es = await fetchJSON<ExistingExerciseSession>(
+        `/api/myo/exercise-sessions/${sessionId}/miniset/${miniEdit.orderIndex}`,
+        {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ reps: parsed }),
+        }
+      );
+      onChange({ miniSets: es.mini_sets, submitting: false });
+      setMiniEdit(null);
+    } catch (e) {
+      onChange({ error: (e as Error).message, submitting: false });
+    }
+  };
+
   return (
     <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 overflow-hidden">
       <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/60">
@@ -425,14 +450,26 @@ function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
         {stage === "mini" && (
           <div className="space-y-3">
             {compactSummary}
+            <button onClick={() => onChange({ stage: "idle" })} className="text-xs text-zinc-500 underline underline-offset-2">Edit activation set</button>
             {activationLogged > ACTIVATION_HIGH && <p className="text-xs text-green-400">Activation was above {ACTIVATION_HIGH}; consider increasing weight next time.</p>}
             {activationLogged > 0 && activationLogged < ACTIVATION_LOW && <p className="text-xs text-orange-400">Activation was below {ACTIVATION_LOW}; weight may be too high today.</p>}
-            {miniSets.length > 0 && <div className="grid grid-cols-8 gap-1">{miniSets.map((ms) => <div key={ms.order_index} className={`text-center py-1 rounded text-[11px] font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`}>{ms.reps}</div>)}</div>}
+            {miniSets.length > 0 && <div className="grid grid-cols-8 gap-1">{miniSets.map((ms) => <button type="button" key={ms.order_index} onClick={() => setMiniEdit({ orderIndex: ms.order_index, reps: String(ms.reps) })} className={`text-center py-1 rounded text-[11px] font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`} aria-label={`Edit mini-set ${ms.order_index}, ${ms.reps} reps`}>{ms.reps}</button>)}</div>}
             {lastMini !== null && lastMini < MIN_REPS_FLOOR && <p className="text-xs text-orange-400">Dropped below {MIN_REPS_FLOOR} reps — stop here.</p>}
-            <div className="flex gap-2">
-              <InlineStepper value={miniRepsInput} onChange={(value) => onChange({ miniRepsInput: value })} step={1} min={1} placeholder="Mini-set reps" suffix="reps" inputMode="numeric" disabled={submitting} onEnter={logMiniSet} />
-              <button onClick={logMiniSet} disabled={submitting} className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Add"}</button>
-            </div>
+            {miniEdit ? (
+              <div className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
+                <p className="text-xs font-medium text-zinc-300">Edit mini-set {miniEdit.orderIndex}</p>
+                <div className="flex gap-2">
+                  <InlineStepper value={miniEdit.reps} onChange={(value) => setMiniEdit((prev) => prev && { ...prev, reps: value })} step={1} min={1} suffix="reps" inputMode="numeric" disabled={submitting} onEnter={saveMiniSetEdit} />
+                  <button onClick={saveMiniSetEdit} disabled={submitting} className="px-4 h-10 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">Save</button>
+                  <button onClick={() => setMiniEdit(null)} disabled={submitting} className="px-3 h-10 rounded-lg bg-zinc-700 text-zinc-300 text-sm disabled:opacity-50">Cancel</button>
+                </div>
+              </div>
+            ) : (
+              <div className="flex gap-2">
+                <InlineStepper value={miniRepsInput} onChange={(value) => onChange({ miniRepsInput: value })} step={1} min={1} placeholder="Mini-set reps" suffix="reps" inputMode="numeric" disabled={submitting} onEnter={logMiniSet} />
+                <button onClick={logMiniSet} disabled={submitting} className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Add"}</button>
+              </div>
+            )}
             <button onClick={() => onChange({ stage: "ready" })} disabled={miniSets.length === 0} className={`w-full h-10 rounded-lg text-sm font-medium disabled:opacity-50 ${current >= target ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>{current >= target ? `Exercise logged — ${current} reps` : `Log exercise · ${current} of ${target}`}</button>
           </div>
         )}
@@ -440,6 +477,7 @@ function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
         {stage === "ready" && (
           <div className="space-y-2">
             {compactSummary}
+            <button onClick={() => onChange({ stage: "idle" })} className="mr-3 text-xs text-zinc-500 underline underline-offset-2">Edit activation set</button>
             <button onClick={() => onChange({ stage: "mini" })} className="text-xs text-zinc-500 underline underline-offset-2">Add more reps</button>
           </div>
         )}
