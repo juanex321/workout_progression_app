@@ -1,5 +1,6 @@
 "use client";
-import { useCallback, useEffect, useState } from "react";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { SessionHeader } from "@/components/SessionHeader";
 
 type Stage = "idle" | "mini" | "ready" | "done";
@@ -59,6 +60,8 @@ type ExerciseState = {
   error: string;
 };
 
+type Snapshot = Record<number, ExerciseState>;
+
 type MuscleFeedbackState = {
   workload: number;
   pump: number;
@@ -70,26 +73,24 @@ const WORKLOAD_LABELS = ["Easy", "Light", "Just Right", "Hard", "Too Much"];
 const PUMP_LABELS = ["Low", "Okay", "Good", "Great", "Huge"];
 const SORENESS_LABELS = ["Never got sore", "Healed a while ago", "Healed right on time", "Still sore"];
 const MIN_REPS_FLOOR = 3;
-const ACTIVATION_LOW = 10;
-const ACTIVATION_HIGH = 20;
 
 async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(url, init);
-  if (!res.ok) {
-    const text = await res.text();
-    throw new Error(text.trimStart().startsWith("<") ? `Server error (${res.status})` : `${res.status}: ${text.slice(0, 200)}`);
+  const response = await fetch(url, init);
+  if (!response.ok) {
+    const text = await response.text();
+    throw new Error(text.trimStart().startsWith("<") ? `Server error (${response.status})` : `${response.status}: ${text.slice(0, 200)}`);
   }
-  return res.json();
+  return response.json();
 }
 
 function toInt(value: string): number {
-  const n = parseInt(value);
-  return Number.isFinite(n) ? n : 0;
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function toNumber(value: string): number {
-  const n = parseFloat(value);
-  return Number.isFinite(n) ? n : 0;
+  const parsed = parseFloat(value);
+  return Number.isFinite(parsed) ? parsed : 0;
 }
 
 function stepValue(value: string, delta: number, min: number): string {
@@ -102,390 +103,192 @@ function miniTotal(state?: ExerciseState): number {
 }
 
 function totalReps(state?: ExerciseState): number {
-  if (!state) return 0;
-  return (state.loggedActivationReps ?? 0) + miniTotal(state);
+  return (state?.loggedActivationReps ?? 0) + miniTotal(state);
 }
 
-function progressPercent(current: number, target: number): number {
-  return target > 0 ? Math.min((current / target) * 100, 100) : 0;
-}
-
-function RepProgress({ current, target }: { current: number; target: number }) {
-  const remaining = Math.max(target - current, 0);
-  return (
-    <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/50 px-3 py-3 space-y-2">
-      <div className="flex items-center justify-between text-xs">
-        <span className="text-zinc-400">Rep budget</span>
-        <span className="font-semibold text-zinc-100">{current} / {target}</span>
-      </div>
-      <div className="h-2 rounded-full bg-zinc-700 overflow-hidden">
-        <div className="h-2 rounded-full bg-red-500 transition-all" style={{ width: `${progressPercent(current, target)}%` }} />
-      </div>
-      <p className="text-[11px] text-zinc-500">
-        {remaining > 0 ? `${remaining} reps remaining` : "Target reached. Stop here unless it still feels too easy."}
-      </p>
-    </div>
+function cloneStates(states: Snapshot): Snapshot {
+  return Object.fromEntries(
+    Object.entries(states).map(([key, value]) => [
+      Number(key),
+      { ...value, miniSets: value.miniSets.map((set) => ({ ...set })) },
+    ])
   );
 }
 
-function CompactRepSummary({
-  weight,
-  activationReps,
-  miniReps,
-  total,
-  target,
-}: {
-  weight: string | number | null;
-  activationReps: number;
-  miniReps: number;
-  total: number;
-  target: number;
-}) {
-  const remaining = Math.max(target - total, 0);
-  return (
-    <div className="rounded-lg border border-zinc-700/40 bg-zinc-900/45 px-3 py-2">
-      <div className="flex items-center justify-between gap-3 text-sm">
-        <span className="text-zinc-300">
-          <span className="font-semibold text-zinc-100">{weight || "—"} × {activationReps}</span>
-          <span className="text-xs text-zinc-500"> activation</span>
-        </span>
-        <span className="font-semibold text-zinc-100">{total} / {target}</span>
-      </div>
-      <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
-        <span>{miniReps} mini reps</span>
-        <span>{remaining > 0 ? `${remaining} left` : "target hit"}</span>
-      </div>
-    </div>
-  );
-}
-
-function SorenessBlock({ muscleGroup, value, onChange }: { muscleGroup: string; value: number | null; onChange: (v: number) => void }) {
-  const [expanded, setExpanded] = useState(value === null);
-  if (!expanded && value !== null) {
-    return (
-      <div className="flex items-center gap-2 rounded-xl border border-zinc-700/50 bg-zinc-900/40 px-3 py-2 text-xs">
-        <span className="text-zinc-500">Recovery:</span>
-        <span className="font-medium text-zinc-200">{SORENESS_LABELS[value - 1]}</span>
-        <button onClick={() => setExpanded(true)} className="ml-auto text-zinc-500 underline underline-offset-2 hover:text-zinc-300">edit</button>
-      </div>
-    );
-  }
-  return (
-    <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3">
-      <p className="text-xs font-medium text-zinc-300 mb-2">How did {muscleGroup} recover?</p>
-      <div className="grid grid-cols-2 gap-1.5">
-        {SORENESS_LABELS.map((label, i) => {
-          const v = i + 1;
-          return (
-            <button key={label} onClick={() => { onChange(v); setExpanded(false); }} className={`rounded-lg border px-2.5 py-2 text-left text-xs ${v === value ? "border-red-500/60 bg-red-500/20 text-red-100" : "border-zinc-700 bg-zinc-800 text-zinc-300"}`}>
-              {label}
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-function InlineStepper({
-  value,
-  onChange,
-  step,
-  min,
-  placeholder,
-  suffix,
-  inputMode,
-  disabled,
-  onEnter,
-}: {
+function InlineStepper({ value, onChange, step, min, suffix, disabled, onEnter }: {
   value: string;
   onChange: (value: string) => void;
   step: number;
   min: number;
-  placeholder?: string;
-  suffix?: string;
-  inputMode: "decimal" | "numeric";
+  suffix: string;
   disabled?: boolean;
   onEnter?: () => void;
 }) {
-  const numericValue = toNumber(value);
   return (
     <div className="flex min-w-0 flex-1 items-center">
-      <button
-        type="button"
-        onClick={() => onChange(stepValue(value, -step, min))}
-        disabled={disabled || numericValue <= min}
-        className="h-10 w-10 shrink-0 rounded-l-lg border border-zinc-600 bg-zinc-700 text-lg font-bold text-zinc-100 active:bg-zinc-600 disabled:opacity-30"
-      >
-        -
-      </button>
+      <button type="button" onClick={() => onChange(stepValue(value, -step, min))} disabled={disabled || toNumber(value) <= min} className="h-10 w-10 rounded-l-lg border border-zinc-600 bg-zinc-700 text-lg font-bold disabled:opacity-30">−</button>
       <div className="relative h-10 min-w-0 flex-1 border-y border-zinc-600 bg-zinc-900/70">
-        <input
-          type="number"
-          inputMode={inputMode}
-          value={value}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && onEnter?.()}
-          placeholder={placeholder}
-          disabled={disabled}
-          className="h-full w-full bg-transparent px-4 text-center text-sm font-semibold text-zinc-100 outline-none focus:ring-1 focus:ring-red-500 disabled:opacity-50"
-        />
-        {suffix && <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-widest text-zinc-500">{suffix}</span>}
+        <input type="number" value={value} onChange={(event) => onChange(event.target.value)} onKeyDown={(event) => event.key === "Enter" && onEnter?.()} disabled={disabled} className="h-full w-full bg-transparent px-4 text-center text-sm font-semibold outline-none focus:ring-1 focus:ring-red-500" />
+        <span className="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 text-[10px] uppercase tracking-widest text-zinc-500">{suffix}</span>
       </div>
-      <button
-        type="button"
-        onClick={() => onChange(stepValue(value, step, min))}
-        disabled={disabled}
-        className="h-10 w-10 shrink-0 rounded-r-lg border border-zinc-600 bg-zinc-700 text-lg font-bold text-zinc-100 active:bg-zinc-600 disabled:opacity-30"
-      >
-        +
-      </button>
+      <button type="button" onClick={() => onChange(stepValue(value, step, min))} disabled={disabled} className="h-10 w-10 rounded-r-lg border border-zinc-600 bg-zinc-700 text-lg font-bold disabled:opacity-30">+</button>
     </div>
   );
 }
 
-function MuscleFeedbackBlock({ muscleGroup, feedback, onChange, onSubmit }: {
-  muscleGroup: string;
-  feedback: MuscleFeedbackState;
-  onChange: (patch: Partial<MuscleFeedbackState>) => void;
-  onSubmit: () => void;
-}) {
+function CompactSummary({ state, target }: { state: ExerciseState; target: number }) {
+  const total = totalReps(state);
   return (
-    <div className="rounded-xl border border-red-500/30 bg-red-500/10 p-3 space-y-3">
-      {feedback.error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-300">{feedback.error}</div>}
-      <p className="text-sm font-semibold text-zinc-100">{muscleGroup} feedback</p>
-      <div className="space-y-1.5">
-        <p className="text-xs text-zinc-400">How was the workload?</p>
-        <div className="flex gap-1">
-          {WORKLOAD_LABELS.map((label, i) => {
-            const v = i + 1;
-            return <button key={label} onClick={() => onChange({ workload: v })} className={`flex-1 py-2 rounded-lg text-xs font-medium ${feedback.workload === v ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{label}</button>;
-          })}
-        </div>
+    <div className="rounded-lg border border-zinc-700/40 bg-zinc-900/45 px-3 py-2">
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="font-semibold text-zinc-100">{state.weight || "—"} × {state.loggedActivationReps ?? 0} <span className="text-xs font-normal text-zinc-500">activation</span></span>
+        <span className="font-semibold text-zinc-100">{total} / {target}</span>
       </div>
-      <div className="space-y-1.5">
-        <p className="text-xs text-zinc-400">How was the pump?</p>
-        <div className="flex gap-1">
-          {PUMP_LABELS.map((label, i) => {
-            const v = i + 1;
-            return <button key={label} onClick={() => onChange({ pump: v })} className={`flex-1 py-2 rounded-lg text-xs font-medium ${feedback.pump === v ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-300"}`}>{label}</button>;
-          })}
-        </div>
+      <div className="mt-1 flex items-center justify-between text-[11px] text-zinc-500">
+        <span>{miniTotal(state)} mini reps</span>
+        <span>{Math.max(target - total, 0)} left</span>
       </div>
-      <button onClick={onSubmit} disabled={feedback.submitting} className="w-full h-10 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">
-        {feedback.submitting ? "Saving..." : "Submit muscle feedback"}
-      </button>
     </div>
   );
 }
 
-function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
+function ExerciseCard({ exercise, myoSessionId, state, editable, onChange }: {
   exercise: TodayExercise;
   myoSessionId: number;
   state: ExerciseState;
-  readOnly: boolean;
+  editable: boolean;
   onChange: (patch: Partial<ExerciseState>) => void;
 }) {
-  const { stage, sessionId, weight, reps, loggedActivationReps, miniSets, miniRepsInput, submitting, error } = state;
   const target = exercise.target_total_reps ?? exercise.muscle_target_total_reps ?? 45;
-  const activationInput = toInt(reps);
-  const activationLogged = loggedActivationReps ?? 0;
-  const current = totalReps(state);
-  const minis = miniTotal(state);
-  const lastMini = miniSets.at(-1)?.reps ?? null;
   const [miniEdit, setMiniEdit] = useState<{ orderIndex: number; reps: string } | null>(null);
-  const compactSummary = (
-    <CompactRepSummary
-      weight={weight || exercise.last_weight}
-      activationReps={activationLogged}
-      miniReps={minis}
-      total={current}
-      target={target}
-    />
-  );
 
-  if (readOnly) {
-    return (
-      <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/60">
-          <span className="font-medium text-zinc-100">{exercise.name}</span>
-          <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded">Completed</span>
-        </div>
-        <div className="px-4 py-3">{compactSummary}</div>
-      </div>
-    );
-  }
+  const applyResponse = (response: ExistingExerciseSession, patch: Partial<ExerciseState> = {}) => {
+    onChange({
+      sessionId: response.exercise_session_id,
+      weight: response.activation_weight != null ? String(response.activation_weight) : state.weight,
+      reps: response.activation_reps != null ? String(response.activation_reps) : state.reps,
+      loggedActivationReps: response.activation_reps,
+      miniSets: response.mini_sets,
+      workload: response.workload_feedback ?? state.workload,
+      submitting: false,
+      error: "",
+      ...patch,
+    });
+  };
 
-  const logActivation = async () => {
-    if (activationInput < 1) {
-      onChange({ error: "Enter activation reps" });
-      return;
-    }
+  const saveActivation = async () => {
+    const activationReps = toInt(state.reps);
+    if (activationReps < 1) return onChange({ error: "Enter activation reps" });
     onChange({ submitting: true, error: "" });
     try {
-      const es = await fetchJSON<ExistingExerciseSession>("/api/myo/exercise-sessions", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          myo_session_id: myoSessionId,
-          exercise_id: exercise.id,
-          activation_weight: weight ? parseFloat(weight) : null,
-          activation_reps: activationInput,
-        }),
-      });
-      onChange({
-        sessionId: es.exercise_session_id,
-        stage: es.completed === 1 ? "done" : "mini",
-        miniSets: es.mini_sets,
-        weight: es.activation_weight != null ? String(es.activation_weight) : weight,
-        reps: es.activation_reps != null ? String(es.activation_reps) : reps,
-        loggedActivationReps: es.activation_reps ?? activationInput,
-        workload: es.workload_feedback ?? 3,
-        submitting: false,
-      });
-    } catch (e) {
-      onChange({ error: (e as Error).message, submitting: false });
+      const response = state.sessionId
+        ? await fetchJSON<ExistingExerciseSession>(`/api/myo/exercise-sessions/${state.sessionId}/activation`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ weight: state.weight ? toNumber(state.weight) : null, reps: activationReps }),
+          })
+        : await fetchJSON<ExistingExerciseSession>("/api/myo/exercise-sessions", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ myo_session_id: myoSessionId, exercise_id: exercise.id, activation_weight: state.weight ? toNumber(state.weight) : null, activation_reps: activationReps }),
+          });
+      applyResponse(response, { stage: response.completed ? "done" : "mini" });
+    } catch (error) {
+      onChange({ submitting: false, error: (error as Error).message });
     }
   };
 
-  const logMiniSet = async () => {
-    if (!sessionId) {
-      onChange({ error: "Log activation first" });
-      return;
-    }
-    const parsed = parseInt(miniRepsInput);
-    if (!parsed || parsed < 1) {
-      onChange({ error: "Enter mini-set reps" });
-      return;
-    }
+  const addMiniSet = async () => {
+    if (!state.sessionId) return onChange({ error: "Log activation first" });
+    const reps = toInt(state.miniRepsInput);
+    if (reps < 1) return onChange({ error: "Enter mini-set reps" });
     onChange({ submitting: true, error: "" });
     try {
-      const es = await fetchJSON<ExistingExerciseSession>(`/api/myo/exercise-sessions/${sessionId}/miniset`, {
+      const response = await fetchJSON<ExistingExerciseSession>(`/api/myo/exercise-sessions/${state.sessionId}/miniset`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ reps: parsed }),
+        body: JSON.stringify({ reps }),
       });
-      onChange({ miniSets: es.mini_sets, miniRepsInput: String(parsed), submitting: false });
-    } catch (e) {
-      onChange({ error: (e as Error).message, submitting: false });
+      applyResponse(response, { miniRepsInput: String(reps) });
+    } catch (error) {
+      onChange({ submitting: false, error: (error as Error).message });
     }
   };
 
-  const saveMiniSetEdit = async () => {
-    if (!sessionId || !miniEdit) return;
-    const parsed = toInt(miniEdit.reps);
-    if (parsed < 1) {
-      onChange({ error: "Enter mini-set reps" });
-      return;
-    }
+  const saveMiniEdit = async () => {
+    if (!state.sessionId || !miniEdit) return;
+    const reps = toInt(miniEdit.reps);
+    if (reps < 1) return onChange({ error: "Enter mini-set reps" });
     onChange({ submitting: true, error: "" });
     try {
-      const es = await fetchJSON<ExistingExerciseSession>(
-        `/api/myo/exercise-sessions/${sessionId}/miniset/${miniEdit.orderIndex}`,
-        {
-          method: "PUT",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ reps: parsed }),
-        }
-      );
-      onChange({ miniSets: es.mini_sets, submitting: false });
+      const response = await fetchJSON<ExistingExerciseSession>(`/api/myo/exercise-sessions/${state.sessionId}/miniset/${miniEdit.orderIndex}`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ reps }),
+      });
+      applyResponse(response);
       setMiniEdit(null);
-    } catch (e) {
-      onChange({ error: (e as Error).message, submitting: false });
+    } catch (error) {
+      onChange({ submitting: false, error: (error as Error).message });
+    }
+  };
+
+  const deleteMiniSet = async (orderIndex: number) => {
+    if (!state.sessionId) return;
+    onChange({ submitting: true, error: "" });
+    try {
+      const response = await fetchJSON<ExistingExerciseSession>(`/api/myo/exercise-sessions/${state.sessionId}/miniset/${orderIndex}`, { method: "DELETE" });
+      applyResponse(response);
+      setMiniEdit(null);
+    } catch (error) {
+      onChange({ submitting: false, error: (error as Error).message });
     }
   };
 
   return (
-    <div className="rounded-xl border border-zinc-700 bg-zinc-800/60 overflow-hidden">
-      <div className="flex items-center justify-between px-4 py-3 border-b border-zinc-700/60">
-        <div>
-          <span className="font-medium text-zinc-100">{exercise.name}</span>
-          <span className="ml-2 text-[10px] uppercase tracking-wider text-zinc-500">{exercise.exercise_role === "finisher" ? "Finisher" : "Main"}</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-xs text-zinc-400">{target} reps</span>
-          {!exercise.calibrated && <span className="text-xs bg-red-500/20 text-red-400 border border-red-500/30 px-2 py-0.5 rounded">Cal {exercise.calibration_session}/3</span>}
-          {stage === "ready" && <span className="text-xs bg-yellow-500/20 text-yellow-300 border border-yellow-500/30 px-2 py-0.5 rounded">Logged</span>}
-          {stage === "done" && <span className="text-xs bg-green-500/20 text-green-400 border border-green-500/30 px-2 py-0.5 rounded">Done</span>}
-        </div>
+    <div className="overflow-hidden rounded-xl border border-zinc-700 bg-zinc-800/60">
+      <div className="flex items-center justify-between border-b border-zinc-700/60 px-4 py-3">
+        <div><span className="font-medium text-zinc-100">{exercise.name}</span><span className="ml-2 text-[10px] uppercase tracking-wider text-zinc-500">{exercise.exercise_role === "finisher" ? "Finisher" : "Main"}</span></div>
+        <span className={`rounded border px-2 py-0.5 text-xs ${state.stage === "done" ? "border-green-500/30 bg-green-500/20 text-green-400" : "border-zinc-600 text-zinc-400"}`}>{state.stage === "done" ? "Done" : `${target} reps`}</span>
       </div>
+      <div className="space-y-3 px-4 py-3">
+        {state.error && <div className="rounded-lg border border-red-500/20 bg-red-500/10 px-3 py-2 text-xs text-red-400">{state.error}</div>}
+        <CompactSummary state={state} target={target} />
 
-      <div className="px-4 py-3 space-y-3">
-        {error && <div className="rounded-lg bg-red-500/10 border border-red-500/20 px-3 py-2 text-xs text-red-400">{error}</div>}
+        {!editable && state.miniSets.length > 0 && (
+          <div><p className="mb-1 text-[10px] uppercase tracking-widest text-zinc-500">Mini-sets</p><div className="flex flex-wrap gap-1.5">{state.miniSets.map((set) => <span key={set.order_index} className="min-w-8 rounded bg-zinc-700/80 px-2 py-1 text-center text-xs text-zinc-200">{set.reps}</span>)}</div></div>
+        )}
 
-        {(exercise.last_weight || exercise.last_reps || exercise.last_total_reps != null || exercise.last_mini_sets != null) && stage !== "done" && (
-          <div className="rounded-lg bg-zinc-900/70 border border-zinc-700/40 px-3 py-2.5 flex items-center justify-between">
+        {editable && (
+          <>
             <div>
-              <p className="text-[10px] uppercase tracking-widest text-zinc-500">Last session</p>
-              <p className="text-sm font-semibold text-zinc-100">
-                {exercise.last_weight ? `${exercise.last_weight}` : ""}{exercise.last_weight && exercise.last_reps ? " × " : ""}{exercise.last_reps ? `${exercise.last_reps} activation` : ""}
-              </p>
+              <p className="mb-1.5 text-xs font-medium uppercase tracking-wide text-zinc-400">Activation set</p>
+              <div className="flex gap-2">
+                <InlineStepper value={state.weight} onChange={(value) => onChange({ weight: value })} step={2.5} min={0} suffix="lb" disabled={state.submitting} />
+                <InlineStepper value={state.reps} onChange={(value) => onChange({ reps: value })} step={1} min={1} suffix="reps" disabled={state.submitting} onEnter={saveActivation} />
+                <button onClick={saveActivation} disabled={state.submitting} className="h-10 rounded-lg bg-red-600 px-3 text-sm font-medium text-white disabled:opacity-50">Save</button>
+              </div>
             </div>
-            {(exercise.last_total_reps ?? exercise.last_mini_sets) != null && (
-              <div className="text-right">
-                <span className="text-2xl font-bold text-red-400 leading-none">{exercise.last_total_reps ?? exercise.last_mini_sets}</span>
-                <p className="text-[10px] text-zinc-500 mt-0.5">total reps</p>
-              </div>
-            )}
-          </div>
-        )}
 
-        {stage === "idle" && (
-          <div className="space-y-3">
-            <p className="text-xs text-zinc-400 uppercase tracking-wide">Activation set — hard set</p>
-            <div className="flex gap-2">
-              <div className="flex-1">
-                <label className="text-xs text-zinc-500 block mb-1">Weight</label>
-                <InlineStepper value={weight} onChange={(value) => onChange({ weight: value })} step={2.5} min={0} placeholder={exercise.last_weight ? String(exercise.last_weight) : "--"} suffix="lb" inputMode="decimal" disabled={submitting} />
-              </div>
-              <div className="flex-1">
-                <label className="text-xs text-zinc-500 block mb-1">Reps</label>
-                <InlineStepper value={reps} onChange={(value) => onChange({ reps: value })} step={1} min={1} placeholder={exercise.last_reps ? String(exercise.last_reps) : "0"} suffix="reps" inputMode="numeric" disabled={submitting} />
-              </div>
-              <div className="flex items-end"><button onClick={logActivation} disabled={submitting} className="h-10 px-4 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Log"}</button></div>
-            </div>
-          </div>
-        )}
+            {state.miniSets.length > 0 && <div className="grid grid-cols-6 gap-1.5">{state.miniSets.map((set) => <button key={set.order_index} type="button" onClick={() => setMiniEdit({ orderIndex: set.order_index, reps: String(set.reps) })} className={`rounded py-1.5 text-xs font-medium ${set.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-200"}`}>{set.reps}</button>)}</div>}
 
-        {stage === "mini" && (
-          <div className="space-y-3">
-            {compactSummary}
-            <button onClick={() => onChange({ stage: "idle" })} className="text-xs text-zinc-500 underline underline-offset-2">Edit activation set</button>
-            {activationLogged > ACTIVATION_HIGH && <p className="text-xs text-green-400">Activation was above {ACTIVATION_HIGH}; consider increasing weight next time.</p>}
-            {activationLogged > 0 && activationLogged < ACTIVATION_LOW && <p className="text-xs text-orange-400">Activation was below {ACTIVATION_LOW}; weight may be too high today.</p>}
-            {miniSets.length > 0 && <div className="grid grid-cols-8 gap-1">{miniSets.map((ms) => <button type="button" key={ms.order_index} onClick={() => setMiniEdit({ orderIndex: ms.order_index, reps: String(ms.reps) })} className={`text-center py-1 rounded text-[11px] font-medium ${ms.reps < MIN_REPS_FLOOR ? "bg-red-500/15 text-red-400" : "bg-zinc-700/80 text-zinc-300"}`} aria-label={`Edit mini-set ${ms.order_index}, ${ms.reps} reps`}>{ms.reps}</button>)}</div>}
-            {lastMini !== null && lastMini < MIN_REPS_FLOOR && <p className="text-xs text-orange-400">Dropped below {MIN_REPS_FLOOR} reps — stop here.</p>}
             {miniEdit ? (
-              <div className="space-y-2 rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
-                <p className="text-xs font-medium text-zinc-300">Edit mini-set {miniEdit.orderIndex}</p>
+              <div className="rounded-lg border border-zinc-700 bg-zinc-900/60 p-3">
+                <p className="mb-2 text-xs font-medium text-zinc-300">Edit mini-set {miniEdit.orderIndex}</p>
                 <div className="flex gap-2">
-                  <InlineStepper value={miniEdit.reps} onChange={(value) => setMiniEdit((prev) => prev && { ...prev, reps: value })} step={1} min={1} suffix="reps" inputMode="numeric" disabled={submitting} onEnter={saveMiniSetEdit} />
-                  <button onClick={saveMiniSetEdit} disabled={submitting} className="px-4 h-10 rounded-lg bg-red-600 text-white text-sm font-medium disabled:opacity-50">Save</button>
-                  <button onClick={() => setMiniEdit(null)} disabled={submitting} className="px-3 h-10 rounded-lg bg-zinc-700 text-zinc-300 text-sm disabled:opacity-50">Cancel</button>
+                  <InlineStepper value={miniEdit.reps} onChange={(value) => setMiniEdit((previous) => previous ? { ...previous, reps: value } : previous)} step={1} min={1} suffix="reps" disabled={state.submitting} onEnter={saveMiniEdit} />
+                  <button onClick={saveMiniEdit} disabled={state.submitting} className="h-10 rounded-lg bg-red-600 px-3 text-sm font-medium text-white">Save</button>
+                  <button onClick={() => deleteMiniSet(miniEdit.orderIndex)} disabled={state.submitting} className="h-10 rounded-lg border border-red-500/40 px-3 text-sm text-red-300">Delete</button>
+                  <button onClick={() => setMiniEdit(null)} disabled={state.submitting} className="h-10 rounded-lg bg-zinc-700 px-3 text-sm text-zinc-300">Cancel</button>
                 </div>
               </div>
             ) : (
               <div className="flex gap-2">
-                <InlineStepper value={miniRepsInput} onChange={(value) => onChange({ miniRepsInput: value })} step={1} min={1} placeholder="Mini-set reps" suffix="reps" inputMode="numeric" disabled={submitting} onEnter={logMiniSet} />
-                <button onClick={logMiniSet} disabled={submitting} className="px-4 h-10 rounded-lg bg-zinc-600 text-zinc-100 text-sm font-medium disabled:opacity-50">{submitting ? "..." : "Add"}</button>
+                <InlineStepper value={state.miniRepsInput} onChange={(value) => onChange({ miniRepsInput: value })} step={1} min={1} suffix="reps" disabled={state.submitting} onEnter={addMiniSet} />
+                <button onClick={addMiniSet} disabled={state.submitting || !state.sessionId} className="h-10 rounded-lg bg-zinc-600 px-4 text-sm font-medium disabled:opacity-50">Add</button>
               </div>
             )}
-            <button onClick={() => onChange({ stage: "ready" })} disabled={miniSets.length === 0} className={`w-full h-10 rounded-lg text-sm font-medium disabled:opacity-50 ${current >= target ? "bg-red-600 text-white" : "bg-zinc-700 text-zinc-400"}`}>{current >= target ? `Exercise logged — ${current} reps` : `Log exercise · ${current} of ${target}`}</button>
-          </div>
-        )}
-
-        {stage === "ready" && (
-          <div className="space-y-2">
-            {compactSummary}
-            <button onClick={() => onChange({ stage: "idle" })} className="mr-3 text-xs text-zinc-500 underline underline-offset-2">Edit activation set</button>
-            <button onClick={() => onChange({ stage: "mini" })} className="text-xs text-zinc-500 underline underline-offset-2">Add more reps</button>
-          </div>
-        )}
-
-        {stage === "done" && (
-          <div className="space-y-2">
-            {compactSummary}
-          </div>
+          </>
         )}
       </div>
     </div>
@@ -494,31 +297,22 @@ function ExerciseCard({ exercise, myoSessionId, state, readOnly, onChange }: {
 
 export default function MyoRepsPage() {
   const [exercises, setExercises] = useState<TodayExercise[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [exStates, setExStates] = useState<Snapshot>({});
+  const [editSnapshot, setEditSnapshot] = useState<Snapshot | null>(null);
   const [myoSessionId, setMyoSessionId] = useState<number | null>(null);
   const [straightSessionId, setStraightSessionId] = useState<number | null>(null);
-  const [pageError, setPageError] = useState("");
-  const [exStates, setExStates] = useState<Record<number, ExerciseState>>({});
-  const [sorenessState, setSorenessState] = useState<Record<string, number | null>>({});
-  const [muscleFeedback, setMuscleFeedback] = useState<Record<string, MuscleFeedbackState>>({});
-  const [sessionDone, setSessionDone] = useState(false);
-  const [finishing, setFinishing] = useState(false);
-  const [loadingNextSession, setLoadingNextSession] = useState(false);
   const [sessionNumber, setSessionNumber] = useState(1);
   const [latestSessionNumber, setLatestSessionNumber] = useState(1);
   const [sessionCompleted, setSessionCompleted] = useState(0);
+  const [editingWorkout, setEditingWorkout] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [isNavigating, setIsNavigating] = useState(false);
+  const [pageError, setPageError] = useState("");
+  const [finishing, setFinishing] = useState(false);
+  const [sorenessState, setSorenessState] = useState<Record<string, number | null>>({});
+  const [muscleFeedback, setMuscleFeedback] = useState<Record<string, MuscleFeedbackState>>({});
 
-  const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => {
-    setExStates((prev) => ({ ...prev, [exerciseId]: { ...prev[exerciseId], ...patch } }));
-  };
-
-  const patchMuscleFeedback = (muscleGroup: string, patch: Partial<MuscleFeedbackState>) => {
-    setMuscleFeedback((prev) => ({
-      ...prev,
-      [muscleGroup]: { ...(prev[muscleGroup] ?? { workload: 3, pump: 3, submitting: false, error: "" }), ...patch },
-    }));
-  };
+  const patchExState = (exerciseId: number, patch: Partial<ExerciseState>) => setExStates((previous) => ({ ...previous, [exerciseId]: { ...previous[exerciseId], ...patch } }));
 
   const applySessionPayload = useCallback((payload: BootstrapPayload) => {
     setMyoSessionId(payload.session.session_id);
@@ -527,18 +321,19 @@ export default function MyoRepsPage() {
     setLatestSessionNumber(payload.session.latest_session_number);
     setSessionCompleted(payload.session.completed);
     setExercises(payload.exercises);
+    setEditingWorkout(false);
+    setEditSnapshot(null);
     setSorenessState({});
     setMuscleFeedback({});
-    const existingByExerciseId = new Map<number, ExistingExerciseSession>();
-    for (const es of payload.exercise_sessions) existingByExerciseId.set(es.exercise_id, es);
-    const initial: Record<number, ExerciseState> = {};
-    for (const ex of payload.exercises) {
-      const existing = existingByExerciseId.get(ex.id);
-      initial[ex.id] = {
-        stage: existing?.completed === 1 ? "done" : existing?.activation_reps != null ? "mini" : "idle",
+    const existingByExercise = new Map(payload.exercise_sessions.map((session) => [session.exercise_id, session]));
+    const initial: Snapshot = {};
+    for (const exercise of payload.exercises) {
+      const existing = existingByExercise.get(exercise.id);
+      initial[exercise.id] = {
+        stage: existing?.completed ? "done" : existing?.activation_reps != null ? "mini" : "idle",
         sessionId: existing?.exercise_session_id ?? null,
-        weight: existing?.activation_weight != null ? String(existing.activation_weight) : ex.last_weight != null ? String(ex.last_weight) : "",
-        reps: existing?.activation_reps != null ? String(existing.activation_reps) : ex.last_reps != null ? String(ex.last_reps) : "",
+        weight: existing?.activation_weight != null ? String(existing.activation_weight) : exercise.last_weight != null ? String(exercise.last_weight) : "",
+        reps: existing?.activation_reps != null ? String(existing.activation_reps) : exercise.last_reps != null ? String(exercise.last_reps) : "",
         loggedActivationReps: existing?.activation_reps ?? null,
         miniSets: existing?.mini_sets ?? [],
         miniRepsInput: existing?.mini_sets.at(-1)?.reps != null ? String(existing.mini_sets.at(-1)?.reps) : "",
@@ -550,168 +345,100 @@ export default function MyoRepsPage() {
     setExStates(initial);
   }, []);
 
-  const loadCurrentSession = useCallback(async () => {
-    const payload = await fetchJSON<BootstrapPayload>("/api/myo/current");
-    applySessionPayload(payload);
-  }, [applySessionPayload]);
+  const loadCurrentSession = useCallback(async () => applySessionPayload(await fetchJSON<BootstrapPayload>("/api/myo/current")), [applySessionPayload]);
 
-  const navigateSession = async (newSessionNumber: number) => {
-    if (isNavigating || newSessionNumber < 1 || newSessionNumber > latestSessionNumber) return;
+  useEffect(() => {
+    loadCurrentSession().catch((error) => setPageError((error as Error).message)).finally(() => setLoading(false));
+  }, [loadCurrentSession]);
+
+  const navigateSession = async (next: number) => {
+    if (isNavigating || next < 1 || next > latestSessionNumber) return;
     setIsNavigating(true);
     setPageError("");
     try {
-      const payload = newSessionNumber === latestSessionNumber
-        ? await fetchJSON<BootstrapPayload>("/api/myo/current")
-        : await fetchJSON<BootstrapPayload>(`/api/myo/sessions/by-number/${newSessionNumber}`);
-      applySessionPayload(payload);
-    } catch (e) {
-      setPageError((e as Error).message);
+      applySessionPayload(await fetchJSON<BootstrapPayload>(next === latestSessionNumber ? "/api/myo/current" : `/api/myo/sessions/by-number/${next}`));
+    } catch (error) {
+      setPageError((error as Error).message);
     } finally {
       setIsNavigating(false);
     }
   };
 
-  useEffect(() => {
-    async function init() {
-      try {
-        await loadCurrentSession();
-      } catch (e) {
-        setPageError((e as Error).message);
-      } finally {
-        setLoading(false);
-      }
-    }
-    init();
-  }, [loadCurrentSession]);
+  const grouped = useMemo(() => {
+    const result: Record<string, TodayExercise[]> = {};
+    for (const exercise of exercises) (result[exercise.muscle_group ?? "Other"] ??= []).push(exercise);
+    return result;
+  }, [exercises]);
 
-  const grouped: Record<string, TodayExercise[]> = {};
-  const orderedGroups: string[] = [];
-  for (const ex of exercises) {
-    const mg = ex.muscle_group ?? "Other";
-    if (!grouped[mg]) { grouped[mg] = []; orderedGroups.push(mg); }
-    grouped[mg].push(ex);
-  }
-
-  const submitMuscleFeedback = async (muscleGroup: string, muscleExercises: TodayExercise[]) => {
-    const feedback = muscleFeedback[muscleGroup] ?? { workload: 3, pump: 3, submitting: false, error: "" };
-    patchMuscleFeedback(muscleGroup, { submitting: true, error: "" });
-    try {
-      const readyExercises = muscleExercises.filter((ex) => exStates[ex.id]?.stage === "ready" && exStates[ex.id]?.sessionId);
-      await Promise.all(readyExercises.map((ex) => fetchJSON(`/api/myo/exercise-sessions/${exStates[ex.id].sessionId}/complete`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          workload_feedback: feedback.workload,
-          soreness_feedback: sorenessState[muscleGroup] ?? 3,
-          pump_feedback: feedback.pump,
-        }),
-      })));
-
-      if (straightSessionId) {
-        await fetchJSON("/api/feedback/muscle-group", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            session_id: straightSessionId,
-            muscle_group: muscleGroup,
-            soreness: sorenessState[muscleGroup] ?? 3,
-            pump: feedback.pump,
-            workload: feedback.workload,
-          }),
-        });
-      }
-
-      for (const ex of readyExercises) {
-        patchExState(ex.id, { stage: "done", workload: feedback.workload });
-      }
-      patchMuscleFeedback(muscleGroup, { submitting: false });
-    } catch (e) {
-      patchMuscleFeedback(muscleGroup, { error: (e as Error).message, submitting: false });
-    }
+  const beginEdit = () => {
+    setEditSnapshot(cloneStates(exStates));
+    setEditingWorkout(true);
   };
 
-  const doneCount = exercises.filter((ex) => ["ready", "done"].includes(exStates[ex.id]?.stage)).length;
-  const totalCount = exercises.length;
-  const allLogged = doneCount === totalCount && totalCount > 0;
+  const cancelEdit = () => {
+    if (editSnapshot) setExStates(cloneStates(editSnapshot));
+    setEditSnapshot(null);
+    setEditingWorkout(false);
+  };
+
+  const finishEdit = async () => {
+    setEditingWorkout(false);
+    setEditSnapshot(null);
+    await navigateSession(sessionNumber);
+  };
 
   const finishSession = async () => {
     if (!myoSessionId) return;
     setFinishing(true);
     setPageError("");
     try {
-      await Promise.all(exercises
-        .filter((ex) => exStates[ex.id]?.stage === "ready" && exStates[ex.id]?.sessionId)
-        .map((ex) => {
-          const feedback = muscleFeedback[ex.muscle_group ?? "Other"] ?? {
-            workload: 3,
-            pump: 3,
-            submitting: false,
-            error: "",
-          };
-          return fetchJSON(`/api/myo/exercise-sessions/${exStates[ex.id].sessionId}/complete`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              workload_feedback: feedback.workload,
-              soreness_feedback: sorenessState[ex.muscle_group ?? "Other"] ?? 3,
-              pump_feedback: feedback.pump,
-            }),
-          });
-        }));
+      await Promise.all(exercises.filter((exercise) => exStates[exercise.id]?.sessionId && exStates[exercise.id]?.stage !== "done").map((exercise) => fetchJSON(`/api/myo/exercise-sessions/${exStates[exercise.id].sessionId}/complete`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ workload_feedback: exStates[exercise.id].workload, soreness_feedback: sorenessState[exercise.muscle_group ?? "Other"] ?? 3, pump_feedback: muscleFeedback[exercise.muscle_group ?? "Other"]?.pump ?? 3 }),
+      })));
       await fetchJSON(`/api/myo/sessions/${myoSessionId}/complete`, { method: "POST" });
-      setSessionDone(true);
-      setLoadingNextSession(true);
       await loadCurrentSession();
-      setSessionDone(false);
-    } catch (e) {
-      setPageError((e as Error).message);
+    } catch (error) {
+      setPageError((error as Error).message);
     } finally {
-      setLoadingNextSession(false);
       setFinishing(false);
     }
   };
 
-  if (loading) return <div className="flex items-center justify-center min-h-screen"><p className="text-zinc-400">Loading...</p></div>;
+  if (loading) return <div className="flex min-h-screen items-center justify-center text-zinc-400">Loading...</div>;
+
+  const historicalOrCompleted = sessionCompleted === 1 || sessionNumber < latestSessionNumber;
+  const allLogged = exercises.length > 0 && exercises.every((exercise) => exStates[exercise.id]?.sessionId && totalReps(exStates[exercise.id]) > 0);
 
   return (
-    <main className="mx-auto max-w-xl px-3 pb-24 pt-4 space-y-4">
-      <div className="flex items-center justify-between">
-        <div><h1 className="text-lg font-semibold text-zinc-100">Myo Reps</h1><p className="text-xs text-zinc-500">Activation drives weight. Total reps drive workload.</p></div>
-        <a href="/straight-sets" className="text-xs text-zinc-400 border border-zinc-700 rounded-lg px-3 py-1.5 hover:border-red-600 hover:text-red-500 transition-colors">Straight Sets</a>
-      </div>
+    <main className="mx-auto max-w-xl space-y-4 px-3 pb-24 pt-4">
+      <div className="flex items-center justify-between"><div><h1 className="text-lg font-semibold text-zinc-100">Myo Reps</h1><p className="text-xs text-zinc-500">Activation drives weight. Total reps drive workload.</p></div><a href="/straight-sets" className="rounded-lg border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400">Straight Sets</a></div>
 
-      <SessionHeader
-        sessionNumber={sessionNumber}
-        completed={sessionCompleted}
-        maxSession={latestSessionNumber}
-        isNavigating={isNavigating}
-        showForward={sessionNumber < latestSessionNumber}
-        onNavigate={navigateSession}
-      />
+      <SessionHeader sessionNumber={sessionNumber} completed={sessionCompleted} maxSession={latestSessionNumber} isNavigating={isNavigating} showForward={sessionNumber < latestSessionNumber} onNavigate={navigateSession} />
 
-      {pageError && <div className="rounded-lg bg-red-500/10 border border-red-500/30 px-3 py-2 text-xs text-red-400">{pageError}</div>}
-      {sessionDone && <div className="rounded-xl border border-green-500/30 bg-green-500/10 px-4 py-4 text-center"><p className="text-green-400 font-semibold">Session complete!</p><p className="text-xs text-zinc-400 mt-1">{loadingNextSession ? "Loading next session..." : "Rotation advanced."}</p></div>}
+      {historicalOrCompleted && (
+        <div className="flex items-center justify-between rounded-xl border border-zinc-700 bg-zinc-900/50 px-3 py-2">
+          <div><p className="text-sm font-medium text-zinc-100">{editingWorkout ? "Editing logged workout" : "Logged workout"}</p><p className="text-xs text-zinc-500">Review every set or correct an entry.</p></div>
+          {editingWorkout ? <div className="flex gap-2"><button onClick={cancelEdit} className="rounded-lg bg-zinc-700 px-3 py-2 text-xs text-zinc-200">Cancel</button><button onClick={finishEdit} className="rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white">Done editing</button></div> : <button onClick={beginEdit} className="rounded-lg border border-red-500/40 bg-red-500/10 px-3 py-2 text-xs font-semibold text-red-300">Edit workout</button>}
+        </div>
+      )}
 
-      {!sessionDone && myoSessionId && orderedGroups.map((mg) => {
-        const muscleExercises = grouped[mg];
-        const current = muscleExercises.reduce((sum, ex) => sum + totalReps(exStates[ex.id]), 0);
-        const target = muscleExercises.reduce((sum, ex) => sum + (ex.target_total_reps ?? 0), 0) || muscleExercises[0]?.muscle_target_total_reps || 45;
-        const muscleReady = muscleExercises.every((ex) => ["ready", "done"].includes(exStates[ex.id]?.stage));
-        const muscleDone = muscleExercises.every((ex) => exStates[ex.id]?.stage === "done");
-        const feedback = muscleFeedback[mg] ?? { workload: 3, pump: 3, submitting: false, error: "" };
+      {pageError && <div className="rounded-lg border border-red-500/30 bg-red-500/10 px-3 py-2 text-xs text-red-400">{pageError}</div>}
+
+      {Object.entries(grouped).map(([muscleGroup, muscleExercises]) => {
+        const current = muscleExercises.reduce((sum, exercise) => sum + totalReps(exStates[exercise.id]), 0);
+        const target = muscleExercises.reduce((sum, exercise) => sum + (exercise.target_total_reps ?? 0), 0) || muscleExercises[0]?.muscle_target_total_reps || 45;
         return (
-          <div key={mg} className="space-y-2">
-            <div className="flex items-center gap-2 px-1"><span className="w-2.5 h-2.5 rounded-full bg-red-500 shrink-0" /><span className="text-sm font-semibold text-zinc-100">{mg}</span><span className="ml-auto text-xs text-zinc-500">{current} / {target} reps</span></div>
-            <RepProgress current={current} target={target} />
-            <SorenessBlock muscleGroup={mg} value={sorenessState[mg] ?? null} onChange={(v) => setSorenessState((prev) => ({ ...prev, [mg]: v }))} />
-            {muscleExercises.map((ex) => <ExerciseCard key={ex.id} exercise={ex} myoSessionId={myoSessionId} state={exStates[ex.id] ?? { stage: "idle", sessionId: null, weight: "", reps: "", loggedActivationReps: null, miniSets: [], miniRepsInput: "", workload: 3, submitting: false, error: "" }} readOnly={sessionCompleted === 1 || sessionNumber < latestSessionNumber} onChange={(patch) => patchExState(ex.id, patch)} />)}
-            {sessionNumber === latestSessionNumber && !sessionCompleted && muscleReady && !muscleDone && <MuscleFeedbackBlock muscleGroup={mg} feedback={feedback} onChange={(patch) => patchMuscleFeedback(mg, patch)} onSubmit={() => submitMuscleFeedback(mg, muscleExercises)} />}
-          </div>
+          <section key={muscleGroup} className="space-y-2">
+            <div className="flex items-center gap-2 px-1"><span className="h-2.5 w-2.5 rounded-full bg-red-500"/><span className="text-sm font-semibold text-zinc-100">{muscleGroup}</span><span className="ml-auto text-xs text-zinc-500">{current} / {target} reps</span></div>
+            {!historicalOrCompleted && <div className="rounded-xl border border-zinc-700/50 bg-zinc-900/40 p-3"><p className="mb-2 text-xs text-zinc-400">Recovery</p><div className="grid grid-cols-2 gap-1.5">{SORENESS_LABELS.map((label, index) => <button key={label} onClick={() => setSorenessState((previous) => ({ ...previous, [muscleGroup]: index + 1 }))} className={`rounded-lg border px-2.5 py-2 text-left text-xs ${(sorenessState[muscleGroup] ?? 0) === index + 1 ? "border-red-500/60 bg-red-500/20 text-red-100" : "border-zinc-700 bg-zinc-800 text-zinc-300"}`}>{label}</button>)}</div></div>}
+            {muscleExercises.map((exercise) => <ExerciseCard key={exercise.id} exercise={exercise} myoSessionId={myoSessionId!} state={exStates[exercise.id]} editable={!historicalOrCompleted || editingWorkout} onChange={(patch) => patchExState(exercise.id, patch)} />)}
+          </section>
         );
       })}
 
-      {!sessionDone && sessionNumber < latestSessionNumber && totalCount === 0 && <p className="text-center text-sm text-zinc-500">No exercises were logged for this session.</p>}
-      {!sessionDone && sessionNumber === latestSessionNumber && !sessionCompleted && myoSessionId && totalCount > 0 && <div className="pt-2"><button onClick={finishSession} disabled={finishing || !allLogged} className={`w-full h-14 rounded-2xl border font-bold text-base transition-colors disabled:opacity-50 ${allLogged ? "border-green-400/30 bg-green-500 text-zinc-950" : "border-zinc-600 bg-zinc-800 text-zinc-300"}`}>{finishing ? "Finishing..." : allLogged ? "Finish Session" : `Finish Session · ${doneCount} / ${totalCount} logged`}</button></div>}
+      {!historicalOrCompleted && myoSessionId && exercises.length > 0 && <button onClick={finishSession} disabled={finishing || !allLogged} className="h-14 w-full rounded-2xl border border-green-400/30 bg-green-500 font-bold text-zinc-950 disabled:border-zinc-600 disabled:bg-zinc-800 disabled:text-zinc-400">{finishing ? "Finishing..." : allLogged ? "Finish Session" : "Finish Session · log all exercises"}</button>}
     </main>
   );
 }
