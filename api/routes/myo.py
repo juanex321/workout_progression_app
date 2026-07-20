@@ -78,6 +78,12 @@ def _mini_reps(es: MyoExerciseSession) -> int:
     return sum(m.reps for m in es.mini_sets)
 
 
+def _sync_completed_total(es: MyoExerciseSession) -> None:
+    """Keep the stored completed total in sync after a correction."""
+    if es.completed:
+        es.completed_mini_sets = _total_reps(es)
+
+
 def _exercise_session_response(
     es: MyoExerciseSession,
     rec: dict,
@@ -115,7 +121,6 @@ def _open_exercise_session(
     myo_session_id: int,
     exercise_id: int,
 ) -> MyoExerciseSession | None:
-    """Return the in-progress row for this exercise in this myo session, if one exists."""
     return (
         db.query(MyoExerciseSession)
         .filter(
@@ -130,7 +135,6 @@ def _open_exercise_session(
 
 @router.get("/today")
 def get_today_exercises(db: OrmSession = Depends(get_db)):
-    """Return today's scheduled exercises with calibration state and last session data."""
     today = date.today()
     myo_session = (
         db.query(MyoSession)
@@ -142,41 +146,30 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
         db.add(myo_session)
         db.flush()
     exercise_names = get_myo_session_exercises(db, myo_session)
-
     lower_names = [name.lower() for name in exercise_names]
-    exercises = (
-        db.query(Exercise)
-        .filter(func.lower(Exercise.name).in_(lower_names))
-        .all()
-    )
+    exercises = db.query(Exercise).filter(func.lower(Exercise.name).in_(lower_names)).all()
     ex_by_name = {e.name.lower(): e for e in exercises}
-
     for name in exercise_names:
         if name.lower() not in ex_by_name:
             exercise = Exercise(name=name, muscle_group=EXERCISE_MUSCLE_GROUPS.get(name))
             db.add(exercise)
             ex_by_name[name.lower()] = exercise
     db.flush()
-
     muscle_counts: dict[str, list[str]] = {}
     for name in exercise_names:
         mg = EXERCISE_MUSCLE_GROUPS.get(name, "Other")
         muscle_counts.setdefault(mg, []).append(name)
-
     result = []
     for name in exercise_names:
         ex = ex_by_name.get(name.lower())
         if not ex:
             continue
-
         muscle_group = EXERCISE_MUSCLE_GROUPS.get(name, "Other")
         role = _exercise_role(name, muscle_group, exercise_names)
         has_finisher = any(EXERCISE_DEFAULT_SETS.get(n) == 1 for n in muscle_counts.get(muscle_group, []))
         muscle_target = starting_total_rep_target(muscle_group, has_finisher=has_finisher)
         default_target = allocate_muscle_reps(muscle_target, role)
         rec = get_recommendation(db, ex.id, default_total_reps=default_target)
-
-        # Pull last weight/reps from straight sets history (set_number=1 = top set)
         last_set = (
             db.query(DbSet)
             .join(WorkoutExercise, DbSet.workout_exercise_id == WorkoutExercise.id)
@@ -186,9 +179,6 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
         )
         last_weight = last_set.weight if last_set else INITIAL_EXERCISE_WEIGHTS.get(name)
         last_reps = last_set.reps if last_set else None
-
-        # Last myo session total-rep count for reference. completed_mini_sets is legacy-named
-        # but now stores total reps completed for the exercise.
         last_es = (
             db.query(MyoExerciseSession)
             .filter(MyoExerciseSession.exercise_id == ex.id, MyoExerciseSession.completed == 1)
@@ -196,7 +186,6 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
             .first()
         )
         last_total_reps = last_es.completed_mini_sets if last_es else None
-
         result.append({
             "id": ex.id,
             "name": name,
@@ -219,13 +208,8 @@ def get_today_exercises(db: OrmSession = Depends(get_db)):
 
 @router.post("/sessions", response_model=MyoSessionResponse)
 def get_or_create_session(db: OrmSession = Depends(get_db)):
-    """Get today's open myo session or create one."""
     today = date.today()
-    sess = (
-        db.query(MyoSession)
-        .filter(MyoSession.date == today, MyoSession.completed == 0)
-        .first()
-    )
+    sess = db.query(MyoSession).filter(MyoSession.date == today, MyoSession.completed == 0).first()
     if not sess:
         sess = MyoSession(date=today)
         db.add(sess)
@@ -238,11 +222,9 @@ def get_or_create_session(db: OrmSession = Depends(get_db)):
 
 @router.get("/sessions/{session_id}/exercise-sessions", response_model=list[MyoExerciseSessionResponse])
 def get_session_exercise_sessions(session_id: int, db: OrmSession = Depends(get_db)):
-    """Return all exercise sessions already logged in a myo session."""
     sess = db.get(MyoSession, session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Myo session not found")
-
     exercise_sessions = (
         db.query(MyoExerciseSession)
         .filter(MyoExerciseSession.myo_session_id == session_id)
@@ -253,11 +235,7 @@ def get_session_exercise_sessions(session_id: int, db: OrmSession = Depends(get_
     return [
         _exercise_session_response(
             es,
-            get_recommendation(
-                db,
-                es.exercise_id,
-                default_total_reps=_default_exercise_target(es.exercise.name, exercise_names),
-            ),
+            get_recommendation(db, es.exercise_id, default_total_reps=_default_exercise_target(es.exercise.name, exercise_names)),
             exercise_names,
         )
         for es in exercise_sessions
@@ -271,58 +249,36 @@ def finish_myo_session(session_id: int, db: OrmSession = Depends(get_db)):
         raise HTTPException(status_code=404, detail="Session not found")
     sess.completed = 1
     db.commit()
-
     return MyoSessionResponse(session_id=sess.id, date=str(sess.date), completed=sess.completed)
 
 
 @router.post("/exercise-sessions", response_model=MyoExerciseSessionResponse)
 def start_exercise(req: MyoStartExerciseRequest, db: OrmSession = Depends(get_db)):
-    """Start or resume an exercise and optionally log/update the activation set."""
     sess = db.get(MyoSession, req.myo_session_id)
     if not sess:
         raise HTTPException(status_code=404, detail="Myo session not found")
     if sess.completed:
         raise HTTPException(status_code=400, detail="Myo session already completed")
-
     exercise = db.get(Exercise, req.exercise_id)
     if not exercise:
         raise HTTPException(status_code=404, detail="Exercise not found")
-
     exercise_names = get_myo_session_exercises(db, sess)
-    default_target = _default_exercise_target(exercise.name, exercise_names)
-    rec = get_recommendation(db, req.exercise_id, default_total_reps=default_target)
-    es = _open_exercise_session(
-        db,
-        myo_session_id=req.myo_session_id,
-        exercise_id=req.exercise_id,
-    )
-
+    rec = get_recommendation(db, req.exercise_id, default_total_reps=_default_exercise_target(exercise.name, exercise_names))
+    es = _open_exercise_session(db, myo_session_id=req.myo_session_id, exercise_id=req.exercise_id)
     if not es:
-        es = MyoExerciseSession(
-            myo_session_id=req.myo_session_id,
-            exercise_id=req.exercise_id,
-            target_mini_sets=rec["target_total_reps"],
-        )
+        es = MyoExerciseSession(myo_session_id=req.myo_session_id, exercise_id=req.exercise_id, target_mini_sets=rec["target_total_reps"])
         db.add(es)
         db.flush()
     elif es.target_mini_sets is None:
         es.target_mini_sets = rec["target_total_reps"]
-
     if req.activation_reps:
         if es.activation_set:
             es.activation_set.weight = req.activation_weight
             es.activation_set.reps = req.activation_reps
         else:
-            act = MyoActivationSet(
-                exercise_session=es,
-                weight=req.activation_weight,
-                reps=req.activation_reps,
-            )
-            db.add(act)
-
+            db.add(MyoActivationSet(exercise_session=es, weight=req.activation_weight, reps=req.activation_reps))
     db.commit()
     db.refresh(es)
-
     return _exercise_session_response(es, rec, exercise_names)
 
 
@@ -331,124 +287,96 @@ def get_exercise_session(exercise_session_id: int, db: OrmSession = Depends(get_
     es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
-    rec = get_recommendation(db, es.exercise_id)
-    return _exercise_session_response(es, rec)
+    return _exercise_session_response(es, get_recommendation(db, es.exercise_id))
 
 
 @router.post("/exercise-sessions/{exercise_session_id}/activation", response_model=MyoExerciseSessionResponse)
-def log_activation_set(
-    exercise_session_id: int,
-    req: MyoActivationSetRequest,
-    db: OrmSession = Depends(get_db),
-):
+def log_activation_set(exercise_session_id: int, req: MyoActivationSetRequest, db: OrmSession = Depends(get_db)):
     es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
-    if es.completed:
-        raise HTTPException(status_code=400, detail="Exercise session already completed")
-
     if es.activation_set:
         es.activation_set.weight = req.weight
         es.activation_set.reps = req.reps
     else:
-        act = MyoActivationSet(exercise_session_id=exercise_session_id, weight=req.weight, reps=req.reps)
-        db.add(act)
+        db.add(MyoActivationSet(exercise_session_id=exercise_session_id, weight=req.weight, reps=req.reps))
+        db.flush()
+    _sync_completed_total(es)
     db.commit()
     db.refresh(es)
-
-    rec = get_recommendation(db, es.exercise_id)
-    return _exercise_session_response(es, rec)
+    return _exercise_session_response(es, get_recommendation(db, es.exercise_id))
 
 
 @router.post("/exercise-sessions/{exercise_session_id}/miniset", response_model=MyoExerciseSessionResponse)
-def log_mini_set(
-    exercise_session_id: int,
-    req: MyoMiniSetRequest,
-    db: OrmSession = Depends(get_db),
-):
+def log_mini_set(exercise_session_id: int, req: MyoMiniSetRequest, db: OrmSession = Depends(get_db)):
     es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
-    if es.completed:
-        raise HTTPException(status_code=400, detail="Exercise session already completed")
     if not es.activation_set:
         raise HTTPException(status_code=400, detail="Log activation set first")
-
-    next_index = (max((m.order_index for m in es.mini_sets), default=0) + 1)
-    mini = MyoMiniSet(exercise_session_id=exercise_session_id, order_index=next_index, reps=req.reps)
-    db.add(mini)
+    next_index = max((m.order_index for m in es.mini_sets), default=0) + 1
+    db.add(MyoMiniSet(exercise_session_id=exercise_session_id, order_index=next_index, reps=req.reps))
+    db.flush()
+    _sync_completed_total(es)
     db.commit()
     db.refresh(es)
-
-    rec = get_recommendation(db, es.exercise_id)
-    return _exercise_session_response(es, rec)
+    return _exercise_session_response(es, get_recommendation(db, es.exercise_id))
 
 
-@router.put(
-    "/exercise-sessions/{exercise_session_id}/miniset/{order_index}",
-    response_model=MyoExerciseSessionResponse,
-)
-def update_mini_set(
-    exercise_session_id: int,
-    order_index: int,
-    req: MyoMiniSetRequest,
-    db: OrmSession = Depends(get_db),
-):
-    """Correct a mini-set rep entry before the exercise is finalized."""
+@router.put("/exercise-sessions/{exercise_session_id}/miniset/{order_index}", response_model=MyoExerciseSessionResponse)
+def update_mini_set(exercise_session_id: int, order_index: int, req: MyoMiniSetRequest, db: OrmSession = Depends(get_db)):
     es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
-    if es.completed:
-        raise HTTPException(status_code=400, detail="Exercise session already completed")
-
-    mini = (
-        db.query(MyoMiniSet)
-        .filter(
-            MyoMiniSet.exercise_session_id == exercise_session_id,
-            MyoMiniSet.order_index == order_index,
-        )
-        .first()
-    )
+    mini = db.query(MyoMiniSet).filter(MyoMiniSet.exercise_session_id == exercise_session_id, MyoMiniSet.order_index == order_index).first()
     if not mini:
         raise HTTPException(status_code=404, detail="Mini-set not found")
-
     mini.reps = req.reps
+    _sync_completed_total(es)
     db.commit()
     db.refresh(es)
-    rec = get_recommendation(db, es.exercise_id)
-    return _exercise_session_response(es, rec)
+    return _exercise_session_response(es, get_recommendation(db, es.exercise_id))
+
+
+@router.delete("/exercise-sessions/{exercise_session_id}/miniset/{order_index}", response_model=MyoExerciseSessionResponse)
+def delete_mini_set(exercise_session_id: int, order_index: int, db: OrmSession = Depends(get_db)):
+    es = db.get(MyoExerciseSession, exercise_session_id)
+    if not es:
+        raise HTTPException(status_code=404, detail="Exercise session not found")
+    mini = db.query(MyoMiniSet).filter(MyoMiniSet.exercise_session_id == exercise_session_id, MyoMiniSet.order_index == order_index).first()
+    if not mini:
+        raise HTTPException(status_code=404, detail="Mini-set not found")
+    db.delete(mini)
+    db.flush()
+    remaining = sorted(es.mini_sets, key=lambda item: item.order_index)
+    for index, item in enumerate(remaining, start=1):
+        item.order_index = index
+    _sync_completed_total(es)
+    db.commit()
+    db.refresh(es)
+    return _exercise_session_response(es, get_recommendation(db, es.exercise_id))
 
 
 @router.post("/exercise-sessions/{exercise_session_id}/complete", response_model=MyoExerciseSessionResponse)
-def complete_exercise_session(
-    exercise_session_id: int,
-    req: MyoCompleteRequest,
-    db: OrmSession = Depends(get_db),
-):
+def complete_exercise_session(exercise_session_id: int, req: MyoCompleteRequest, db: OrmSession = Depends(get_db)):
     es = db.get(MyoExerciseSession, exercise_session_id)
     if not es:
         raise HTTPException(status_code=404, detail="Exercise session not found")
-    if es.completed:
-        raise HTTPException(status_code=400, detail="Already completed")
-
     total_reps_completed = _total_reps(es)
-    # Legacy column name; now stores total reps completed.
     es.completed_mini_sets = total_reps_completed
     es.workload_feedback = req.workload_feedback
+    was_completed = bool(es.completed)
     es.completed = 1
-
-    record_session_result(
-        db,
-        exercise_id=es.exercise_id,
-        total_reps_completed=total_reps_completed,
-        target_total_reps=es.target_mini_sets,
-        workload_feedback=req.workload_feedback,
-        soreness_feedback=req.soreness_feedback or 3,
-        pump_feedback=req.pump_feedback or 3,
-    )
-
+    if not was_completed:
+        record_session_result(
+            db,
+            exercise_id=es.exercise_id,
+            total_reps_completed=total_reps_completed,
+            target_total_reps=es.target_mini_sets,
+            workload_feedback=req.workload_feedback,
+            soreness_feedback=req.soreness_feedback or 3,
+            pump_feedback=req.pump_feedback or 3,
+        )
     db.commit()
     db.refresh(es)
-
-    rec = get_recommendation(db, es.exercise_id)
-    return _exercise_session_response(es, rec)
+    return _exercise_session_response(es, get_recommendation(db, es.exercise_id))
