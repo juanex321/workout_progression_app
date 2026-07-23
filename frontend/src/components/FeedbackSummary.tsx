@@ -57,7 +57,7 @@ export function FeedbackSummary({
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="min-h-11 shrink-0 rounded-xl border border-yellow-300/50 bg-yellow-400 px-4 text-sm font-extrabold text-zinc-950 shadow-lg shadow-yellow-500/10 active:bg-yellow-300"
+          className="min-h-11 shrink-0 rounded-xl border border-red-400/50 bg-red-600 px-4 text-sm font-extrabold text-white shadow-lg shadow-red-600/20 active:bg-red-500"
         >
           Edit feedback
         </button>
@@ -75,20 +75,20 @@ export function FeedbackSummary({
             {currentValues.soreness}/4 · {SORENESS_LABELS[currentValues.soreness - 1]}
           </span>
         </span>
-        <span className="rounded-xl border border-yellow-400/20 bg-black/30 px-3 py-3">
+        <span className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
           <span className="block text-[10px] uppercase tracking-[0.16em] text-zinc-500">Pump</span>
           <span className="mt-1 block text-sm font-semibold text-zinc-100">
             {currentValues.pump}/5 · {PUMP_LABELS[currentValues.pump - 1]}
           </span>
         </span>
-        <span className="rounded-xl border border-yellow-400/20 bg-black/30 px-3 py-3">
+        <span className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
           <span className="block text-[10px] uppercase tracking-[0.16em] text-zinc-500">Workload</span>
           <span className="mt-1 block text-sm font-semibold text-zinc-100">
             {currentValues.workload}/5 · {WORKLOAD_LABELS[currentValues.workload - 1]}
           </span>
         </span>
       </button>
-      <p className="mt-2 text-center text-xs font-medium text-yellow-300">
+      <p className="mt-2 text-center text-xs font-medium text-red-300">
         Tap Edit feedback or any saved value to change it
       </p>
     </div>
