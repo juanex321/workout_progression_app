@@ -2,7 +2,6 @@ export interface SetData {
   set_number: number;
   weight: number | null;
   reps: number | null;
-  rir: number | null;
   logged: boolean;
 }
 
@@ -17,12 +16,11 @@ export interface RecommendedSet {
 export interface LastSessionSummary {
   last_weight: number;
   avg_reps: number;
-  recommended_rir: number;
   set_count: number;
 }
 
 export interface WeightRecommendation {
-  level: "standard" | "strong" | "hold" | "apply";
+  level: "standard" | "strong";
   message: string;
   context_note: string | null;
 }
@@ -45,8 +43,6 @@ export interface ExerciseData {
 
 export interface MuscleGroupData {
   exercises: ExerciseData[];
-  target_rir: number;
-  phase: string;
   feedback_summary: string;
   feedback_exists: boolean;
   feedback_values: {
@@ -81,7 +77,6 @@ export interface SaveSetsRequest {
     weight: number;
     reps: number;
     done: boolean;
-    rir?: number;
   }[];
 }
 

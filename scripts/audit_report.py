@@ -34,7 +34,6 @@ class Set(Base):
     set_number = Column(Integer, nullable=False)
     weight = Column(Float, nullable=True)
     reps = Column(Integer, nullable=True)
-    rir = Column(Integer, nullable=True)
     logged_at = Column(DateTime, nullable=False, default=datetime.now)
     session = relationship("Session", back_populates="sets")
 
@@ -151,7 +150,6 @@ def audit_progression():
                     'set_number': set_obj.set_number,
                     'weight': set_obj.weight,
                     'reps': set_obj.reps,
-                    'rir': set_obj.rir,
                 })
 
             # Get feedback
@@ -175,8 +173,7 @@ def audit_progression():
 
                 print(f"  {exercise_name}:")
                 for set_data in sets_list:
-                    rir_str = f"@{set_data['rir']}" if set_data['rir'] is not None else ""
-                    print(f"    Set {set_data['set_number']}: {set_data['weight']}kg x {set_data['reps']} reps {rir_str}")
+                    print(f"    Set {set_data['set_number']}: {set_data['weight']}kg x {set_data['reps']} reps")
 
                 total_sets = len(sets_list)
                 avg_weight = sum(s['weight'] for s in sets_list) / total_sets if total_sets else 0

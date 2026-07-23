@@ -8,70 +8,6 @@ import { SorenessSelector } from "./SorenessSelector";
 import { useSoreness } from "@/hooks/useSoreness";
 import { getDraft, saveDraftSoreness } from "@/lib/draft";
 
-const RIR_COLORS: Record<number, string> = {
-  0: "border-red-500",
-  1: "border-yellow-500",
-  2: "border-green-500",
-  3: "border-zinc-500",
-  4: "border-blue-500",
-};
-
-const RIR_BG: Record<number, string> = {
-  0: "bg-red-500/8",
-  1: "bg-yellow-500/8",
-  2: "bg-emerald-500/8",
-  3: "bg-zinc-500/8",
-  4: "bg-blue-500/8",
-};
-
-const RIR_PILL: Record<number, string> = {
-  0: "border-red-400/30 bg-red-500/12 text-red-100",
-  1: "border-yellow-400/30 bg-yellow-500/12 text-yellow-100",
-  2: "border-emerald-400/30 bg-emerald-500/12 text-emerald-100",
-  3: "border-zinc-400/20 bg-zinc-500/10 text-zinc-200",
-  4: "border-blue-400/30 bg-blue-500/12 text-blue-100",
-};
-
-const PHASE_LABELS: Record<number, string> = {
-  0: "Max effort",
-  1: "Overreach",
-  2: "Calibration",
-  4: "Deload",
-};
-
-const PHASE_SESSION_TOTALS: Partial<Record<number, number>> = {
-  0: 2,
-  1: 3,
-  2: 4,
-  4: 1,
-};
-
-function getCompactPhaseLabel(phase: string, targetRir: number): string {
-  const baseLabel = PHASE_LABELS[targetRir] ?? phase;
-  const sessionMatch = phase.match(/Session\s+(\d+)(?:\/(\d+))?/i);
-
-  if (sessionMatch) {
-    const current = sessionMatch[1];
-    const total = sessionMatch[2] ?? PHASE_SESSION_TOTALS[targetRir];
-    return total ? `${baseLabel} · S${current}/${total}` : `${baseLabel} · S${current}`;
-  }
-
-  if (/starting fresh/i.test(phase)) {
-    const total = PHASE_SESSION_TOTALS[targetRir];
-    return total ? `${baseLabel} · S1/${total}` : baseLabel;
-  }
-
-  return baseLabel;
-}
-
-const RIR_EMOJI: Record<number, string> = {
-  0: "🔴",
-  1: "🟡",
-  2: "🟢",
-  3: "⚪",
-  4: "🔵",
-};
-
 type FeedbackValues = { soreness: number; pump: number; workload: number };
 
 interface MuscleGroupCardProps {
@@ -79,7 +15,6 @@ interface MuscleGroupCardProps {
   data: MuscleGroupData;
   sessionId: number;
   sessionCompleted: boolean;
-  targetRir: number;
 }
 
 export function MuscleGroupCard({
@@ -87,13 +22,7 @@ export function MuscleGroupCard({
   data,
   sessionId,
   sessionCompleted,
-  targetRir,
 }: MuscleGroupCardProps) {
-  const borderColor = RIR_COLORS[targetRir] ?? "border-zinc-600";
-  const bgColor = RIR_BG[targetRir] ?? "";
-  const rirPill = RIR_PILL[targetRir] ?? "border-white/10 bg-black/25 text-zinc-100";
-  const compactPhase = getCompactPhaseLabel(data.phase, targetRir);
-  const emoji = RIR_EMOJI[targetRir] ?? "";
   const regularExercises = data.exercises.filter((exercise) => !exercise.is_finisher);
   const finisherExercises = data.exercises.filter((exercise) => exercise.is_finisher);
 
@@ -156,9 +85,8 @@ export function MuscleGroupCard({
   const loggedExerciseCount = Object.values(loggedMap).filter(Boolean).length;
 
   return (
-    <section
-      className={`mb-5 overflow-hidden rounded-[28px] border ${borderColor} ${bgColor} bg-zinc-950/90 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur transition-all`}
-    >
+    <section className="mb-5 overflow-hidden rounded-[28px] border border-zinc-700 bg-zinc-950/90 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur transition-all">
+
       <button
         type="button"
         onClick={() => canCollapse && setCollapsed((prev) => !prev)}
@@ -169,9 +97,8 @@ export function MuscleGroupCard({
           <div className="min-w-0">
             <div className="flex flex-wrap items-center gap-2">
               <h2 className="text-2xl font-bold tracking-tight text-zinc-50">
-                {emoji} {muscleGroup}
+                {muscleGroup}
               </h2>
-              <span className="text-sm font-medium text-zinc-400">{compactPhase}</span>
             </div>
             <p className="mt-1 text-sm text-zinc-500">
               {feedbackComplete || sessionCompleted
@@ -182,9 +109,6 @@ export function MuscleGroupCard({
             </p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
-            <span className={`rounded-full border px-3.5 py-1.5 text-sm font-semibold ${rirPill}`}>
-              RIR {targetRir}
-            </span>
             {canCollapse && (
               <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/25 text-lg text-zinc-300">
                 {collapsed ? "+" : "−"}
@@ -226,7 +150,6 @@ export function MuscleGroupCard({
                 key={exercise.we_id}
                 exercise={exercise}
                 sessionId={sessionId}
-                targetRir={targetRir}
                 disabled={sessionCompleted}
                 sorenessLocked={sorenessLocked}
                 feedbackSummary={data.feedback_summary}

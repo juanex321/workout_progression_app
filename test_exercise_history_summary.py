@@ -18,13 +18,12 @@ import services as api_services
 from routes import exercises as exercise_routes
 
 
-def make_set(session_id, set_number, weight, reps, rir):
+def make_set(session_id, set_number, weight, reps):
     return SimpleNamespace(
         session_id=session_id,
         set_number=set_number,
         weight=weight,
         reps=reps,
-        rir=rir,
     )
 
 
@@ -63,7 +62,7 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         self.db.flush()
         return session
 
-    def add_sets(self, session_id, workout_exercise_id, reps, weight=150.0, rir=2):
+    def add_sets(self, session_id, workout_exercise_id, reps, weight=150.0):
         for idx, rep_count in enumerate(reps, start=1):
             self.db.add(
                 api_db.Set(
@@ -72,119 +71,73 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
                     set_number=idx,
                     weight=weight,
                     reps=rep_count,
-                    rir=rir,
                 )
             )
         self.db.flush()
 
     def test_build_last_session_metadata_returns_none_without_history(self):
-        summary, recommendation = api_services.build_last_session_metadata([], current_target_rir=2)
-        self.assertIsNone(summary)
-        self.assertIsNone(recommendation)
-
-    def test_build_last_session_metadata_requires_rir(self):
-        last_sets = [
-            make_set(session_id=1, set_number=1, weight=150.0, reps=12, rir=None),
-            make_set(session_id=1, set_number=2, weight=150.0, reps=12, rir=None),
-        ]
-
-        summary, recommendation = api_services.build_last_session_metadata(
-            last_sets,
-            current_target_rir=2,
-        )
-
+        summary, recommendation = api_services.build_last_session_metadata([])
         self.assertIsNone(summary)
         self.assertIsNone(recommendation)
 
     def test_build_last_session_metadata_does_not_trigger_at_12_reps(self):
         last_sets = [
-            make_set(1, 1, 150.0, 12, 2),
-            make_set(1, 2, 150.0, 12, 2),
-            make_set(1, 3, 150.0, 13, 2),
-            make_set(1, 4, 150.0, 12, 2),
-            make_set(1, 5, 150.0, 11, 2),
+            make_set(1, 1, 150.0, 12),
+            make_set(1, 2, 150.0, 12),
+            make_set(1, 3, 150.0, 13),
+            make_set(1, 4, 150.0, 12),
+            make_set(1, 5, 150.0, 11),
         ]
 
-        summary, recommendation = api_services.build_last_session_metadata(
-            last_sets,
-            current_target_rir=2,
-        )
+        summary, recommendation = api_services.build_last_session_metadata(last_sets)
 
         self.assertEqual(
             summary,
-            {"last_weight": 150.0, "avg_reps": 12, "recommended_rir": 2, "set_count": 5},
+            {"last_weight": 150.0, "avg_reps": 12, "set_count": 5},
         )
         self.assertIsNone(recommendation)
 
     def test_build_last_session_metadata_requires_first_set_15(self):
         last_sets = [
-            make_set(1, 1, 50.0, 14, 2),
-            make_set(1, 2, 50.0, 15, 2),
-            make_set(1, 3, 50.0, 15, 2),
-            make_set(1, 4, 50.0, 15, 2),
+            make_set(1, 1, 50.0, 14),
+            make_set(1, 2, 50.0, 15),
+            make_set(1, 3, 50.0, 15),
+            make_set(1, 4, 50.0, 15),
         ]
 
-        _, recommendation = api_services.build_last_session_metadata(
-            last_sets,
-            current_target_rir=2,
-        )
+        _, recommendation = api_services.build_last_session_metadata(last_sets)
 
         self.assertIsNone(recommendation)
 
     def test_build_last_session_metadata_does_not_trigger_at_2_of_5_sets(self):
         last_sets = [
-            make_set(1, 1, 50.0, 12, 2),
-            make_set(1, 2, 50.0, 12, 2),
-            make_set(1, 3, 50.0, 11, 2),
-            make_set(1, 4, 50.0, 10, 2),
-            make_set(1, 5, 50.0, 9, 2),
+            make_set(1, 1, 50.0, 12),
+            make_set(1, 2, 50.0, 12),
+            make_set(1, 3, 50.0, 11),
+            make_set(1, 4, 50.0, 10),
+            make_set(1, 5, 50.0, 9),
         ]
 
-        summary, recommendation = api_services.build_last_session_metadata(
-            last_sets,
-            current_target_rir=2,
-        )
+        summary, recommendation = api_services.build_last_session_metadata(last_sets)
 
         self.assertIsNotNone(summary)
         self.assertIsNone(recommendation)
 
     def test_build_last_session_metadata_triggers_strong_at_4_of_5_sets(self):
         last_sets = [
-            make_set(1, 1, 150.0, 15, 2),
-            make_set(1, 2, 150.0, 15, 2),
-            make_set(1, 3, 150.0, 16, 2),
-            make_set(1, 4, 150.0, 15, 2),
-            make_set(1, 5, 150.0, 14, 2),
+            make_set(1, 1, 150.0, 15),
+            make_set(1, 2, 150.0, 15),
+            make_set(1, 3, 150.0, 16),
+            make_set(1, 4, 150.0, 15),
+            make_set(1, 5, 150.0, 14),
         ]
 
-        _, recommendation = api_services.build_last_session_metadata(
-            last_sets,
-            current_target_rir=2,
-        )
+        _, recommendation = api_services.build_last_session_metadata(last_sets)
 
-        self.assertEqual(recommendation["level"], "apply")
+        self.assertEqual(recommendation["level"], "strong")
         self.assertEqual(
             recommendation["message"],
-            api_services.WEIGHT_RECOMMENDATION_APPLY,
-        )
-
-    def test_build_last_session_metadata_adds_rir_context_without_changing_level(self):
-        last_sets = [
-            make_set(1, 1, 150.0, 15, 2),
-            make_set(1, 2, 150.0, 13, 2),
-            make_set(1, 3, 150.0, 12, 2),
-            make_set(1, 4, 150.0, 11, 2),
-        ]
-
-        _, recommendation = api_services.build_last_session_metadata(
-            last_sets,
-            current_target_rir=1,
-        )
-
-        self.assertEqual(recommendation["level"], "standard")
-        self.assertEqual(
-            recommendation["context_note"],
-            "Even more so at RIR 1 today.",
+            api_services.WEIGHT_RECOMMENDATION_STRONG,
         )
 
     def test_get_exercise_last_session_metadata_uses_most_recent_completed_session(self):
@@ -196,20 +149,19 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         session_2 = self.add_session(workout.id, session_number=2, completed=1)
         current_session = self.add_session(workout.id, session_number=3, completed=0)
 
-        self.add_sets(session_1.id, exercise.id, reps=[10, 10, 10, 10], weight=120.0, rir=2)
-        self.add_sets(session_2.id, exercise.id, reps=[15, 12, 12, 11], weight=150.0, rir=2)
+        self.add_sets(session_1.id, exercise.id, reps=[10, 10, 10, 10], weight=120.0)
+        self.add_sets(session_2.id, exercise.id, reps=[15, 12, 12, 11], weight=150.0)
         self.db.commit()
 
         summary, recommendation = api_services.get_exercise_last_session_metadata(
             self.db,
             workout_exercise_id=exercise.id,
             before_session_number=current_session.session_number,
-            current_target_rir=2,
         )
 
         self.assertEqual(summary["last_weight"], 150.0)
         self.assertEqual(summary["avg_reps"], 12)
-        self.assertEqual(recommendation["level"], "apply")
+        self.assertEqual(recommendation["level"], "standard")
 
     def test_get_exercise_last_session_metadata_ignores_current_in_progress_session(self):
         workout = self.seed_workout()
@@ -219,20 +171,18 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         previous_session = self.add_session(workout.id, session_number=1, completed=1)
         current_session = self.add_session(workout.id, session_number=2, completed=0)
 
-        self.add_sets(previous_session.id, exercise.id, reps=[15, 12, 12, 11], weight=150.0, rir=2)
-        self.add_sets(current_session.id, exercise.id, reps=[20, 20, 20, 20], weight=200.0, rir=0)
+        self.add_sets(previous_session.id, exercise.id, reps=[15, 12, 12, 11], weight=150.0)
+        self.add_sets(current_session.id, exercise.id, reps=[20, 20, 20, 20], weight=200.0)
         self.db.commit()
 
         summary, recommendation = api_services.get_exercise_last_session_metadata(
             self.db,
             workout_exercise_id=exercise.id,
             before_session_number=current_session.session_number,
-            current_target_rir=2,
         )
 
         self.assertEqual(summary["last_weight"], 150.0)
-        self.assertEqual(summary["recommended_rir"], 2)
-        self.assertEqual(recommendation["level"], "apply")
+        self.assertEqual(recommendation["level"], "standard")
 
     def test_get_exercise_last_session_metadata_is_isolated_to_same_exercise(self):
         workout = self.seed_workout()
@@ -253,14 +203,13 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         previous_session = self.add_session(workout.id, session_number=1, completed=1)
         current_session = self.add_session(workout.id, session_number=2, completed=0)
 
-        self.add_sets(previous_session.id, sissy_squat.id, reps=[15, 15, 15, 15], weight=80.0, rir=2)
+        self.add_sets(previous_session.id, sissy_squat.id, reps=[15, 15, 15, 15], weight=80.0)
         self.db.commit()
 
         summary, recommendation = api_services.get_exercise_last_session_metadata(
             self.db,
             workout_exercise_id=leg_extension.id,
             before_session_number=current_session.session_number,
-            current_target_rir=2,
         )
 
         self.assertIsNone(summary)
@@ -279,7 +228,7 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         previous_session = self.add_session(workout.id, session_number=1, completed=1)
         current_session = self.add_session(workout.id, session_number=2, completed=0)
 
-        self.add_sets(previous_session.id, leg_extension.id, reps=[15, 12, 12, 11], weight=150.0, rir=2)
+        self.add_sets(previous_session.id, leg_extension.id, reps=[15, 12, 12, 11], weight=150.0)
         self.db.commit()
 
         result = exercise_routes.get_workout_data(session_id=current_session.id, db=self.db)
@@ -289,12 +238,11 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         self.assertIsNotNone(leg_extension_payload.last_session_summary)
         self.assertEqual(leg_extension_payload.last_session_summary.last_weight, 150.0)
         self.assertEqual(leg_extension_payload.last_session_summary.avg_reps, 12)
-        self.assertEqual(leg_extension_payload.last_session_summary.recommended_rir, 2)
         self.assertIsNotNone(leg_extension_payload.weight_recommendation)
-        self.assertEqual(leg_extension_payload.weight_recommendation.level, "apply")
+        self.assertEqual(leg_extension_payload.weight_recommendation.level, "standard")
         self.assertEqual(
             leg_extension_payload.weight_recommendation.message,
-            api_services.WEIGHT_RECOMMENDATION_APPLY,
+            api_services.WEIGHT_RECOMMENDATION_STANDARD,
         )
         self.assertIsNone(leg_extension_payload.weight_recommendation.context_note)
 

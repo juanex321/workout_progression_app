@@ -97,7 +97,6 @@ export default function StraightSetsPage() {
               data={data}
               sessionId={workoutData.session_id}
               sessionCompleted={workoutData.completed === 1}
-              targetRir={data.target_rir}
             />
           ))}
 

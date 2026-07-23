@@ -17,7 +17,6 @@ from progression import (
     recommend_weights_and_reps,
 )
 from plan import get_session_exercises
-from rir_progression import RIR_DELOAD, RIR_FAILURE, RIR_HARD, get_rir_for_muscle_group
 
 
 class MevProgressionTests(unittest.TestCase):
@@ -64,7 +63,7 @@ class MevProgressionTests(unittest.TestCase):
         self.db.flush()
         return session
 
-    def add_sets(self, session, we, count, rir, weight=30.0, first_reps=12):
+    def add_sets(self, session, we, count, weight=30.0, first_reps=12):
         for set_number in range(1, count + 1):
             self.db.add(
                 Set(
@@ -73,7 +72,6 @@ class MevProgressionTests(unittest.TestCase):
                     set_number=set_number,
                     weight=weight,
                     reps=max(5, first_reps - set_number + 1),
-                    rir=rir,
                 )
             )
         self.db.flush()
@@ -111,55 +109,32 @@ class MevProgressionTests(unittest.TestCase):
         self.assertEqual(feedback[0].session_id, completed.id)
         self.assertEqual(compute_feedback_adjustment(self.db, "Chest"), 0)
 
-    def test_two_rir0_sessions_reset_to_rir2(self):
-        cable_curl = self.add_we("Cable Curl", "Biceps")
-        for session_number in (1, 2):
-            session = self.add_session(session_number)
-            self.add_sets(session, cable_curl, count=4, rir=RIR_FAILURE)
-        self.db.commit()
-
-        target_rir, phase, _ = get_rir_for_muscle_group(self.db, "Biceps")
-
-        self.assertEqual(target_rir, RIR_HARD)
-        self.assertIn("Peak complete", phase)
-
-    def test_high_fatigue_after_two_rir0_sessions_deloads(self):
-        cable_curl = self.add_we("Cable Curl", "Biceps")
-        for session_number in (1, 2):
-            session = self.add_session(session_number)
-            self.add_sets(session, cable_curl, count=4, rir=RIR_FAILURE)
-            self.add_feedback(session, "Biceps", soreness=3, pump=4, workload=4)
-        self.db.commit()
-
-        target_rir, _, _ = get_rir_for_muscle_group(self.db, "Biceps")
-
-        self.assertEqual(target_rir, RIR_DELOAD)
-
-    def test_biceps_peak_reset_recommends_five_total_sets(self):
+    def test_biceps_sets_clamp_to_muscle_volume_cap(self):
+        """Even with a high last-session anchor, sets never exceed the muscle's window max."""
         cable_curl = self.add_we("Cable Curl", "Biceps", target_sets=8, target_reps=15)
         incline_curl = self.add_we("Incline DB Curl", "Biceps", target_sets=1, target_reps=14)
 
         for session_number, total_sets in enumerate((9, 11, 11, 9, 8), start=1):
             session = self.add_session(session_number)
             main_sets = total_sets - 1
-            self.add_sets(session, cable_curl, count=main_sets, rir=RIR_FAILURE)
-            self.add_sets(session, incline_curl, count=1, rir=RIR_FAILURE, weight=15.0)
+            self.add_sets(session, cable_curl, count=main_sets)
+            self.add_sets(session, incline_curl, count=1, weight=15.0)
             self.add_feedback(session, "Biceps", soreness=2, pump=4, workload=3)
         self.db.commit()
 
-        target_rir, _, _ = get_rir_for_muscle_group(self.db, "Biceps")
         main_recommendations = recommend_weights_and_reps(self.db, cable_curl, "Biceps")
         finisher_recommendations = recommend_weights_and_reps(self.db, incline_curl, "Biceps")
 
-        self.assertEqual(target_rir, RIR_HARD)
-        self.assertEqual(len(main_recommendations), 4)
+        # Biceps window max is 6 total sets; incline_curl (a finisher) always takes 1,
+        # so cable_curl is clamped to 5 even though recent history anchored higher.
+        self.assertEqual(len(main_recommendations), 5)
         self.assertEqual(len(finisher_recommendations), 1)
 
     def test_legacy_hamstring_target_clamps_to_cap(self):
         leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=7)
         for session_number in (1, 2):
             session = self.add_session(session_number)
-            self.add_sets(session, leg_curl, count=7, rir=RIR_HARD)
+            self.add_sets(session, leg_curl, count=7)
             self.add_feedback(session, "Hamstrings", soreness=2, pump=3, workload=3)
         self.db.commit()
 

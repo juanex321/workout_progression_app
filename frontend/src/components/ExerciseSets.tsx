@@ -46,7 +46,6 @@ function clearDraft(sessionId: number, weId: number): void {
 interface ExerciseSetsProps {
   exercise: ExerciseData;
   sessionId: number;
-  targetRir: number;
   disabled: boolean;
   sorenessLocked?: boolean;
   feedbackSummary?: string;
@@ -56,7 +55,6 @@ interface ExerciseSetsProps {
 export function ExerciseSets({
   exercise,
   sessionId,
-  targetRir,
   disabled,
   sorenessLocked,
   feedbackSummary,
@@ -213,7 +211,6 @@ export function ExerciseSets({
               weight: setRow.weight,
               reps: setRow.reps,
               done: true,
-              rir: targetRir,
             })),
         },
         {
@@ -251,7 +248,7 @@ export function ExerciseSets({
         }
       );
     },
-    [sets, sessionId, exercise.we_id, targetRir, logSet]
+    [sets, sessionId, exercise.we_id, logSet]
   );
 
   const handleSetCountChange = useCallback((newCount: number) => {
@@ -290,7 +287,6 @@ export function ExerciseSets({
         typeof exercise.last_session_summary.set_count === "number"
           ? `${exercise.last_session_summary.set_count} sets`
           : null,
-        `RIR ${exercise.last_session_summary.recommended_rir}`,
       ]
         .filter(Boolean)
         .join(", ")
@@ -372,12 +368,8 @@ export function ExerciseSets({
       {exercise.weight_recommendation && (() => {
         const rec = exercise.weight_recommendation;
         const styles =
-          rec.level === "apply"
-            ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-200"
-            : rec.level === "strong"
+          rec.level === "strong"
             ? "border-amber-400/30 bg-amber-500/10 text-amber-200"
-            : rec.level === "hold"
-            ? "border-zinc-400/20 bg-zinc-500/8 text-zinc-300"
             : "border-amber-400/20 bg-amber-400/8 text-amber-200";
         return (
           <p className={`mt-2 rounded-xl border px-3 py-2 text-xs ${styles}`}>

@@ -232,7 +232,6 @@ class Set(Base):
     set_number: Mapped[int] = mapped_column(Integer, nullable=False)
     weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
     reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    rir: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="sets")

@@ -1,11 +1,6 @@
 @import "tailwindcss";
 
 :root {
-  --rir-0: #ef4444;
-  --rir-1: #f97316;
-  --rir-2: #eab308;
-  --rir-3: #22c55e;
-  --rir-4: #3b82f6;
   --surface: #09090b;
   --surface-elevated: rgba(24, 24, 27, 0.78);
   --line-soft: rgba(255, 255, 255, 0.08);

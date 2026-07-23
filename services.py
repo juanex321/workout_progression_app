@@ -153,7 +153,7 @@ def load_existing_sets(db, session_id: int, workout_exercise_id: int) -> list[Se
 
 def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
     """
-    rows: iterable of dict-like rows with set_number, weight, reps, done(optional), rir(optional)
+    rows: iterable of dict-like rows with set_number, weight, reps, done(optional)
     Upserts each row by set_number — safe to retry, never wipes previously saved sets.
     """
     for row in rows:
@@ -173,7 +173,6 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
         if existing:
             existing.weight = float(row["weight"])
             existing.reps = int(row["reps"])
-            existing.rir = float(row.get("rir")) if row.get("rir") is not None else None
         else:
             db.add(Set(
                 session_id=session_id,
@@ -181,7 +180,6 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
                 set_number=set_num,
                 weight=float(row["weight"]),
                 reps=int(row["reps"]),
-                rir=float(row.get("rir")) if row.get("rir") is not None else None,
             ))
 
     db.commit()

@@ -17,10 +17,8 @@ from db import (
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
-WEIGHT_RECOMMENDATION_STANDARD = "Good candidate for a weight increase — consider adding 2.5 kg next wave"
-WEIGHT_RECOMMENDATION_STRONG = "Strong candidate for a weight increase — add 2.5–5 kg next wave"
-WEIGHT_RECOMMENDATION_APPLY = "Wave reset: apply the weight increase you earned at peak — bump weight now"
-WEIGHT_RECOMMENDATION_HOLD = "Weight increase earned — apply it at your next wave reset (RIR 2)"
+WEIGHT_RECOMMENDATION_STANDARD = "Good candidate for a weight increase — consider adding 2.5 kg next session"
+WEIGHT_RECOMMENDATION_STRONG = "Strong candidate for a weight increase — add 2.5–5 kg next session"
 
 
 def get_current_session(db, workout_id: int) -> DbSession:
@@ -168,14 +166,10 @@ def get_previous_completed_exercise_sets(
     db,
     workout_exercise_id: int,
     before_session_number: int,
-    skip_deload: bool = False,
 ) -> list[Set]:
     """
     Return the logged sets for the most recent completed session strictly before
     the reference session number for this exact workout exercise.
-
-    skip_deload=True: skip any session where all sets have RIR >= 4 (deload sessions
-    don't reflect working capacity and shouldn't drive weight recommendations).
     """
     sets = (
         db.query(Set)
@@ -191,17 +185,11 @@ def get_previous_completed_exercise_sets(
     if not sets:
         return []
 
-    # Group into sessions (ordered most-recent first)
+    # Group into sessions (ordered most-recent first) and return the newest.
     sessions: dict[int, list[Set]] = {}
     for s in sets:
         sessions.setdefault(s.session_id, []).append(s)
 
-    for session_id, session_sets in sessions.items():
-        if skip_deload and all((s.rir or 0) >= 4 for s in session_sets):
-            continue
-        return session_sets
-
-    # All sessions were deloads — fall back to the most recent one
     first_id = next(iter(sessions))
     return sessions[first_id]
 
@@ -234,13 +222,8 @@ def get_recent_first_set_reps(
     return [int(r.reps) for r in rows]
 
 
-def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
-    """
-    Build compact summary + recommendation metadata from one completed session.
-
-    If the prior session lacks an RIR value, suppress the entire block rather
-    than inventing a recommendation context.
-    """
+def build_last_session_metadata(last_sets: list[Set]):
+    """Build compact summary + recommendation metadata from one completed session."""
     if not last_sets:
         return None, None
 
@@ -250,18 +233,13 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
         None,
     )
     reps = [int(set_row.reps) for set_row in ordered_sets if set_row.reps is not None]
-    last_rir = next(
-        (int(set_row.rir) for set_row in ordered_sets if set_row.rir is not None),
-        None,
-    )
 
-    if last_weight is None or not reps or last_rir is None:
+    if last_weight is None or not reps:
         return None, None
 
     summary = {
         "last_weight": last_weight,
         "avg_reps": int(round(sum(reps) / len(reps))),
-        "recommended_rir": last_rir,
         "set_count": len(ordered_sets),
     }
 
@@ -270,8 +248,8 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
     sets_at_15 = sum(1 for rep_count in reps if rep_count >= 15)
     required_sets = max(1, int(len(reps) * 0.8))
 
-    # Weight progression is earned by top-set performance, not RIR cycle position alone.
-    # Back-off sets only decide whether this is a standard or strong recommendation.
+    # Weight progression is earned by top-set performance. Back-off sets only
+    # decide whether this is a standard or strong recommendation.
     if first_set_reps >= 15 and sets_at_15 >= required_sets:
         recommendation = {
             "level": "strong",
@@ -285,26 +263,6 @@ def build_last_session_metadata(last_sets: list[Set], current_target_rir: int):
             "context_note": None,
         }
 
-    if recommendation and current_target_rir < last_rir:
-        recommendation["context_note"] = f"Even more so at RIR {current_target_rir} today."
-
-    # At RIR 0: peak intensity — don't stack a weight increase, flag it for the reset.
-    if recommendation and current_target_rir == 0:
-        recommendation = {
-            "level": "hold",
-            "message": WEIGHT_RECOMMENDATION_HOLD,
-            "context_note": None,
-        }
-
-    # At RIR 2 (wave reset start): this is the moment to apply the earned increase.
-    # Upgrade standard/strong to the actionable "apply now" message.
-    if recommendation and recommendation.get("level") in ("standard", "strong") and current_target_rir == 2:
-        recommendation = {
-            "level": "apply",
-            "message": WEIGHT_RECOMMENDATION_APPLY,
-            "context_note": recommendation.get("context_note"),
-        }
-
     return summary, recommendation
 
 
@@ -312,39 +270,19 @@ def get_exercise_last_session_metadata(
     db,
     workout_exercise_id: int,
     before_session_number: int,
-    current_target_rir: int,
 ):
-    """
-    Fetch and derive the compact last-session block for one exercise.
-
-    For the weight recommendation, deload sessions (all sets RIR >= 4) are skipped
-    so that wave-reset sessions correctly surface the earned increase from peak phase,
-    not the artificially low deload performance.
-    """
-    # Last-session summary uses the true last session (including deloads) for context display.
+    """Fetch and derive the compact last-session block for one exercise."""
     last_sets = get_previous_completed_exercise_sets(
         db,
         workout_exercise_id=workout_exercise_id,
         before_session_number=before_session_number,
     )
-    summary, _ = build_last_session_metadata(last_sets, current_target_rir)
-
-    # Weight recommendation evaluates the last non-deload session so that
-    # coming off a wave reset the recommendation correctly reflects peak performance.
-    reference_sets = get_previous_completed_exercise_sets(
-        db,
-        workout_exercise_id=workout_exercise_id,
-        before_session_number=before_session_number,
-        skip_deload=True,
-    )
-    _, recommendation = build_last_session_metadata(reference_sets, current_target_rir)
-
-    return summary, recommendation
+    return build_last_session_metadata(last_sets)
 
 
 def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
     """
-    rows: iterable of dict-like rows with set_number, weight, reps, done(optional), rir(optional)
+    rows: iterable of dict-like rows with set_number, weight, reps, done(optional)
     Upserts each row by set_number — safe to retry, never wipes previously saved sets.
     """
     for row in rows:
@@ -364,7 +302,6 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
         if existing:
             existing.weight = float(row["weight"])
             existing.reps = int(row["reps"])
-            existing.rir = float(row.get("rir")) if row.get("rir") is not None else None
         else:
             db.add(Set(
                 session_id=session_id,
@@ -372,7 +309,6 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
                 set_number=set_num,
                 weight=float(row["weight"]),
                 reps=int(row["reps"]),
-                rir=float(row.get("rir")) if row.get("rir") is not None else None,
             ))
 
     db.commit()

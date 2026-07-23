@@ -88,7 +88,6 @@ def audit_progression():
                     'set_number': set_obj.set_number,
                     'weight': set_obj.weight,
                     'reps': set_obj.reps,
-                    'rir': set_obj.rir,
                 })
 
             # Get feedback for this session
@@ -122,8 +121,7 @@ def audit_progression():
 
                 # Display sets
                 for set_data in sets_list:
-                    rir_str = f"@{set_data['rir']}" if set_data['rir'] is not None else ""
-                    print(f"    Set {set_data['set_number']}: {set_data['weight']}kg x {set_data['reps']} reps {rir_str}")
+                    print(f"    Set {set_data['set_number']}: {set_data['weight']}kg x {set_data['reps']} reps")
 
                 # Calculate totals
                 total_sets = len(sets_list)

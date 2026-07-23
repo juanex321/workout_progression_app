@@ -30,7 +30,6 @@ class SetData(BaseModel):
     set_number: int
     weight: Optional[float] = None
     reps: Optional[int] = None
-    rir: Optional[int] = None
     logged: bool = False
 
 
@@ -45,12 +44,11 @@ class RecommendedSet(BaseModel):
 class LastSessionSummary(BaseModel):
     last_weight: float
     avg_reps: int
-    recommended_rir: int
     set_count: int
 
 
 class WeightRecommendation(BaseModel):
-    level: Literal["standard", "strong", "hold", "apply"]
+    level: Literal["standard", "strong"]
     message: str
     context_note: Optional[str] = None
 
@@ -73,8 +71,6 @@ class ExerciseData(BaseModel):
 
 class MuscleGroupData(BaseModel):
     exercises: list[ExerciseData]
-    target_rir: int
-    phase: str
     feedback_summary: str
     feedback_exists: bool
     feedback_values: Optional[dict] = None

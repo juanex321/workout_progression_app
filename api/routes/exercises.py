@@ -28,8 +28,12 @@ from plan import (
     EXERCISE_MUSCLE_GROUPS,
     get_session_exercises,
 )
-from progression import recommend_weights_and_reps, is_finisher, get_exercise_set_bounds
-from rir_progression import get_rir_for_muscle_group, get_feedback_summary
+from progression import (
+    recommend_weights_and_reps,
+    is_finisher,
+    get_exercise_set_bounds,
+    get_feedback_summary,
+)
 
 router = APIRouter()
 
@@ -192,14 +196,11 @@ def get_workout_data(
         muscle_group = EXERCISE_MUSCLE_GROUPS.get(ex_name, "Other")
 
         if muscle_group in muscle_groups:
-            target_rir = muscle_groups[muscle_group].target_rir
-            phase = muscle_groups[muscle_group].phase
             fb_summary = muscle_groups[muscle_group].feedback_summary
             fb_exists = muscle_groups[muscle_group].feedback_exists
             fb_values = muscle_groups[muscle_group].feedback_values
             soreness_val = muscle_groups[muscle_group].soreness_value
         else:
-            target_rir, phase, _ = get_rir_for_muscle_group(db, muscle_group)
             fb_summary = get_feedback_summary(db, muscle_group)
             feedback = feedback_by_muscle_group.get(muscle_group)
             fb_exists = bool(
@@ -225,7 +226,6 @@ def get_workout_data(
                 set_number=s.set_number,
                 weight=s.weight,
                 reps=s.reps,
-                rir=s.rir,
                 logged=True,
             )
             for s in existing
@@ -249,7 +249,6 @@ def get_workout_data(
             db,
             workout_exercise_id=we.id,
             before_session_number=sess.session_number,
-            current_target_rir=target_rir,
         )
 
         exercise_data = ExerciseData(
@@ -272,8 +271,6 @@ def get_workout_data(
         if muscle_group not in muscle_groups:
             muscle_groups[muscle_group] = MuscleGroupData(
                 exercises=[exercise_data],
-                target_rir=target_rir,
-                phase=phase,
                 feedback_summary=fb_summary,
                 feedback_exists=fb_exists,
                 feedback_values=fb_values,
