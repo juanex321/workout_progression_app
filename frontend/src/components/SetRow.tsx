@@ -66,13 +66,8 @@ function Stepper({
             onChange(Math.max(min, parsed));
           }}
           disabled={disabled}
-          className="h-full w-full bg-transparent px-7 text-center text-xl font-bold text-zinc-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-500 disabled:opacity-50"
+          className="h-full w-full bg-transparent px-2 text-center text-xl font-bold text-zinc-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-500 disabled:opacity-50"
         />
-        {suffix && (
-          <span className="absolute right-2 top-1/2 -translate-y-1/2 text-[10px] font-semibold uppercase tracking-[0.16em] text-zinc-500">
-            {suffix}
-          </span>
-        )}
       </div>
       <button
         type="button"

@@ -86,7 +86,6 @@ export function MuscleGroupCard({
 
   return (
     <section className="mb-5 overflow-hidden rounded-[28px] border border-zinc-700 bg-zinc-950/90 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur transition-all">
-
       <button
         type="button"
         onClick={() => canCollapse && setCollapsed((prev) => !prev)}

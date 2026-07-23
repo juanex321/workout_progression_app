@@ -17,8 +17,8 @@ from db import (
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
-WEIGHT_RECOMMENDATION_STANDARD = "Good candidate for a weight increase — consider adding 2.5 kg next session"
-WEIGHT_RECOMMENDATION_STRONG = "Strong candidate for a weight increase — add 2.5–5 kg next session"
+WEIGHT_RECOMMENDATION_STANDARD = "Good candidate for a weight increase — consider adding 2.5 lb next session"
+WEIGHT_RECOMMENDATION_STRONG = "Strong candidate for a weight increase — add 2.5–5 lb next session"
 
 
 def get_current_session(db, workout_id: int) -> DbSession:
