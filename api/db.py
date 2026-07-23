@@ -14,7 +14,6 @@ from sqlalchemy import (
     ForeignKey,
     Integer,
     String,
-    Text,
     UniqueConstraint,
     create_engine,
     func,
@@ -262,77 +261,6 @@ class Feedback(Base):
     workout_exercise = relationship("WorkoutExercise")
 
 
-# --- Myo Reps models ---
-
-class MyoSession(Base):
-    __tablename__ = "myo_sessions"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    date: Mapped[date] = mapped_column(Date, nullable=False, default=date.today)
-    completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    schedule_json: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-
-    exercise_sessions = relationship("MyoExerciseSession", back_populates="myo_session")
-
-
-class MyoExerciseSession(Base):
-    __tablename__ = "myo_exercise_sessions"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    myo_session_id: Mapped[int] = mapped_column(Integer, ForeignKey("myo_sessions.id"), nullable=False)
-    exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("exercises.id"), nullable=False)
-    target_mini_sets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    completed_mini_sets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    workload_feedback: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    completed: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
-
-    myo_session = relationship("MyoSession", back_populates="exercise_sessions")
-    exercise = relationship("Exercise")
-    activation_set = relationship("MyoActivationSet", back_populates="exercise_session", uselist=False)
-    mini_sets = relationship("MyoMiniSet", back_populates="exercise_session", order_by="MyoMiniSet.order_index")
-
-
-class MyoActivationSet(Base):
-    __tablename__ = "myo_activation_sets"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    exercise_session_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("myo_exercise_sessions.id"), nullable=False, unique=True
-    )
-    weight: Mapped[Optional[float]] = mapped_column(Float, nullable=True)
-    reps: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
-
-    exercise_session = relationship("MyoExerciseSession", back_populates="activation_set")
-
-
-class MyoMiniSet(Base):
-    __tablename__ = "myo_mini_sets"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    exercise_session_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("myo_exercise_sessions.id"), nullable=False
-    )
-    order_index: Mapped[int] = mapped_column(Integer, nullable=False)
-    reps: Mapped[int] = mapped_column(Integer, nullable=False)
-    logged_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
-
-    exercise_session = relationship("MyoExerciseSession", back_populates="mini_sets")
-
-
-class MyoExerciseCalibration(Base):
-    """Tracks per-exercise calibration state and progression for myo reps."""
-    __tablename__ = "myo_exercise_calibration"
-    id: Mapped[int] = mapped_column(Integer, primary_key=True)
-    exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("exercises.id"), nullable=False, unique=True)
-    calibrated: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    baseline_mini_sets: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    current_target: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    calibration_sessions_done: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    calibration_mini_sets_sum: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    consecutive_hard_sessions: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
-    updated_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
-
-    exercise = relationship("Exercise")
-
-
 @contextmanager
 def get_session():
     """Database session context manager with retry for Neon cold starts."""
@@ -365,21 +293,7 @@ def get_session():
 def init_db():
     """Initialize database tables."""
     Base.metadata.create_all(engine)
-    ensure_myo_schedule_column()
     ensure_performance_indexes()
-
-
-def ensure_myo_schedule_column() -> None:
-    """Add the persisted Myo schedule column to existing deployments."""
-    from sqlalchemy import inspect
-
-    inspector = inspect(engine)
-    if "myo_sessions" not in inspector.get_table_names():
-        return
-    columns = {column["name"] for column in inspector.get_columns("myo_sessions")}
-    if "schedule_json" not in columns:
-        with engine.begin() as conn:
-            conn.execute(text("ALTER TABLE myo_sessions ADD COLUMN schedule_json TEXT"))
 
 
 def ensure_performance_indexes() -> None:
