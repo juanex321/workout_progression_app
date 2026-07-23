@@ -109,25 +109,28 @@ export function MuscleGroupCard({
           </div>
           <div className="flex shrink-0 items-center gap-2">
             {canCollapse && (
-              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/25 text-lg text-zinc-300">
-                {collapsed ? "+" : "−"}
+              <span className="flex h-9 w-9 items-center justify-center rounded-full border border-white/10 bg-black/25 text-zinc-300">
+                <svg
+                  viewBox="0 0 20 20"
+                  fill="none"
+                  className={`h-4 w-4 transition-transform ${collapsed ? "" : "rotate-180"}`}
+                  aria-hidden="true"
+                >
+                  <path
+                    d="M5 7.5L10 12.5L15 7.5"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                </svg>
               </span>
             )}
           </div>
         </div>
       </button>
 
-      {collapsed && feedbackValues ? (
-        <div className="border-t border-white/8 px-4 pb-4 pt-3">
-          <FeedbackSummary
-            muscleGroup={muscleGroup}
-            values={feedbackValues}
-            sessionId={sessionId}
-            disabled={sessionCompleted}
-            onSaved={handleFeedbackSaved}
-          />
-        </div>
-      ) : (
+      {!collapsed && (
         <>
           <div className="space-y-5 border-t border-white/8 px-4 py-5">
             {!feedbackComplete && (
