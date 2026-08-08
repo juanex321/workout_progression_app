@@ -147,7 +147,7 @@ export function ExerciseSets({
   const [sets, setSets] = useState<DraftSet[]>(initSets);
   const [plannedCount, setPlannedCount] = useState(sets.length || exercise.target_sets);
   const [savingSet, setSavingSet] = useState<number | null>(null);
-  const [showAllSets, setShowAllSets] = useState(false);
+  const [showCompletedSets, setShowCompletedSets] = useState(false);
 
   const isInitialMount = useRef(true);
   useEffect(() => {
@@ -279,6 +279,7 @@ export function ExerciseSets({
 
   const allLogged = sets.length > 0 && sets.every((setRow) => setRow.logged);
   const activeSet = sets.find((setRow) => !setRow.logged) ?? sets[sets.length - 1] ?? null;
+  const setsExpanded = !allLogged || showCompletedSets;
   const hasRecentFeedback = !!feedbackSummary && feedbackSummary !== "No recent feedback";
   const lastSessionLabel = exercise.last_session_summary
     ? [
@@ -307,17 +308,20 @@ export function ExerciseSets({
         </div>
 
         <div className="flex min-w-0 items-center justify-between gap-2 sm:contents">
-          <button
-            type="button"
-            onClick={() => setShowAllSets((prev) => !prev)}
-            className={`min-w-0 justify-self-center rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition-colors ${
-              showAllSets
-                ? "border-zinc-400/40 bg-zinc-600 text-zinc-100 active:bg-zinc-500"
-                : "border-white/20 bg-zinc-700/70 text-zinc-300 hover:border-white/30 hover:bg-zinc-600/80 hover:text-zinc-100 active:bg-zinc-600"
-            }`}
-          >
-            {showAllSets ? "Hide sets" : "All sets"}
-          </button>
+          {allLogged && (
+            <button
+              type="button"
+              onClick={() => setShowCompletedSets((prev) => !prev)}
+              aria-expanded={showCompletedSets}
+              className={`min-w-0 justify-self-center rounded-full border px-3 py-1.5 text-[10px] font-semibold uppercase tracking-[0.16em] transition-colors ${
+                showCompletedSets
+                  ? "border-zinc-400/40 bg-zinc-600 text-zinc-100 active:bg-zinc-500"
+                  : "border-emerald-400/20 bg-emerald-500/10 text-emerald-200 hover:border-emerald-300/30 hover:bg-emerald-500/15 active:bg-emerald-500/20"
+              }`}
+            >
+              {showCompletedSets ? "Hide sets" : "Show sets"}
+            </button>
+          )}
 
           {!exercise.is_finisher && !disabled && !sorenessLocked ? (
             <SetCounter
@@ -379,26 +383,7 @@ export function ExerciseSets({
         );
       })()}
 
-      {!allLogged && activeSet && (
-        <div className="mt-3">
-          <SetRow
-            setNumber={activeSet.set_number}
-            weight={activeSet.weight}
-            reps={activeSet.reps}
-            logged={activeSet.logged}
-            pending={savingSet === activeSet.set_number}
-            saveError={!!activeSet.saveError}
-            disabled={disabled}
-            sorenessLocked={sorenessLocked}
-            highlight
-            onWeightChange={(value) => updateSet(activeSet.set_number, "weight", value)}
-            onRepsChange={(value) => updateSet(activeSet.set_number, "reps", value)}
-            onLog={() => handleLog(activeSet.set_number)}
-          />
-        </div>
-      )}
-
-      {showAllSets && (
+      {setsExpanded && (
         <div className="mt-3 space-y-1.5 rounded-2xl border border-white/8 bg-black/15 p-2.5">
           {sets.map((setRow) => (
             <SetRow
