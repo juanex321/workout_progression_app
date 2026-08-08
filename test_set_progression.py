@@ -5,9 +5,9 @@ Tests verify:
 1. If last session was 5 sets, today must be 4, 5, or 6 — never 1 or 10.
 2. High soreness/fatigue -> 5 -> 4 (not 5 -> 1).
 3. Low soreness/fatigue -> 5 -> 6 (not 5 -> 10).
-4. First session uses conservative default.
-5. Smoothing with 2 sessions of history.
-6. Finishers always stay at stored target.
+4. First session uses its stored starting prescription.
+5. The latest completed session is the direct volume anchor.
+6. Secondary exercises receive roughly 30% of muscle-group volume.
 """
 
 import sys
@@ -23,8 +23,6 @@ from progression import (
     adjust_sets_based_on_feedback,
     get_last_n_muscle_group_set_counts,
     MIN_SETS,
-    MAX_SETS_MAIN,
-    FINISHER_TARGET_SETS,
     DEFAULT_BASE_WEIGHT,
 )
 from plan import DEFAULT_TARGET_SETS
@@ -187,22 +185,22 @@ def test_acceptance_no_history_uses_default():
     print(f"  PASS: No history -> default ({DEFAULT_TARGET_SETS})")
 
 
-def test_acceptance_smoothing_with_2_sessions():
-    """ACCEPTANCE: With 2 sessions (4 and 6), anchor = round(5) = 5."""
+def test_acceptance_latest_session_is_direct_anchor():
+    """ACCEPTANCE: The latest actual volume is not averaged with older sessions."""
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    # Last session: 6 sets, previous: 4 sets -> average = 5
+    # Last session: 6 sets, previous: 4 sets -> anchor remains 6.
     with patch("progression.get_last_n_muscle_group_set_counts", return_value=[6, 4]):
         with patch("progression.compute_feedback_adjustment", return_value=0):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
-                assert result == 5, f"Expected 5 (avg of 6,4), got {result}"
-    print("  PASS: Smoothing: avg(6,4)=5, adj=0 -> 5")
+                assert result == 6, f"Expected latest total 6, got {result}"
+    print("  PASS: Latest total 6, adj=0 -> 6")
 
 
-def test_acceptance_smoothing_with_adjustment():
-    """ACCEPTANCE: With 2 sessions (5 and 5), + feedback -> 6."""
+def test_acceptance_latest_session_with_adjustment():
+    """ACCEPTANCE: Positive feedback adds one to the latest actual total."""
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
@@ -211,21 +209,20 @@ def test_acceptance_smoothing_with_adjustment():
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
                 assert result == 6, f"Expected 6, got {result}"
-    print("  PASS: Smoothing: avg(5,5)=5, adj=+1 -> 6")
+    print("  PASS: Latest total 5, adj=+1 -> 6")
 
 
-def test_acceptance_never_exceeds_cap():
-    """ACCEPTANCE: At max sets + positive feedback -> stays at cap."""
-    we = make_mock_we(target_sets=MAX_SETS_MAIN)
+def test_acceptance_positive_feedback_has_no_upper_cap():
+    """ACCEPTANCE: Positive feedback can keep progressing above legacy caps."""
+    we = make_mock_we(target_sets=9)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[MAX_SETS_MAIN]):
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[9]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
-                assert result == MAX_SETS_MAIN, \
-                    f"Expected {MAX_SETS_MAIN}, got {result}"
-    print(f"  PASS: At cap ({MAX_SETS_MAIN}), adj=+1 -> stays at {MAX_SETS_MAIN}")
+                assert result == 10, f"Expected 10, got {result}"
+    print("  PASS: 9 sets + positive feedback -> 10 sets")
 
 
 def test_acceptance_never_below_volume_window():
@@ -241,17 +238,17 @@ def test_acceptance_never_below_volume_window():
     print("  PASS: Low history + negative feedback -> stays at Chest minimum (4)")
 
 
-def test_acceptance_finisher_stays_at_1():
-    """ACCEPTANCE: Finishers always stay at 1 set, even if DB says 3."""
-    # Even if target_sets drifted to 3, finishers must return 1
+def test_acceptance_secondary_receives_thirty_percent():
+    """ACCEPTANCE: Secondary work receives roughly 30% of feedback-driven volume."""
     we = make_mock_we(target_sets=3, exercise_name="Single-arm Chest Fly")
     mock_db = MagicMock()
 
-    with patch("progression.is_finisher", return_value=True):
-        result = adjust_sets_based_on_feedback(mock_db, we)
-        assert result == FINISHER_TARGET_SETS, \
-            f"Expected {FINISHER_TARGET_SETS} for finisher, got {result}"
-    print(f"  PASS: Finisher always returns {FINISHER_TARGET_SETS} (even if DB says 3)")
+    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[10]):
+        with patch("progression.compute_feedback_adjustment", return_value=0):
+            with patch("progression._muscle_secondary_count", return_value=1):
+                result = adjust_sets_based_on_feedback(mock_db, we)
+                assert result == 3, f"Expected 3, got {result}"
+    print("  PASS: 10 total sets -> 3 secondary sets")
 
 
 # ---- Run all tests ----
@@ -270,10 +267,10 @@ if __name__ == "__main__":
     test_acceptance_high_fatigue_drops_by_1_only()
     test_acceptance_low_fatigue_increases_by_1_only()
     test_acceptance_no_history_uses_default()
-    test_acceptance_smoothing_with_2_sessions()
-    test_acceptance_smoothing_with_adjustment()
-    test_acceptance_never_exceeds_cap()
+    test_acceptance_latest_session_is_direct_anchor()
+    test_acceptance_latest_session_with_adjustment()
+    test_acceptance_positive_feedback_has_no_upper_cap()
     test_acceptance_never_below_volume_window()
-    test_acceptance_finisher_stays_at_1()
+    test_acceptance_secondary_receives_thirty_percent()
 
     print("\nOK: All tests passed!")

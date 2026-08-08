@@ -11,6 +11,7 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from db import Base, Exercise, Feedback, Program, Session, Set, Workout, WorkoutExercise
 from progression import (
+    _allocate_muscle_sets_to_exercise,
     adjust_sets_based_on_feedback,
     compute_feedback_adjustment,
     get_recent_muscle_group_feedback,
@@ -109,8 +110,8 @@ class MevProgressionTests(unittest.TestCase):
         self.assertEqual(feedback[0].session_id, completed.id)
         self.assertEqual(compute_feedback_adjustment(self.db, "Chest"), 0)
 
-    def test_biceps_sets_clamp_to_muscle_volume_cap(self):
-        """Even with a high last-session anchor, sets never exceed the muscle's window max."""
+    def test_biceps_sets_follow_recent_volume_without_cap(self):
+        """High recent volume is preserved instead of clamped to a fixed ceiling."""
         cable_curl = self.add_we("Cable Curl", "Biceps", target_sets=8, target_reps=15)
         incline_curl = self.add_we("Incline DB Curl", "Biceps", target_sets=1, target_reps=14)
 
@@ -123,14 +124,39 @@ class MevProgressionTests(unittest.TestCase):
         self.db.commit()
 
         main_recommendations = recommend_weights_and_reps(self.db, cable_curl, "Biceps")
-        finisher_recommendations = recommend_weights_and_reps(self.db, incline_curl, "Biceps")
+        secondary_recommendations = recommend_weights_and_reps(self.db, incline_curl, "Biceps")
 
-        # Biceps window max is 6 total sets; incline_curl (a finisher) always takes 1,
-        # so cable_curl is clamped to 5 even though recent history anchored higher.
-        self.assertEqual(len(main_recommendations), 5)
-        self.assertEqual(len(finisher_recommendations), 1)
+        # The latest total is 8 and is split approximately 70/30.
+        self.assertEqual(len(main_recommendations), 6)
+        self.assertEqual(len(secondary_recommendations), 2)
 
-    def test_legacy_hamstring_target_clamps_to_cap(self):
+    def test_two_exercise_volume_uses_seventy_thirty_split(self):
+        main = self.add_we("Cable Curl", "Biceps")
+        secondary = self.add_we("Incline DB Curl", "Biceps", target_sets=1)
+
+        expected_splits = {
+            4: (3, 1),
+            5: (4, 1),
+            6: (4, 2),
+            7: (5, 2),
+            10: (7, 3),
+        }
+        for total_sets, expected in expected_splits.items():
+            with self.subTest(total_sets=total_sets):
+                self.assertEqual(
+                    _allocate_muscle_sets_to_exercise(
+                        self.db, main, "Biceps", total_sets
+                    ),
+                    expected[0],
+                )
+                self.assertEqual(
+                    _allocate_muscle_sets_to_exercise(
+                        self.db, secondary, "Biceps", total_sets
+                    ),
+                    expected[1],
+                )
+
+    def test_hamstring_target_preserves_high_neutral_volume(self):
         leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=7)
         for session_number in (1, 2):
             session = self.add_session(session_number)
@@ -140,7 +166,7 @@ class MevProgressionTests(unittest.TestCase):
 
         target_sets = adjust_sets_based_on_feedback(self.db, leg_curl)
 
-        self.assertEqual(target_sets, 5)
+        self.assertEqual(target_sets, 7)
 
     def test_lower_body_and_upper_body_rotations_are_independent(self):
         self.assertEqual(get_session_exercises(0)[0], "Leg Extension")

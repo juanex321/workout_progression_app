@@ -70,7 +70,7 @@ class ExerciseData(BaseModel):
     is_finisher: bool
     target_sets: int
     min_sets: int
-    max_sets: int
+    max_sets: Optional[int] = None
     target_reps: int
     last_session_summary: Optional[LastSessionSummary] = None
     weight_recommendation: Optional[WeightRecommendation] = None

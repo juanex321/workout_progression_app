@@ -4,7 +4,7 @@ interface SetCounterProps {
   count: number;
   onChange: (count: number) => void;
   min: number;
-  max: number;
+  max?: number | null;
 }
 
 export function SetCounter({ count, onChange, min, max }: SetCounterProps) {
@@ -32,8 +32,8 @@ export function SetCounter({ count, onChange, min, max }: SetCounterProps) {
       </span>
       <button
         type="button"
-        onClick={() => onChange(Math.min(max, count + 1))}
-        disabled={count >= max}
+        onClick={() => onChange(max == null ? count + 1 : Math.min(max, count + 1))}
+        disabled={max != null && count >= max}
         aria-label="Add one set"
         className="h-11 w-full rounded-xl border border-white/10 bg-white/8 text-xl font-bold text-zinc-200
                    active:bg-white/15 disabled:opacity-30"

@@ -40,7 +40,7 @@ export interface ExerciseData {
   is_finisher: boolean;
   target_sets: number;
   min_sets: number;
-  max_sets: number;
+  max_sets: number | null;
   target_reps: number;
   last_session_summary: LastSessionSummary | null;
   weight_recommendation: WeightRecommendation | null;

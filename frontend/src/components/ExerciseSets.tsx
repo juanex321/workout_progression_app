@@ -324,16 +324,19 @@ export function ExerciseSets({
 
   const handleSetCountChange = useCallback((newCount: number) => {
     const loggedCount = sets.filter((setRow) => setRow.logged).length;
-    const cappedCount = Math.max(
+    const requestedCount = Math.max(newCount, MIN_USER_SETS);
+    const adjustedCount = Math.max(
       loggedCount,
-      Math.min(Math.max(newCount, MIN_USER_SETS), exercise.max_sets)
+      exercise.max_sets == null
+        ? requestedCount
+        : Math.min(requestedCount, exercise.max_sets)
     );
-    setPlannedCount(cappedCount);
+    setPlannedCount(adjustedCount);
     setSets((prev) => {
-      if (cappedCount > prev.length) {
+      if (adjustedCount > prev.length) {
         const lastSet = prev[prev.length - 1];
         const newSets = [...prev];
-        for (let i = prev.length + 1; i <= cappedCount; i++) {
+        for (let i = prev.length + 1; i <= adjustedCount; i++) {
           newSets.push({
             set_number: i,
             weight: lastSet?.weight ?? 0,
@@ -344,7 +347,7 @@ export function ExerciseSets({
         return newSets;
       }
 
-      return prev.slice(0, cappedCount);
+      return prev.slice(0, adjustedCount);
     });
   }, [sets, exercise.max_sets]);
 
@@ -353,7 +356,9 @@ export function ExerciseSets({
   const activeSet = sets.find((setRow) => !setRow.logged) ?? sets[sets.length - 1] ?? null;
   const setsExpanded = !allLogged || showCompletedSets;
   const minimumSetCount = Math.max(MIN_USER_SETS, loggedSetCount);
-  const canAdjustSetCount = !disabled && exercise.max_sets > MIN_USER_SETS;
+  const canAdjustSetCount =
+    !disabled &&
+    (exercise.max_sets == null || exercise.max_sets > MIN_USER_SETS);
   const hasRecentFeedback = !!feedbackSummary && feedbackSummary !== "No recent feedback";
   const lastSessionLabel = exercise.last_session_summary
     ? [
@@ -482,7 +487,11 @@ export function ExerciseSets({
                 count={plannedCount}
                 onChange={handleSetCountChange}
                 min={minimumSetCount}
-                max={Math.max(exercise.max_sets, loggedSetCount)}
+                max={
+                  exercise.max_sets == null
+                    ? null
+                    : Math.max(exercise.max_sets, loggedSetCount)
+                }
               />
             </div>
           )}

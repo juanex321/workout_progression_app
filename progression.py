@@ -15,24 +15,20 @@ INITIAL_EXERCISE_WEIGHTS = {
 
 MIN_SETS = 1
 
-# Total direct sets per muscle exposure: (minimum, preferred reset target, cap).
-# This keeps progression MEV-biased instead of accumulating toward MRV by default.
-DEFAULT_VOLUME_WINDOW = (3, 4, 5)
-MUSCLE_VOLUME_WINDOWS = {
-    "Chest": (4, 5, 6),
-    "Lats": (4, 5, 6),
-    "Quads": (4, 5, 6),
-    "Biceps": (4, 5, 6),
-    "Triceps": (4, 5, 6),
-    "Hamstrings": (3, 4, 5),
-    "Glutes": (3, 4, 5),
-    "Shoulders": (3, 3, 4),
+# Minimum total direct sets per muscle exposure. Completed volume and recovery
+# feedback drive every subsequent recommendation without a preferred target or cap.
+DEFAULT_VOLUME_MINIMUM = 3
+MUSCLE_VOLUME_MINIMUMS = {
+    "Chest": 4,
+    "Lats": 4,
+    "Quads": 4,
+    "Biceps": 4,
+    "Triceps": 4,
+    "Hamstrings": 3,
+    "Glutes": 3,
+    "Shoulders": 3,
 }
-DEFAULT_SET_CAP = DEFAULT_VOLUME_WINDOW[2]
-MAX_SETS_MAIN = max(window[2] for window in MUSCLE_VOLUME_WINDOWS.values())
-MUSCLE_SET_CAPS = {muscle: window[2] for muscle, window in MUSCLE_VOLUME_WINDOWS.items()}
-# Finisher-style names (always 1 set regardless of progression)
-FINISHER_TARGET_SETS = 1    # finishers are always 1 set
+MAIN_EXERCISE_SET_SHARE = 0.70
 
 MIN_TARGET_REPS = 8
 MAX_TARGET_REPS = 15
@@ -43,7 +39,7 @@ MAX_TARGET_REPS = 15
 FATIGUE_REP_DROP_PER_SET = 1
 MIN_REPS_FLOOR = 5  # Never recommend fewer than this many reps
 
-# names of finisher-style movements that should stay low-volume
+# Secondary movements that receive the smaller share in a 70/30 split.
 FINISHER_NAMES = {
     "Single-arm Chest Fly",
     "Sissy Squat",
@@ -128,15 +124,15 @@ def get_last_n_session_set_counts(
     return counts
 
 
-def get_muscle_volume_window(muscle_group: str | None) -> tuple[int, int, int]:
-    """Return (min, preferred, max) total direct sets for one muscle exposure."""
+def get_muscle_volume_minimum(muscle_group: str | None) -> int:
+    """Return the minimum direct sets for one muscle exposure."""
     if not muscle_group:
-        return DEFAULT_VOLUME_WINDOW
-    return MUSCLE_VOLUME_WINDOWS.get(muscle_group, DEFAULT_VOLUME_WINDOW)
+        return DEFAULT_VOLUME_MINIMUM
+    return MUSCLE_VOLUME_MINIMUMS.get(muscle_group, DEFAULT_VOLUME_MINIMUM)
 
 
-def _muscle_finisher_count(db: OrmSession, we: WorkoutExercise, muscle_group: str | None) -> int:
-    """Count fixed 1-set finisher exercises for this muscle in the same workout."""
+def _muscle_secondary_count(db: OrmSession, we: WorkoutExercise, muscle_group: str | None) -> int:
+    """Count designated secondary exercises for this muscle in the workout."""
     if not muscle_group or not getattr(we, "workout_id", None):
         return 0
 
@@ -150,36 +146,27 @@ def _muscle_finisher_count(db: OrmSession, we: WorkoutExercise, muscle_group: st
     return sum(1 for (name,) in rows if (name or "").strip() in FINISHER_NAMES)
 
 
-def get_exercise_set_bounds(db: OrmSession, we: WorkoutExercise) -> tuple[int, int]:
-    """Return backend min/max set bounds for this exercise's recommendation."""
-    if is_finisher(we):
-        return FINISHER_TARGET_SETS, FINISHER_TARGET_SETS
-
-    muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
-    total_min, _, total_max = get_muscle_volume_window(muscle_group)
-    finisher_count = _muscle_finisher_count(db, we, muscle_group)
-
-    min_sets = max(MIN_SETS, total_min - finisher_count)
-    max_sets = max(min_sets, total_max - finisher_count)
-    return int(min_sets), int(max_sets)
+def get_exercise_set_bounds(db: OrmSession, we: WorkoutExercise) -> tuple[int, int | None]:
+    """Every exercise has a one-set floor and no upper ceiling."""
+    return MIN_SETS, None
 
 
 def _allocate_muscle_sets_to_exercise(
     db: OrmSession, we: WorkoutExercise, muscle_group: str | None, total_sets: int
 ) -> int:
-    """Allocate a muscle-level set target to this exercise."""
+    """Allocate a muscle total approximately 70/30 between main and secondary work."""
+    secondary_count = _muscle_secondary_count(db, we, muscle_group)
+    if secondary_count == 0:
+        return max(MIN_SETS, int(total_sets))
+
+    total_sets = max(int(total_sets), secondary_count + 1)
+    main_sets = int((total_sets * MAIN_EXERCISE_SET_SHARE) + 0.5)
+    main_sets = max(MIN_SETS, min(main_sets, total_sets - secondary_count))
+    secondary_sets = total_sets - main_sets
+
     if is_finisher(we):
-        return FINISHER_TARGET_SETS
-
-    finisher_count = _muscle_finisher_count(db, we, muscle_group)
-    min_sets, max_sets = get_exercise_set_bounds(db, we)
-    exercise_sets = int(total_sets) - finisher_count
-    return max(min_sets, min(exercise_sets, max_sets))
-
-
-def _preferred_exercise_sets(db: OrmSession, we: WorkoutExercise, muscle_group: str | None) -> int:
-    _, preferred_total, _ = get_muscle_volume_window(muscle_group)
-    return _allocate_muscle_sets_to_exercise(db, we, muscle_group, preferred_total)
+        return max(MIN_SETS, int(round(secondary_sets / secondary_count)))
+    return main_sets
 
 
 def get_last_n_muscle_group_set_counts(
@@ -189,7 +176,7 @@ def get_last_n_muscle_group_set_counts(
     Return total direct sets for a muscle group in the last N completed exposures.
 
     Counts all exercises for that muscle in the same completed session so main
-    lifts and fixed finishers are capped as one muscle-level dose.
+    lifts and secondary exercises are combined into one muscle-level dose.
     """
     if not muscle_group:
         return []
@@ -325,81 +312,38 @@ def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
     return 0
 
 
-def first_set_performance_declining(
-    db: OrmSession, workout_exercise_id: int, drop_threshold: int = 2
-) -> bool:
-    """
-    Return True when first-set reps drop at least drop_threshold at the same weight.
-    """
-    rows = (
-        db.query(Set.reps, Set.weight, Session.session_number)
-        .join(Session, Set.session_id == Session.id)
-        .filter(Set.workout_exercise_id == workout_exercise_id)
-        .filter(Session.completed == 1)
-        .filter(Set.set_number == 1)
-        .filter(Set.reps.isnot(None))
-        .filter(Set.weight.isnot(None))
-        .order_by(Session.session_number.desc())
-        .limit(2)
-        .all()
-    )
-    if len(rows) < 2:
-        return False
-
-    most_recent, previous = rows[0], rows[1]
-    if most_recent.weight != previous.weight:
-        return False
-    return int(previous.reps) - int(most_recent.reps) >= drop_threshold
-
-
 def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     """
     Determine target sets using session-to-session bounded progression.
 
     Rules:
     A) Base sets come from the last session's ACTUAL sets performed (not stored target).
-       If no history, use a conservative default.
+       If no history exists, use the exercise's stored starting prescription.
     B) Sets can only change by ±1 per session (hard limiter).
-    C) Optional smoothing: if 2 sessions of history exist, anchor to the average.
-    D) Feedback drives direction (+1/-1/0), but never more than ±1 from anchor.
+    C) Feedback alone drives direction (+1/-1/0) from that most recent total.
 
-    Finishers ALWAYS stay at their stored target (typically 1 set).
     """
-    # CRITICAL: Finishers are always 1 set - no exceptions
-    if is_finisher(we):
-        if we.target_sets != FINISHER_TARGET_SETS:
-            we.target_sets = FINISHER_TARGET_SETS
-            db.add(we)
-        return FINISHER_TARGET_SETS
-
     muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
-    total_min, _, total_max = get_muscle_volume_window(muscle_group)
+    total_min = get_muscle_volume_minimum(muscle_group)
 
     # Rule A: Anchor to last session's actual sets performed
-    history = get_last_n_muscle_group_set_counts(db, muscle_group, n=2) if muscle_group else []
+    history = get_last_n_muscle_group_set_counts(db, muscle_group, n=1) if muscle_group else []
 
     if not history:
-        s_reco = _preferred_exercise_sets(db, we, muscle_group)
+        min_sets, _ = get_exercise_set_bounds(db, we)
+        s_reco = max(min_sets, int(we.target_sets or MIN_SETS))
         if we.target_sets != s_reco:
             we.target_sets = int(s_reco)
             db.add(we)
         return int(s_reco)
 
-    total_last = history[0]
+    total_anchor = history[0]
 
-    # Rule C: If 2 sessions available, smooth by averaging
-    if len(history) >= 2:
-        total_anchor = round((total_last + history[1]) / 2)
-    else:
-        total_anchor = total_last
-
-    # Rule D: Compute feedback-driven adjustment direction
+    # Rule C: Compute the user-feedback adjustment direction.
     adj = compute_feedback_adjustment(db, muscle_group) if muscle_group else 0
-    if first_set_performance_declining(db, we.id):
-        adj = min(adj, -1)
 
-    # Rule B: Apply ±1 hard limiter and clamp to floor/cap
-    target_total = max(total_min, min(total_anchor + adj, total_max))
+    # Rule B: Apply the ±1 feedback adjustment with a minimum but no ceiling.
+    target_total = max(total_min, total_anchor + adj)
     s_reco = _allocate_muscle_sets_to_exercise(db, we, muscle_group, target_total)
 
     if s_reco != we.target_sets:
@@ -485,8 +429,8 @@ def recommend_weights_and_reps(
     Main entry used by the API recommendation flow.
 
     Progression hierarchy:
-    1. Adjust target_sets: feedback-driven, bounded ±1 per session within
-       MUSCLE_VOLUME_WINDOWS (see adjust_sets_based_on_feedback).
+    1. Adjust target_sets: feedback-driven and bounded ±1 per session, with no
+       upper set ceiling (see adjust_sets_based_on_feedback).
     2. Adjust target_reps based on last session's first-set performance.
     3. Carry forward last session's weight unchanged (user controls weight increases).
     4. Return rows ready for API serialization and UI rendering. Every set is
