@@ -15,6 +15,8 @@ interface DraftSet {
   repsManuallyEdited?: boolean;
 }
 
+const MIN_USER_SETS = 1;
+
 function draftStorageKey(sessionId: number, weId: number): string {
   return `draft_sets_${sessionId}_${weId}`;
 }
@@ -144,8 +146,19 @@ export function ExerciseSets({
       return baseSets;
     }
 
+    const cachedPlannedCount = Math.max(
+      ...cached.map((setRow) => setRow.set_number)
+    );
+    const highestLoggedSet = Math.max(
+      0,
+      ...exercise.existing_sets.map((setRow) => setRow.set_number)
+    );
+    const effectivePlannedCount = Math.max(cachedPlannedCount, highestLoggedSet);
+    const plannedBaseSets = baseSets.filter(
+      (setRow) => setRow.logged || setRow.set_number <= effectivePlannedCount
+    );
     const cachedMap = new Map(cached.map((setRow) => [setRow.set_number, setRow]));
-    const mergedWithDraft = baseSets.map((setRow) => {
+    const mergedWithDraft = plannedBaseSets.map((setRow) => {
       const draftSet = cachedMap.get(setRow.set_number);
       if (!draftSet || setRow.logged) return setRow;
       const cachedIsOldUntouchedRecommendation =
@@ -313,7 +326,7 @@ export function ExerciseSets({
     const loggedCount = sets.filter((setRow) => setRow.logged).length;
     const cappedCount = Math.max(
       loggedCount,
-      Math.min(Math.max(newCount, exercise.min_sets), exercise.max_sets)
+      Math.min(Math.max(newCount, MIN_USER_SETS), exercise.max_sets)
     );
     setPlannedCount(cappedCount);
     setSets((prev) => {
@@ -333,11 +346,14 @@ export function ExerciseSets({
 
       return prev.slice(0, cappedCount);
     });
-  }, [sets, exercise.min_sets, exercise.max_sets]);
+  }, [sets, exercise.max_sets]);
 
+  const loggedSetCount = sets.filter((setRow) => setRow.logged).length;
   const allLogged = sets.length > 0 && sets.every((setRow) => setRow.logged);
   const activeSet = sets.find((setRow) => !setRow.logged) ?? sets[sets.length - 1] ?? null;
   const setsExpanded = !allLogged || showCompletedSets;
+  const minimumSetCount = Math.max(MIN_USER_SETS, loggedSetCount);
+  const canAdjustSetCount = !disabled && exercise.max_sets > MIN_USER_SETS;
   const hasRecentFeedback = !!feedbackSummary && feedbackSummary !== "No recent feedback";
   const lastSessionLabel = exercise.last_session_summary
     ? [
@@ -381,12 +397,12 @@ export function ExerciseSets({
             </button>
           )}
 
-          {!exercise.is_finisher && !disabled && !sorenessLocked ? (
+          {canAdjustSetCount ? (
             <SetCounter
               count={plannedCount}
               onChange={handleSetCountChange}
-              min={exercise.min_sets}
-              max={Math.max(exercise.max_sets, sets.filter((setRow) => setRow.logged).length)}
+              min={minimumSetCount}
+              max={Math.max(exercise.max_sets, loggedSetCount)}
             />
           ) : (
             <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">

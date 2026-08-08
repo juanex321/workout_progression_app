@@ -14,19 +14,24 @@ export function SetCounter({ count, onChange, min, max }: SetCounterProps) {
         type="button"
         onClick={() => onChange(Math.max(min, count - 1))}
         disabled={count <= min}
-        className="h-8 w-8 rounded-full bg-white/8 text-sm font-bold text-zinc-300
+        aria-label="Remove one set"
+        className="h-9 w-9 rounded-full bg-white/8 text-lg font-bold text-zinc-300
                    active:bg-white/12 disabled:opacity-30"
       >
-        -
+        −
       </button>
-      <span className="min-w-[64px] px-2 text-center text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">
+      <span
+        className="min-w-[64px] px-2 text-center text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300"
+        aria-live="polite"
+      >
         {count} sets
       </span>
       <button
         type="button"
         onClick={() => onChange(Math.min(max, count + 1))}
         disabled={count >= max}
-        className="h-8 w-8 rounded-full bg-white/8 text-sm font-bold text-zinc-300
+        aria-label="Add one set"
+        className="h-9 w-9 rounded-full bg-white/8 text-lg font-bold text-zinc-300
                    active:bg-white/12 disabled:opacity-30"
       >
         +
