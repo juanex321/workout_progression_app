@@ -397,18 +397,9 @@ export function ExerciseSets({
             </button>
           )}
 
-          {canAdjustSetCount ? (
-            <SetCounter
-              count={plannedCount}
-              onChange={handleSetCountChange}
-              min={minimumSetCount}
-              max={Math.max(exercise.max_sets, loggedSetCount)}
-            />
-          ) : (
-            <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">
-              {plannedCount} sets
-            </span>
-          )}
+          <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">
+            {plannedCount} sets
+          </span>
         </div>
       </div>
 
@@ -485,6 +476,19 @@ export function ExerciseSets({
               onLog={() => handleLog(setRow.set_number)}
             />
           ))}
+          {canAdjustSetCount && (
+            <div className="flex items-center justify-between gap-3 border-t border-white/8 px-1.5 pt-2">
+              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
+                Adjust sets
+              </span>
+              <SetCounter
+                count={plannedCount}
+                onChange={handleSetCountChange}
+                min={minimumSetCount}
+                max={Math.max(exercise.max_sets, loggedSetCount)}
+              />
+            </div>
+          )}
         </div>
       )}
     </section>
