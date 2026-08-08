@@ -9,8 +9,7 @@ HAMSTRING_PULL_EXERCISE = "Leg Curl"
 
 LEG_ROTATION = ["Quads", "Hamstrings", "Glutes"]
 QUAD_EXERCISE = "Leg Extension"
-GLUTE_PUSH_EXERCISE = "Glute Kickbacks"
-GLUTE_PULL_EXERCISE = "Hip Thrust"
+GLUTE_EXERCISE = "Hip Thrust"
 
 PULL_MAIN_ROTATION = [
     "Lat Pulldown",
@@ -56,7 +55,6 @@ EXERCISE_MUSCLE_GROUPS = {
     "Leg Curl": "Hamstrings",
     "Romanian Deadlift": "Hamstrings",
     "Hip Thrust": "Glutes",
-    "Glute Kickbacks": "Glutes",
     
     # Chest
     "Incline DB Bench Press": "Chest",
@@ -90,7 +88,7 @@ def get_session_exercises_for_focus(
     elif leg_focus == "Hamstrings":
         leg_exercise = HAMSTRING_PUSH_EXERCISE if is_push_day else HAMSTRING_PULL_EXERCISE
     else:
-        leg_exercise = GLUTE_PUSH_EXERCISE if is_push_day else GLUTE_PULL_EXERCISE
+        leg_exercise = GLUTE_EXERCISE
 
     if is_push_day:
         upper_block = [
