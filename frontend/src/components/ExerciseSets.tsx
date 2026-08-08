@@ -477,10 +477,7 @@ export function ExerciseSets({
             />
           ))}
           {canAdjustSetCount && (
-            <div className="flex items-center justify-between gap-3 border-t border-white/8 px-1.5 pt-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.14em] text-zinc-500">
-                Adjust sets
-              </span>
+            <div className="border-t border-white/8 px-1.5 pt-2">
               <SetCounter
                 count={plannedCount}
                 onChange={handleSetCountChange}
