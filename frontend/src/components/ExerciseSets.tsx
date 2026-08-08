@@ -384,7 +384,13 @@ export function ExerciseSets({
       })()}
 
       {setsExpanded && (
-        <div className="mt-3 space-y-1.5 rounded-2xl border border-white/8 bg-black/15 p-2.5">
+        <div className="mt-3 space-y-1 rounded-2xl border border-white/8 bg-black/15 p-2">
+          <div className="grid grid-cols-[1.75rem_minmax(0,1.15fr)_minmax(0,0.85fr)_2.75rem] items-center gap-1.5 px-1.5 pb-0.5 text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500 sm:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem] sm:gap-2 sm:text-[10px]">
+            <span>Set</span>
+            <span>Weight</span>
+            <span>Reps</span>
+            <span>Log</span>
+          </div>
           {sets.map((setRow) => (
             <SetRow
               key={setRow.set_number}
