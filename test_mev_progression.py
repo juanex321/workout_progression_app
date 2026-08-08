@@ -145,7 +145,7 @@ class MevProgressionTests(unittest.TestCase):
     def test_lower_body_and_upper_body_rotations_are_independent(self):
         self.assertEqual(get_session_exercises(0)[0], "Leg Extension")
         self.assertEqual(get_session_exercises(1)[0], "Leg Curl")
-        self.assertEqual(get_session_exercises(2)[0], "Glute Kickbacks")
+        self.assertEqual(get_session_exercises(2)[0], "Hip Thrust")
         self.assertEqual(get_session_exercises(3)[0], "Leg Extension")
         self.assertEqual(get_session_exercises(4)[0], "Romanian Deadlift")
         self.assertEqual(get_session_exercises(5)[0], "Hip Thrust")
