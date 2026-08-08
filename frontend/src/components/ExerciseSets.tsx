@@ -11,6 +11,8 @@ interface DraftSet {
   reps: number;
   logged: boolean;
   saveError?: boolean;
+  repsCarriedFromLastSession?: boolean;
+  repsManuallyEdited?: boolean;
 }
 
 function draftStorageKey(sessionId: number, weId: number): string {
@@ -65,7 +67,19 @@ export function ExerciseSets({
 
   const initSets = (): DraftSet[] => {
     const cached = loadDraft(sessionId, exercise.we_id);
-    const existingMap = new Map(
+    const priorRepsBySet = new Map(
+      (exercise.last_session_summary?.sets ?? []).map((setRow) => [
+        setRow.set_number,
+        setRow.reps,
+      ])
+    );
+    const recommendedRepsBySet = new Map(
+      exercise.recommendations.map((recommendation) => [
+        recommendation.set_number,
+        recommendation.reps,
+      ])
+    );
+    const existingMap = new Map<number, DraftSet>(
       exercise.existing_sets.map((setRow) => [
         setRow.set_number,
         {
@@ -77,14 +91,20 @@ export function ExerciseSets({
       ])
     );
 
-    const mergedRecommendations = exercise.recommendations.map((recommendation) => {
+    const mergedRecommendations: DraftSet[] = exercise.recommendations.map((recommendation) => {
       const existing = existingMap.get(recommendation.set_number);
+      const priorReps =
+        recommendation.set_number > 1
+          ? priorRepsBySet.get(recommendation.set_number)
+          : undefined;
       return (
         existing ?? {
           set_number: recommendation.set_number,
           weight: recommendation.weight,
-          reps: recommendation.reps,
+          reps: priorReps ?? recommendation.reps,
           logged: false,
+          repsCarriedFromLastSession: priorReps !== undefined,
+          repsManuallyEdited: false,
         }
       );
     });
@@ -92,7 +112,7 @@ export function ExerciseSets({
     const recommendationNumbers = new Set(
       exercise.recommendations.map((recommendation) => recommendation.set_number)
     );
-    const extraLoggedSets = exercise.existing_sets
+    const extraLoggedSets: DraftSet[] = exercise.existing_sets
       .filter((setRow) => !recommendationNumbers.has(setRow.set_number))
       .map((setRow) => ({
         set_number: setRow.set_number,
@@ -101,7 +121,7 @@ export function ExerciseSets({
         logged: true,
       }));
 
-    const baseSets =
+    const baseSets: DraftSet[] =
       mergedRecommendations.length > 0
         ? [...mergedRecommendations, ...extraLoggedSets].sort(
             (a, b) => a.set_number - b.set_number
@@ -128,11 +148,27 @@ export function ExerciseSets({
     const mergedWithDraft = baseSets.map((setRow) => {
       const draftSet = cachedMap.get(setRow.set_number);
       if (!draftSet || setRow.logged) return setRow;
+      const cachedIsOldUntouchedRecommendation =
+        draftSet.repsCarriedFromLastSession === undefined &&
+        draftSet.repsManuallyEdited === undefined &&
+        draftSet.reps === recommendedRepsBySet.get(setRow.set_number) &&
+        !!setRow.repsCarriedFromLastSession;
+      const useFreshPriorReps = cachedIsOldUntouchedRecommendation;
+      const reps = useFreshPriorReps ? setRow.reps : draftSet.reps;
+      const repsCarriedFromLastSession = useFreshPriorReps
+        ? true
+        : (draftSet.repsCarriedFromLastSession ??
+          (!!setRow.repsCarriedFromLastSession && reps === setRow.reps));
       return {
         ...setRow,
         weight: draftSet.weight,
-        reps: draftSet.reps,
+        reps,
         saveError: draftSet.saveError,
+        repsCarriedFromLastSession,
+        repsManuallyEdited:
+          draftSet.repsManuallyEdited ??
+          (!repsCarriedFromLastSession &&
+            reps !== recommendedRepsBySet.get(setRow.set_number)),
       };
     });
 
@@ -174,7 +210,17 @@ export function ExerciseSets({
       setSets((prev) =>
         prev.map((setRow) =>
           setRow.set_number === setNumber
-            ? { ...setRow, [field]: value, logged: false }
+            ? {
+                ...setRow,
+                [field]: value,
+                logged: false,
+                ...(field === "reps"
+                  ? {
+                      repsCarriedFromLastSession: false,
+                      repsManuallyEdited: true,
+                    }
+                  : {}),
+              }
             : setRow
         )
       );
@@ -218,16 +264,28 @@ export function ExerciseSets({
             setSets((prev) => {
               const marked = prev.map((setRow) =>
                 setRow.set_number === setNumber
-                  ? { ...setRow, logged: true, saveError: false }
+                  ? {
+                      ...setRow,
+                      logged: true,
+                      saveError: false,
+                      repsCarriedFromLastSession: false,
+                    }
                   : setRow
               );
-              // Propagate weight and recalculate reps for all subsequent unlogged sets
+              // Preserve exact prior-session or manually edited reps. Only generated
+              // recommendations continue to follow the newly logged performance.
               return marked.map((setRow) => {
                 if (!setRow.logged && setRow.set_number > setNumber) {
                   return {
                     ...setRow,
                     weight: loggedWeight,
-                    reps: Math.max(5, loggedReps - (setRow.set_number - setNumber)),
+                    reps:
+                      setRow.repsCarriedFromLastSession || setRow.repsManuallyEdited
+                        ? setRow.reps
+                        : Math.max(
+                            5,
+                            loggedReps - (setRow.set_number - setNumber)
+                          ),
                   };
                 }
                 return setRow;
@@ -284,7 +342,7 @@ export function ExerciseSets({
   const lastSessionLabel = exercise.last_session_summary
     ? [
         `Last ${formatWeight(exercise.last_session_summary.last_weight)} lb`,
-        `${exercise.last_session_summary.avg_reps} avg reps`,
+        `${exercise.last_session_summary.first_set_reps ?? exercise.last_session_summary.avg_reps} reps on set 1`,
         typeof exercise.last_session_summary.set_count === "number"
           ? `${exercise.last_session_summary.set_count} sets`
           : null,
@@ -403,6 +461,9 @@ export function ExerciseSets({
               disabled={disabled}
               sorenessLocked={sorenessLocked}
               highlight={!setRow.logged && setRow.set_number === activeSet?.set_number}
+              repsFromLastSession={
+                !setRow.logged && !!setRow.repsCarriedFromLastSession
+              }
               onWeightChange={(value) => updateSet(setRow.set_number, "weight", value)}
               onRepsChange={(value) => updateSet(setRow.set_number, "reps", value)}
               onLog={() => handleLog(setRow.set_number)}

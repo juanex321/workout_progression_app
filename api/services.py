@@ -240,7 +240,16 @@ def build_last_session_metadata(last_sets: list[Set]):
     summary = {
         "last_weight": last_weight,
         "avg_reps": int(round(sum(reps) / len(reps))),
+        "first_set_reps": reps[0],
         "set_count": len(ordered_sets),
+        "sets": [
+            {
+                "set_number": int(set_row.set_number),
+                "reps": int(set_row.reps),
+            }
+            for set_row in ordered_sets
+            if set_row.reps is not None
+        ],
     }
 
     recommendation = None

@@ -16,7 +16,12 @@ export interface RecommendedSet {
 export interface LastSessionSummary {
   last_weight: number;
   avg_reps: number;
+  first_set_reps: number;
   set_count: number;
+  sets: {
+    set_number: number;
+    reps: number;
+  }[];
 }
 
 export interface WeightRecommendation {

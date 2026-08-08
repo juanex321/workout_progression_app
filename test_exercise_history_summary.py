@@ -93,7 +93,19 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
 
         self.assertEqual(
             summary,
-            {"last_weight": 150.0, "avg_reps": 12, "set_count": 5},
+            {
+                "last_weight": 150.0,
+                "avg_reps": 12,
+                "first_set_reps": 12,
+                "set_count": 5,
+                "sets": [
+                    {"set_number": 1, "reps": 12},
+                    {"set_number": 2, "reps": 12},
+                    {"set_number": 3, "reps": 13},
+                    {"set_number": 4, "reps": 12},
+                    {"set_number": 5, "reps": 11},
+                ],
+            },
         )
         self.assertIsNone(recommendation)
 
@@ -161,6 +173,8 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
 
         self.assertEqual(summary["last_weight"], 150.0)
         self.assertEqual(summary["avg_reps"], 12)
+        self.assertEqual(summary["first_set_reps"], 15)
+        self.assertEqual(summary["sets"][1], {"set_number": 2, "reps": 12})
         self.assertEqual(recommendation["level"], "standard")
 
     def test_get_exercise_last_session_metadata_ignores_current_in_progress_session(self):
@@ -238,6 +252,9 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
         self.assertIsNotNone(leg_extension_payload.last_session_summary)
         self.assertEqual(leg_extension_payload.last_session_summary.last_weight, 150.0)
         self.assertEqual(leg_extension_payload.last_session_summary.avg_reps, 12)
+        self.assertEqual(leg_extension_payload.last_session_summary.first_set_reps, 15)
+        self.assertEqual(leg_extension_payload.last_session_summary.sets[1].set_number, 2)
+        self.assertEqual(leg_extension_payload.last_session_summary.sets[1].reps, 12)
         self.assertIsNotNone(leg_extension_payload.weight_recommendation)
         self.assertEqual(leg_extension_payload.weight_recommendation.level, "standard")
         self.assertEqual(

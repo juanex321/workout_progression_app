@@ -11,6 +11,7 @@ interface SetRowProps {
   disabled: boolean;
   sorenessLocked?: boolean;
   highlight?: boolean;
+  repsFromLastSession?: boolean;
   onWeightChange: (value: number) => void;
   onRepsChange: (value: number) => void;
   onLog: () => void;
@@ -24,6 +25,7 @@ function Stepper({
   inputMode,
   disabled,
   suffix,
+  muted,
 }: {
   value: number;
   onChange: (v: number) => void;
@@ -32,11 +34,12 @@ function Stepper({
   inputMode: "decimal" | "numeric";
   disabled: boolean;
   suffix?: string;
+  muted?: boolean;
 }) {
   const inputRef = useRef<HTMLInputElement>(null);
 
   return (
-    <div className="flex h-12 min-w-0 items-stretch overflow-hidden rounded-xl border border-white/15 bg-zinc-950">
+    <div className={`flex h-12 min-w-0 items-stretch overflow-hidden rounded-xl border bg-zinc-950 ${muted ? "border-white/8 opacity-65" : "border-white/15"}`}>
       <button
         type="button"
         onClick={() => onChange(Math.max(min, value - step))}
@@ -66,8 +69,8 @@ function Stepper({
             onChange(Math.max(min, parsed));
           }}
           disabled={disabled}
-          aria-label={suffix}
-          className="h-full w-full min-w-0 bg-transparent px-0.5 text-center text-base font-bold text-zinc-50 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-500 disabled:opacity-50 sm:px-2 sm:text-lg"
+          aria-label={muted ? `${suffix} from last session` : suffix}
+          className={`h-full w-full min-w-0 bg-transparent px-0.5 text-center text-base font-bold focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-500 disabled:opacity-50 sm:px-2 sm:text-lg ${muted ? "text-zinc-400" : "text-zinc-50"}`}
         />
       </div>
       <button
@@ -93,6 +96,7 @@ export function SetRow({
   disabled,
   sorenessLocked,
   highlight,
+  repsFromLastSession,
   onWeightChange,
   onRepsChange,
   onLog,
@@ -148,6 +152,7 @@ export function SetRow({
           inputMode="numeric"
           disabled={disabled || !!pending}
           suffix="reps"
+          muted={repsFromLastSession}
         />
       </div>
 

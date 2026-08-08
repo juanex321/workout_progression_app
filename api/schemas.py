@@ -41,10 +41,17 @@ class RecommendedSet(BaseModel):
     suggest_weight_increase: Optional[bool] = None
 
 
+class LastSessionSet(BaseModel):
+    set_number: int
+    reps: int
+
+
 class LastSessionSummary(BaseModel):
     last_weight: float
     avg_reps: int
+    first_set_reps: int
     set_count: int
+    sets: list[LastSessionSet]
 
 
 class WeightRecommendation(BaseModel):
