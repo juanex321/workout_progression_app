@@ -238,17 +238,114 @@ def test_acceptance_never_below_volume_window():
     print("  PASS: Low history + negative feedback -> stays at Chest minimum (4)")
 
 
-def test_acceptance_secondary_receives_thirty_percent():
-    """ACCEPTANCE: Secondary work receives roughly 30% of feedback-driven volume."""
+def test_acceptance_sole_exercise_receives_full_muscle_total():
+    """ACCEPTANCE: A muscle group trained by a single exercise gets the whole total."""
     we = make_mock_we(target_sets=3, exercise_name="Single-arm Chest Fly")
     mock_db = MagicMock()
 
     with patch("progression.get_last_n_muscle_group_set_counts", return_value=[10]):
         with patch("progression.compute_feedback_adjustment", return_value=0):
-            with patch("progression._muscle_secondary_count", return_value=1):
+            with patch("progression._muscle_group_workout_exercises", return_value=[we]):
                 result = adjust_sets_based_on_feedback(mock_db, we)
-                assert result == 3, f"Expected 3, got {result}"
-    print("  PASS: 10 total sets -> 3 secondary sets")
+                assert result == 10, f"Expected 10, got {result}"
+    print("  PASS: Single exercise for the muscle -> gets the full total")
+
+
+def test_allocation_guarantees_two_sets_each_and_keeps_ratio():
+    """ACCEPTANCE: Two exercises sharing a muscle each get >=2 sets, ratio preserved."""
+    main = make_mock_we(target_sets=3, exercise_name="Dumbbell Press")
+    main.id = 1
+    main.workout_id = 100
+    secondary = make_mock_we(target_sets=2, exercise_name="Chest Fly")
+    secondary.id = 2
+    secondary.workout_id = 100
+
+    mock_db = MagicMock()
+
+    def fake_counts(db, workout_exercise_id, n=1):
+        return {1: [3], 2: [2]}.get(workout_exercise_id, [])
+
+    with patch("progression._muscle_group_workout_exercises", return_value=[main, secondary]):
+        with patch("progression.get_last_n_session_set_counts", side_effect=fake_counts):
+            with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
+                with patch("progression.compute_feedback_adjustment", return_value=0):
+                    main_result = adjust_sets_based_on_feedback(mock_db, main)
+                    secondary_result = adjust_sets_based_on_feedback(mock_db, secondary)
+
+    assert (main_result, secondary_result) == (3, 2), (
+        f"Expected (3, 2) preserving last session's ratio, got "
+        f"({main_result}, {secondary_result})"
+    )
+    print("  PASS: 5 total sets with 3/2 last-session ratio -> (3, 2)")
+
+
+def test_allocation_floor_wins_when_no_room_for_ratio():
+    """ACCEPTANCE: With only enough sets for the floor, each exercise still gets 2."""
+    main = make_mock_we(target_sets=3, exercise_name="Dumbbell Press")
+    main.id = 1
+    main.workout_id = 100
+    secondary = make_mock_we(target_sets=1, exercise_name="Chest Fly")
+    secondary.id = 2
+    secondary.workout_id = 100
+
+    mock_db = MagicMock()
+
+    def fake_counts(db, workout_exercise_id, n=1):
+        return {1: [3], 2: [1]}.get(workout_exercise_id, [])
+
+    with patch("progression._muscle_group_workout_exercises", return_value=[main, secondary]):
+        with patch("progression.get_last_n_session_set_counts", side_effect=fake_counts):
+            with patch("progression.get_last_n_muscle_group_set_counts", return_value=[4]):
+                with patch("progression.compute_feedback_adjustment", return_value=0):
+                    main_result = adjust_sets_based_on_feedback(mock_db, main)
+                    secondary_result = adjust_sets_based_on_feedback(mock_db, secondary)
+
+    assert (main_result, secondary_result) == (2, 2), (
+        f"Expected (2, 2) at the shared floor, got ({main_result}, {secondary_result})"
+    )
+    print("  PASS: 4 total sets, no room above the 2-set floor -> (2, 2)")
+
+
+# ---- Tests for the recovery-driven bonus set ----
+
+def test_never_sore_after_moderate_session_returns_plus_1():
+    """ACCEPTANCE: Last session pump/workload <=3 + today 'never got sore' -> +1."""
+    mock_db = MagicMock()
+    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+        mock_fb.return_value = [
+            make_mock_feedback(soreness=2, pump=3, workload=3),
+            make_mock_feedback(soreness=2, pump=3, workload=3),
+        ]
+        adj = compute_feedback_adjustment(mock_db, "Chest", current_soreness=1)
+        assert adj == +1, f"Expected +1, got {adj}"
+    print("  PASS: Never sore + moderate last session -> +1")
+
+
+def test_never_sore_but_last_session_hard_does_not_force_plus_1():
+    """Soreness=1 today doesn't force +1 if last session's pump was already maxed
+    out, even though its workload stayed moderate (rule needs BOTH <= 3)."""
+    mock_db = MagicMock()
+    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+        mock_fb.return_value = [
+            make_mock_feedback(soreness=2, pump=5, workload=3),
+            make_mock_feedback(soreness=2, pump=3, workload=3),
+        ]
+        adj = compute_feedback_adjustment(mock_db, "Chest", current_soreness=1)
+        assert adj == 0, f"Expected 0, got {adj}"
+    print("  PASS: Never sore but last session's pump was maxed out -> no forced +1")
+
+
+def test_moderate_soreness_today_does_not_trigger_recovery_bonus():
+    """Only soreness==1 ('Never got sore') triggers the recovery bonus, not 2/3."""
+    mock_db = MagicMock()
+    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+        mock_fb.return_value = [
+            make_mock_feedback(soreness=3, pump=3, workload=3),
+            make_mock_feedback(soreness=3, pump=3, workload=3),
+        ]
+        adj = compute_feedback_adjustment(mock_db, "Chest", current_soreness=2)
+        assert adj == 0, f"Expected 0, got {adj}"
+    print("  PASS: Soreness=2 today -> no recovery bonus")
 
 
 # ---- Run all tests ----
@@ -271,6 +368,13 @@ if __name__ == "__main__":
     test_acceptance_latest_session_with_adjustment()
     test_acceptance_positive_feedback_has_no_upper_cap()
     test_acceptance_never_below_volume_window()
-    test_acceptance_secondary_receives_thirty_percent()
+    test_acceptance_sole_exercise_receives_full_muscle_total()
+    test_allocation_guarantees_two_sets_each_and_keeps_ratio()
+    test_allocation_floor_wins_when_no_room_for_ratio()
+
+    print("\n=== Recovery-Driven Bonus Set Tests ===")
+    test_never_sore_after_moderate_session_returns_plus_1()
+    test_never_sore_but_last_session_hard_does_not_force_plus_1()
+    test_moderate_soreness_today_does_not_trigger_recovery_bonus()
 
     print("\nOK: All tests passed!")

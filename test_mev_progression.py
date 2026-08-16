@@ -134,9 +134,12 @@ class MevProgressionTests(unittest.TestCase):
         main = self.add_we("Cable Curl", "Biceps")
         secondary = self.add_we("Incline DB Curl", "Biceps", target_sets=1)
 
+        # No set history yet for either exercise, so the fallback 70/30 ratio
+        # applies, subject to the 2-set-per-exercise floor (total=4 has no
+        # room above the floor, so it splits evenly instead of 3/1).
         expected_splits = {
-            4: (3, 1),
-            5: (4, 1),
+            4: (2, 2),
+            5: (3, 2),
             6: (4, 2),
             7: (5, 2),
             10: (7, 3),
@@ -155,6 +158,82 @@ class MevProgressionTests(unittest.TestCase):
                     ),
                     expected[1],
                 )
+
+    def test_two_exercise_allocation_preserves_last_session_ratio(self):
+        """Chest example from the product request: 5 total sets, last session was
+        3 dumbbell press / 2 chest flies -> stays 3/2, not the fallback 70/30."""
+        press = self.add_we("Dumbbell Press", "Chest", target_sets=3)
+        fly = self.add_we("Chest Fly", "Chest", target_sets=2)
+
+        session = self.add_session(1)
+        self.add_sets(session, press, count=3)
+        self.add_sets(session, fly, count=2)
+        self.add_feedback(session, "Chest", soreness=2, pump=3, workload=3)
+        self.db.commit()
+
+        self.assertEqual(
+            _allocate_muscle_sets_to_exercise(self.db, press, "Chest", 5), 3
+        )
+        self.assertEqual(
+            _allocate_muscle_sets_to_exercise(self.db, fly, "Chest", 5), 2
+        )
+
+    def test_two_exercise_allocation_never_drops_below_floor(self):
+        """Even a lopsided last-session ratio can't push either exercise below 2 sets."""
+        press = self.add_we("Dumbbell Press", "Chest", target_sets=6)
+        fly = self.add_we("Chest Fly", "Chest", target_sets=1)
+
+        session = self.add_session(1)
+        self.add_sets(session, press, count=6)
+        self.add_sets(session, fly, count=1)
+        self.add_feedback(session, "Chest", soreness=2, pump=3, workload=3)
+        self.db.commit()
+
+        self.assertEqual(
+            _allocate_muscle_sets_to_exercise(self.db, press, "Chest", 6), 4
+        )
+        self.assertEqual(
+            _allocate_muscle_sets_to_exercise(self.db, fly, "Chest", 6), 2
+        )
+
+    def test_never_sore_after_moderate_session_adds_a_set(self):
+        """Last session's pump/workload both <=3, and today's pre-session soreness
+        check-in reads 'Never got sore' (1) -> the next session gains a set."""
+        leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=4)
+
+        last_session = self.add_session(1)
+        self.add_sets(last_session, leg_curl, count=4)
+        self.add_feedback(last_session, "Hamstrings", soreness=2, pump=3, workload=3)
+
+        current_session = self.add_session(2, completed=0)
+        self.add_feedback(current_session, "Hamstrings", soreness=1, pump=None, workload=None)
+        self.db.commit()
+
+        target_sets = adjust_sets_based_on_feedback(
+            self.db, leg_curl, session_id=current_session.id
+        )
+
+        self.assertEqual(target_sets, 5)
+
+    def test_soreness_without_moderate_last_session_does_not_add_a_set(self):
+        """Last session's pump already maxed out (5) even though workload was
+        moderate, so today's 'Never got sore' shouldn't get the recovery bonus -
+        the rule requires BOTH pump and workload at 3 or below."""
+        leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=4)
+
+        last_session = self.add_session(1)
+        self.add_sets(last_session, leg_curl, count=4)
+        self.add_feedback(last_session, "Hamstrings", soreness=2, pump=5, workload=3)
+
+        current_session = self.add_session(2, completed=0)
+        self.add_feedback(current_session, "Hamstrings", soreness=1, pump=None, workload=None)
+        self.db.commit()
+
+        target_sets = adjust_sets_based_on_feedback(
+            self.db, leg_curl, session_id=current_session.id
+        )
+
+        self.assertEqual(target_sets, 4)
 
     def test_hamstring_target_preserves_high_neutral_volume(self):
         leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=7)
