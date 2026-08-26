@@ -23,9 +23,6 @@ export function MuscleGroupCard({
   sessionId,
   sessionCompleted,
 }: MuscleGroupCardProps) {
-  const regularExercises = data.exercises.filter((exercise) => !exercise.is_finisher);
-  const finisherExercises = data.exercises.filter((exercise) => exercise.is_finisher);
-
   const [loggedMap, setLoggedMap] = useState<Record<number, boolean>>(() => {
     const initial: Record<number, boolean> = {};
     for (const ex of data.exercises) {
@@ -71,14 +68,6 @@ export function MuscleGroupCard({
 
   const allSetsLogged =
     data.exercises.length > 0 && Object.values(loggedMap).every(Boolean);
-  const regularExercisesComplete =
-    regularExercises.length === 0 || regularExercises.every((exercise) => loggedMap[exercise.we_id]);
-  const visibleExercises = [
-    ...regularExercises,
-    ...finisherExercises.filter(
-      (exercise) => regularExercisesComplete || loggedMap[exercise.we_id] || sessionCompleted
-    ),
-  ];
   const showFeedback = allSetsLogged || feedbackComplete || sessionCompleted;
   const sorenessLocked = effectiveSoreness === null && !sessionCompleted && !feedbackComplete;
   const canCollapse = feedbackComplete || sessionCompleted;
@@ -147,7 +136,7 @@ export function MuscleGroupCard({
               </div>
             )}
 
-            {visibleExercises.map((exercise) => (
+            {data.exercises.map((exercise) => (
               <ExerciseSets
                 key={exercise.we_id}
                 exercise={exercise}
