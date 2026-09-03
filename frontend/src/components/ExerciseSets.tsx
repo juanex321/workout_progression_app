@@ -1,9 +1,10 @@
 "use client";
 import { useState, useCallback, useEffect, useRef } from "react";
-import type { ExerciseData } from "@/lib/types";
+import type { DraftSetRow, ExerciseData } from "@/lib/types";
 import { SetRow } from "./SetRow";
 import { SetCounter } from "./SetCounter";
 import { useLogSet } from "@/hooks/useLogSet";
+import { useSaveDraft } from "@/hooks/useSaveDraft";
 
 interface DraftSet {
   set_number: number;
@@ -47,6 +48,18 @@ function clearDraft(sessionId: number, weId: number): void {
   }
 }
 
+// Fallback source when there's no local draft — e.g. localStorage was
+// cleared, or this session is being resumed on a different device.
+function draftFromServer(rows: DraftSetRow[] | null): DraftSet[] | null {
+  if (!rows || rows.length === 0) return null;
+  return rows.map((row) => ({
+    set_number: row.set_number,
+    weight: row.weight,
+    reps: row.reps,
+    logged: false,
+  }));
+}
+
 interface ExerciseSetsProps {
   exercise: ExerciseData;
   sessionId: number;
@@ -68,7 +81,7 @@ export function ExerciseSets({
     Number.isInteger(value) ? `${value}` : value.toFixed(1);
 
   const initSets = (): DraftSet[] => {
-    const cached = loadDraft(sessionId, exercise.we_id);
+    const cached = loadDraft(sessionId, exercise.we_id) ?? draftFromServer(exercise.draft);
     const priorRepsBySet = new Map(
       (exercise.last_session_summary?.sets ?? []).map((setRow) => [
         setRow.set_number,
@@ -198,6 +211,8 @@ export function ExerciseSets({
   const [savingSet, setSavingSet] = useState<number | null>(null);
   const [showCompletedSets, setShowCompletedSets] = useState(false);
 
+  const { mutate: saveDraftRemote } = useSaveDraft();
+
   const isInitialMount = useRef(true);
   useEffect(() => {
     if (isInitialMount.current) {
@@ -210,7 +225,22 @@ export function ExerciseSets({
     } else {
       saveDraft(sessionId, exercise.we_id, sets);
     }
-  }, [sets, sessionId, exercise.we_id]);
+
+    // Also back the draft up server-side (debounced) so a cleared browser or
+    // a different device can still recover in-progress, not-yet-logged sets.
+    if (disabled) return;
+    const rows = sets
+      .filter((setRow) => !setRow.logged)
+      .map((setRow) => ({
+        set_number: setRow.set_number,
+        weight: setRow.weight,
+        reps: setRow.reps,
+      }));
+    const timeout = setTimeout(() => {
+      saveDraftRemote({ session_id: sessionId, workout_exercise_id: exercise.we_id, rows });
+    }, 800);
+    return () => clearTimeout(timeout);
+  }, [sets, sessionId, exercise.we_id, disabled, saveDraftRemote]);
 
   const logSet = useLogSet();
 

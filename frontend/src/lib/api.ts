@@ -2,6 +2,7 @@ import type {
   SessionResponse,
   WorkoutDataResponse,
   SaveSetsRequest,
+  SaveDraftRequest,
   FeedbackRequest,
   SorenessRequest,
 } from "./types";
@@ -36,6 +37,14 @@ export const api = {
 
   saveSets(req: SaveSetsRequest): Promise<{ status: string }> {
     return fetchJSON(`${BASE}/sets/save`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(req),
+    });
+  },
+
+  saveDraft(req: SaveDraftRequest): Promise<{ status: string }> {
+    return fetchJSON(`${BASE}/sets/draft`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(req),

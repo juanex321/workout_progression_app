@@ -1,6 +1,7 @@
 # services.py
 from __future__ import annotations
 
+import json
 from datetime import date
 from typing import Optional
 
@@ -12,6 +13,7 @@ from db import (
     WorkoutExercise,
     Exercise,
     Set,
+    SetDraft,
     Feedback,
 )
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
@@ -321,6 +323,65 @@ def save_sets(db, session_id: int, workout_exercise_id: int, rows) -> None:
             ))
 
     db.commit()
+
+
+def save_set_draft(db, session_id: int, workout_exercise_id: int, rows: list[dict]) -> None:
+    """
+    Persist the client's current in-progress (not yet logged) set values so
+    they survive a cleared browser or a switch to another device.
+
+    rows: list of {set_number, weight, reps}. An empty list deletes the draft
+    (everything for this exercise has been logged or reset).
+    """
+    existing = (
+        db.query(SetDraft)
+        .filter(
+            SetDraft.session_id == session_id,
+            SetDraft.workout_exercise_id == workout_exercise_id,
+        )
+        .first()
+    )
+
+    if not rows:
+        if existing:
+            db.delete(existing)
+            db.commit()
+        return
+
+    payload = json.dumps(rows)
+    if existing:
+        existing.payload = payload
+    else:
+        db.add(SetDraft(
+            session_id=session_id,
+            workout_exercise_id=workout_exercise_id,
+            payload=payload,
+        ))
+    db.commit()
+
+
+def get_set_drafts_by_workout_exercise(
+    db, session_id: int, workout_exercise_ids: list[int]
+) -> dict[int, list[dict]]:
+    """Batch-load draft rows for one session, keyed by workout_exercise_id."""
+    if not workout_exercise_ids:
+        return {}
+
+    drafts = (
+        db.query(SetDraft)
+        .filter(
+            SetDraft.session_id == session_id,
+            SetDraft.workout_exercise_id.in_(workout_exercise_ids),
+        )
+        .all()
+    )
+    result: dict[int, list[dict]] = {}
+    for draft in drafts:
+        try:
+            result[draft.workout_exercise_id] = json.loads(draft.payload)
+        except (TypeError, ValueError):
+            continue
+    return result
 
 
 def check_feedback_exists(db, session_id: int, workout_exercise_id: int) -> bool:

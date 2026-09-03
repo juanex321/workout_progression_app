@@ -24,6 +24,18 @@ class SorenessRequest(BaseModel):
     soreness: int
 
 
+class DraftSetRow(BaseModel):
+    set_number: int
+    weight: float
+    reps: int
+
+
+class SaveDraftRequest(BaseModel):
+    session_id: int
+    workout_exercise_id: int
+    rows: list[DraftSetRow]
+
+
 # --- Response models ---
 
 class SetData(BaseModel):
@@ -73,6 +85,7 @@ class ExerciseData(BaseModel):
     target_reps: int
     last_session_summary: Optional[LastSessionSummary] = None
     weight_recommendation: Optional[WeightRecommendation] = None
+    draft: Optional[list[DraftSetRow]] = None
 
 
 class MuscleGroupData(BaseModel):

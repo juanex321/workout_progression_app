@@ -29,6 +29,12 @@ export interface WeightRecommendation {
   context_note: string | null;
 }
 
+export interface DraftSetRow {
+  set_number: number;
+  weight: number;
+  reps: number;
+}
+
 export interface ExerciseData {
   we_id: number;
   name: string;
@@ -43,6 +49,7 @@ export interface ExerciseData {
   target_reps: number;
   last_session_summary: LastSessionSummary | null;
   weight_recommendation: WeightRecommendation | null;
+  draft: DraftSetRow[] | null;
 }
 
 export interface MuscleGroupData {
@@ -96,4 +103,10 @@ export interface SorenessRequest {
   session_id: number;
   muscle_group: string;
   soreness: number;
+}
+
+export interface SaveDraftRequest {
+  session_id: number;
+  workout_exercise_id: number;
+  rows: DraftSetRow[];
 }
