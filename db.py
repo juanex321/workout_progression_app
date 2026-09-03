@@ -142,6 +142,23 @@ class Feedback(Base):
     workout_exercise = relationship("WorkoutExercise")
 
 
+class SetDraft(Base):
+    """In-progress, not-yet-logged set values, synced from the client so an
+    unlogged edit survives a cleared browser / a different device."""
+
+    __tablename__ = "set_drafts"
+    __table_args__ = (
+        UniqueConstraint("session_id", "workout_exercise_id", name="uq_set_draft_session_exercise"),
+    )
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    session_id: Mapped[int] = mapped_column(Integer, ForeignKey("sessions.id"), nullable=False)
+    workout_exercise_id: Mapped[int] = mapped_column(Integer, ForeignKey("workout_exercises.id"), nullable=False)
+    payload: Mapped[str] = mapped_column(String, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, nullable=False, default=func.now(), onupdate=func.now()
+    )
+
+
 @contextmanager
 def get_session():
     """Database session context manager."""

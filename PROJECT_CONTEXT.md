@@ -1,11 +1,11 @@
 # Shared Project Context (Agent-Agnostic)
 
-Last updated: 2026-04-05
+Last updated: 2026-09-03
 Repository: `workout_progression_app`
 
 ## Purpose
 
-Workout tracking app with adaptive progression. Users log sets, submit muscle-group feedback, and the app adjusts future volume, rep targets, and RIR guidance based on recent performance and recovery.
+Workout tracking app with adaptive progression. Users log sets, submit muscle-group feedback, and the app adjusts future volume and rep targets based on recent performance and recovery. Every set is trained to failure - there is no RIR phase system or intensity guidance.
 
 ## Active Stack
 
@@ -25,8 +25,7 @@ Workout tracking app with adaptive progression. Users log sets, submit muscle-gr
 - `api/routes/`: sessions, exercises, feedback, and progression endpoints
 - `api/db.py`: API runtime DB config and models
 - `api/services.py`: API-layer CRUD/service logic
-- `progression.py`: set/rep recommendation and deload logic
-- `rir_progression.py`: RIR progression and feedback-trend logic
+- `progression.py`: set/rep recommendation logic
 - `plan.py`: session exercise rotation and defaults
 - `db.py`: root DB models/session helper used by scripts and tests
 - `init_db.py`: initial schema/seed setup
@@ -45,19 +44,17 @@ Defined in `db.py` / `api/db.py`:
 
 ## Progression System
 
-- Primary adjustment: sets up/down from feedback trends
-- Secondary adjustment: reps increase when performance supports it
-- Intensity guidance: RIR progression from session history
-- Deload path exists for overreaching patterns
+- Every set is trained to failure within a fixed rep range - no RIR phases, no
+  automatic deload/wave-reset. This was removed 2026-07-23; see the "Remove RIR
+  phase system" commit if the history is ever needed.
+- Primary adjustment: sets up/down from feedback trends (bounded +/-1 per session)
+- Secondary adjustment: reps increase by 1 when performance supports it
 - Weights are generally user-driven, not auto-progressed aggressively
 
 Main entry points:
 
 - `progression.py::recommend_weights_and_reps`
 - `progression.py::adjust_sets_based_on_feedback`
-- `progression.py::should_deload_by_muscle_group`
-- `rir_progression.py::get_rir_for_muscle_group`
-- `rir_progression.py::calculate_rir_from_feedback`
 
 ## Runtime and Env
 
@@ -88,13 +85,12 @@ Useful commands:
 
 - Keep frontend changes inside `frontend/`
 - Keep API request/response work in `api/routes/` and `api/services.py`
-- Keep business rules in `progression.py` / `rir_progression.py`
+- Keep business rules in `progression.py`
 - Use `with get_session() as db:` for root DB operations
 - Shared root progression modules must remain safe to import from the API runtime
 
 ## Risks / Attention Points
 
-- `progression.py` and `rir_progression.py` must stay consistent
 - Hosted Postgres and local SQLite paths both exist, so DB changes need coverage for both
 - Import resolution matters: API runtime should use `api/db.py`, not root `db.py`
 
@@ -103,5 +99,5 @@ Useful commands:
 1. Read `README.md`
 2. Inspect `frontend/src/app/page.tsx` and related hooks/components
 3. Trace the matching `api/routes/*` handler and `api/services.py`
-4. Validate progression changes in `progression.py` and `rir_progression.py`
+4. Validate progression changes in `progression.py`
 5. Run the relevant frontend/API/test checks

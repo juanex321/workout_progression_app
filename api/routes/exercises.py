@@ -12,13 +12,16 @@ from schemas import (
     SetData,
     RecommendedSet,
     SaveSetsRequest,
+    SaveDraftRequest,
 )
 from db import Session, Workout, Program, Exercise, Feedback, Set, WorkoutExercise
 from services import (
     get_current_session,
     get_session_by_number,
     get_exercise_last_session_metadata,
+    get_set_drafts_by_workout_exercise,
     save_sets,
+    save_set_draft,
 )
 from plan import (
     DEFAULT_TARGET_REPS,
@@ -181,6 +184,9 @@ def get_workout_data(
     existing_sets_by_we = _load_sets_by_workout_exercise(
         db, sess.id, [we.id for we in workout_exercises]
     )
+    drafts_by_we = get_set_drafts_by_workout_exercise(
+        db, sess.id, [we.id for we in workout_exercises]
+    )
     session_muscle_groups = list(OrderedDict(
         (EXERCISE_MUSCLE_GROUPS.get(name, "Other"), None)
         for name in exercise_names
@@ -239,7 +245,6 @@ def get_workout_data(
                 weight=r["weight"],
                 reps=r["reps"],
                 done=r.get("done", False),
-                suggest_weight_increase=r.get("_suggest_weight_increase"),
             )
             for r in recs_raw
         ]
@@ -265,6 +270,7 @@ def get_workout_data(
             target_reps=we.target_reps,
             last_session_summary=last_session_summary,
             weight_recommendation=weight_recommendation,
+            draft=drafts_by_we.get(we.id),
         )
 
         # Add to muscle group or create new
@@ -294,4 +300,16 @@ def get_workout_data(
 def save_exercise_sets(req: SaveSetsRequest, db: OrmSession = Depends(get_db)):
     """Save sets for one exercise in a session."""
     save_sets(db, req.session_id, req.workout_exercise_id, req.rows)
+    return {"status": "ok"}
+
+
+@router.post("/sets/draft")
+def save_exercise_draft(req: SaveDraftRequest, db: OrmSession = Depends(get_db)):
+    """Autosave in-progress (not yet logged) set values for one exercise."""
+    save_set_draft(
+        db,
+        req.session_id,
+        req.workout_exercise_id,
+        [row.model_dump() for row in req.rows],
+    )
     return {"status": "ok"}
