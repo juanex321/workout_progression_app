@@ -239,7 +239,6 @@ def get_workout_data(
                 weight=r["weight"],
                 reps=r["reps"],
                 done=r.get("done", False),
-                suggest_weight_increase=r.get("_suggest_weight_increase"),
             )
             for r in recs_raw
         ]

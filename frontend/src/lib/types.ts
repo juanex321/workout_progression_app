@@ -10,7 +10,6 @@ export interface RecommendedSet {
   weight: number;
   reps: number;
   done: boolean;
-  suggest_weight_increase?: boolean;
 }
 
 export interface LastSessionSummary {

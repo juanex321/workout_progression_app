@@ -38,7 +38,6 @@ class RecommendedSet(BaseModel):
     weight: float
     reps: int
     done: bool = False
-    suggest_weight_increase: Optional[bool] = None
 
 
 class LastSessionSet(BaseModel):

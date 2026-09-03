@@ -360,7 +360,8 @@ def calculate_target_reps(we: WorkoutExercise, last_sets: List[Set] | None) -> i
     Every set is trained to failure within a fixed rep range: the target is a
     starting aim, not a hard stop. Progression is +1 rep from last session's
     first set, bounded to [MIN_TARGET_REPS, MAX_TARGET_REPS]. Hitting the top
-    of the range signals a weight increase (see should_suggest_weight_increase).
+    of the range signals a weight increase (surfaced via the last-session weight
+    recommendation, see services.py::build_last_session_metadata).
 
     Args:
         we: WorkoutExercise object
@@ -382,42 +383,6 @@ def calculate_target_reps(we: WorkoutExercise, last_sets: List[Set] | None) -> i
     target_reps = max(target_reps, MIN_TARGET_REPS)
 
     return int(target_reps)
-
-
-def should_suggest_weight_increase(
-    db: OrmSession, we: WorkoutExercise, last_sets: List[Set] | None
-) -> bool:
-    """
-    Suggest weight increase when hitting max reps on first set with high volume.
-
-    With fatigue modeling, only the FIRST set is the true performance reference.
-
-    Args:
-        db: Database session
-        we: WorkoutExercise object
-        last_sets: Sets from the last session
-
-    Returns:
-        True if weight increase should be suggested
-    """
-    target_reps = we.target_reps or 10
-
-    if not last_sets:
-        return False
-
-    # Get first set (the reference point)
-    first_set = min(last_sets, key=lambda s: s.set_number)
-    first_set_reps = first_set.reps or 0
-
-    # Suggest weight increase if:
-    # 1. At max reps (15)
-    # 2. First set hit the target
-    # 3. High volume (4+ sets)
-    first_set_hit_target = first_set_reps >= target_reps
-    at_max_reps = target_reps >= MAX_TARGET_REPS
-    high_volume = len(last_sets) >= 4
-
-    return first_set_hit_target and at_max_reps and high_volume
 
 
 # ------- main API -------
@@ -456,26 +421,18 @@ def recommend_weights_and_reps(
     else:
         next_weight = last_sets[0].weight or DEFAULT_BASE_WEIGHT
 
-    # 5) check if we should suggest weight increase (informational only)
-    suggest_weight = should_suggest_weight_increase(db, we, last_sets)
-
-    # 6) build plan rows with fatigue model
+    # 5) build plan rows with fatigue model
     rows: list[dict] = []
     for i in range(1, int(target_sets) + 1):
         sets_of_fatigue = i - 1
         fatigued_reps = target_reps - (sets_of_fatigue * FATIGUE_REP_DROP_PER_SET)
         set_reps = max(fatigued_reps, MIN_REPS_FLOOR)
 
-        row = {
+        rows.append({
             "set_number": i,
             "weight": round(float(next_weight), 1),
             "reps": int(set_reps),
             "done": False,
-        }
-        # Add UI hint flag to first row if weight increase suggested
-        # This flag is for informational display only and not persisted
-        if i == 1 and suggest_weight:
-            row["_suggest_weight_increase"] = True
-        rows.append(row)
+        })
 
     return rows
