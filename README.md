@@ -20,16 +20,18 @@ Log Sets -> Submit Feedback -> App Adjusts Next Session
 3. **App adapts** - Next session automatically adjusts:
    - **Sets** (primary): Increase if under-stimulated, decrease if overtrained
    - **Reps** (secondary): Increase by 1 if hitting all targets (up to 15)
-   - **RIR** (intensity): Suggests how many reps to leave in reserve
+
+Every set is trained to failure - there's no RIR/reps-in-reserve target and no
+automatic deload. The feedback-driven +/-1 set adjustment is the only backoff
+mechanism for overtraining.
 
 ### Progression Rules
 
 | Feedback Pattern | Action |
 |------------------|--------|
-| Low soreness + Low pump + Low workload | +1 set (up to max) |
-| High soreness OR High workload | -1 set (down to 1) |
-| All sets hit target reps | +1 rep (up to 15) |
-| 2+ sessions with workload=5 | Trigger deload (55% weight) |
+| Low soreness + Low pump + Low workload | +1 set (no upper cap) |
+| High soreness OR High workload | -1 set (down to the muscle's minimum) |
+| First set hits target reps | +1 rep (up to 15) |
 
 **Weights stay the same** - you manually increase weight when you're ready. The app never auto-increases weight.
 
@@ -68,7 +70,6 @@ workout_progression_app/
 ├── db.py                  # SQLAlchemy models (used by scripts/tests)
 ├── services.py            # Legacy root service layer
 ├── progression.py         # Volume & rep progression logic
-├── rir_progression.py     # RIR (intensity) progression logic
 ├── plan.py                # Exercise rotation configuration
 ├── init_db.py             # Database seeding script
 └── scripts/               # One-off maintenance scripts
@@ -88,7 +89,7 @@ Program (1) ─── (*) Workout (1) ─── (*) WorkoutExercise ─── Ex
 ### Key Models
 
 - **Session**: A single workout instance with `rotation_index` to track exercise rotation
-- **Set**: Logged set with `weight`, `reps`, `rir`, `logged_at`
+- **Set**: Logged set with `weight`, `reps`, `logged_at`
 - **Feedback**: Per muscle group with `soreness`, `pump`, `workload` (1-4 scale)
 
 ## Quick Start

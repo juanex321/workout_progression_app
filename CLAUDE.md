@@ -21,7 +21,6 @@ This repository has one active application stack:
   - `api/schemas.py` - Pydantic request/response models
 - Root shared modules - imported by the API at runtime
   - `progression.py`
-  - `rir_progression.py`
   - `plan.py`
 - Root support modules - used by local scripts/tests/maintenance
   - `db.py`
@@ -67,17 +66,16 @@ python test_exercise_history_summary.py
 
 - Keep UI logic in `frontend/`
 - Keep API orchestration in `api/`
-- Keep progression logic in `progression.py` / `rir_progression.py`
+- Keep progression logic in `progression.py`
 - Use `with get_session() as db:` for root DB operations
 - Database URL resolution in root `db.py`: `DATABASE_URL` env var, then local SQLite fallback
 - The API should use `api/db.py`, not root `db.py`
 
 ## Progression System
 
-Key points:
+Every set is trained to failure - there is no RIR phase system and no automatic
+deload. Key points:
 
 - Sets adjust by recent feedback with a bounded plus/minus 1 change per session
-- RIR is driven by session history / mesocycle position
-- Rep target formula: `target_reps = last_reps + 1 + (last_rir - current_rir)`
-- Deload happens only when intensity and feedback indicate overtraining
-- `progression.py` and `rir_progression.py` must stay consistent
+- Rep target formula: `target_reps = last_reps + 1`, clamped to `[MIN_TARGET_REPS, MAX_TARGET_REPS]`
+- Weight is carried forward unchanged; the user decides when to add weight
