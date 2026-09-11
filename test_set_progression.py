@@ -7,7 +7,8 @@ Tests verify:
 3. Low soreness/fatigue -> 5 -> 6 (not 5 -> 10).
 4. First session uses its stored starting prescription.
 5. The latest completed session is the direct volume anchor.
-6. Secondary exercises receive roughly 30% of muscle-group volume.
+6. Each exercise anchors on its own history - it is never split from a
+   muscle-group total.
 """
 
 import sys
@@ -21,7 +22,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from progression import (
     compute_feedback_adjustment,
     adjust_sets_based_on_feedback,
-    get_last_n_muscle_group_set_counts,
+    get_last_n_session_set_counts,
     MIN_SETS,
     DEFAULT_BASE_WEIGHT,
 )
@@ -55,13 +56,14 @@ def make_mock_we(target_sets=4, exercise_name="Bench Press", muscle_group="Chest
 def test_feedback_low_returns_plus_1():
     """Under-stimulated (all low) should return +1."""
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+    we = make_mock_we()
+    with patch("progression.get_recent_exercise_feedback") as mock_fb:
         mock_fb.return_value = [
             make_mock_feedback(1, 1, 1),
             make_mock_feedback(2, 2, 2),
             make_mock_feedback(1, 2, 1),
         ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
+        adj = compute_feedback_adjustment(mock_db, we, "Chest")
         assert adj == +1, f"Expected +1 for low feedback, got {adj}"
     print("  PASS: Low feedback -> +1")
 
@@ -69,12 +71,13 @@ def test_feedback_low_returns_plus_1():
 def test_feedback_never_sore_manageable_returns_plus_1():
     """Never sore + manageable workload should add a set even with a good pump."""
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+    we = make_mock_we(muscle_group="Glutes")
+    with patch("progression.get_recent_exercise_feedback") as mock_fb:
         mock_fb.return_value = [
             make_mock_feedback(1, 4, 3),
             make_mock_feedback(1, 3, 3),
         ]
-        adj = compute_feedback_adjustment(mock_db, "Glutes")
+        adj = compute_feedback_adjustment(mock_db, we, "Glutes")
         assert adj == +1, f"Expected +1 for recovered manageable sessions, got {adj}"
     print("  PASS: Never sore + manageable workload -> +1")
 
@@ -82,13 +85,14 @@ def test_feedback_never_sore_manageable_returns_plus_1():
 def test_feedback_high_soreness_returns_minus_1():
     """High soreness should return -1."""
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+    we = make_mock_we()
+    with patch("progression.get_recent_exercise_feedback") as mock_fb:
         mock_fb.return_value = [
             make_mock_feedback(4, 3, 3),
             make_mock_feedback(5, 3, 3),
             make_mock_feedback(4, 3, 3),
         ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
+        adj = compute_feedback_adjustment(mock_db, we, "Chest")
         assert adj == -1, f"Expected -1 for high soreness, got {adj}"
     print("  PASS: High soreness -> -1")
 
@@ -96,13 +100,14 @@ def test_feedback_high_soreness_returns_minus_1():
 def test_feedback_high_workload_returns_minus_1():
     """High workload should return -1."""
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+    we = make_mock_we()
+    with patch("progression.get_recent_exercise_feedback") as mock_fb:
         mock_fb.return_value = [
             make_mock_feedback(2, 3, 5),
             make_mock_feedback(2, 3, 4),
             make_mock_feedback(3, 3, 4),
         ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
+        adj = compute_feedback_adjustment(mock_db, we, "Chest")
         assert adj == -1, f"Expected -1 for high workload, got {adj}"
     print("  PASS: High workload -> -1")
 
@@ -110,12 +115,13 @@ def test_feedback_high_workload_returns_minus_1():
 def test_feedback_moderate_returns_0():
     """Moderate feedback should return 0 (no change)."""
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+    we = make_mock_we()
+    with patch("progression.get_recent_exercise_feedback") as mock_fb:
         mock_fb.return_value = [
             make_mock_feedback(3, 3, 3),
             make_mock_feedback(3, 3, 3),
         ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
+        adj = compute_feedback_adjustment(mock_db, we, "Chest")
         assert adj == 0, f"Expected 0 for moderate feedback, got {adj}"
     print("  PASS: Moderate feedback -> 0")
 
@@ -123,9 +129,10 @@ def test_feedback_moderate_returns_0():
 def test_no_feedback_returns_0():
     """No feedback should return 0."""
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
+    we = make_mock_we()
+    with patch("progression.get_recent_exercise_feedback") as mock_fb:
         mock_fb.return_value = []
-        adj = compute_feedback_adjustment(mock_db, "Chest")
+        adj = compute_feedback_adjustment(mock_db, we, "Chest")
         assert adj == 0, f"Expected 0 for no feedback, got {adj}"
     print("  PASS: No feedback -> 0")
 
@@ -138,7 +145,7 @@ def test_acceptance_5_sets_stays_in_range():
     mock_db = MagicMock()
 
     for adj_val in [-1, 0, +1]:
-        with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
+        with patch("progression.get_last_n_session_set_counts", return_value=[5]):
             with patch("progression.compute_feedback_adjustment", return_value=adj_val):
                 with patch("progression.is_finisher", return_value=False):
                     result = adjust_sets_based_on_feedback(mock_db, we)
@@ -152,7 +159,7 @@ def test_acceptance_high_fatigue_drops_by_1_only():
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[5]):
         with patch("progression.compute_feedback_adjustment", return_value=-1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -165,7 +172,7 @@ def test_acceptance_low_fatigue_increases_by_1_only():
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[5]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -178,7 +185,7 @@ def test_acceptance_no_history_uses_default():
     we = make_mock_we(target_sets=4, muscle_group="Glutes")
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[]):
         with patch("progression.is_finisher", return_value=False):
             result = adjust_sets_based_on_feedback(mock_db, we)
             assert result == 4, f"Expected default {DEFAULT_TARGET_SETS}, got {result}"
@@ -191,7 +198,7 @@ def test_acceptance_latest_session_is_direct_anchor():
     mock_db = MagicMock()
 
     # Last session: 6 sets, previous: 4 sets -> anchor remains 6.
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[6, 4]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[6, 4]):
         with patch("progression.compute_feedback_adjustment", return_value=0):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -204,7 +211,7 @@ def test_acceptance_latest_session_with_adjustment():
     we = make_mock_we(target_sets=5)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[5, 5]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[5, 5]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -217,7 +224,7 @@ def test_acceptance_positive_feedback_has_no_upper_cap():
     we = make_mock_we(target_sets=9)
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[9]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[9]):
         with patch("progression.compute_feedback_adjustment", return_value=+1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -230,7 +237,7 @@ def test_acceptance_never_below_volume_window():
     we = make_mock_we(target_sets=MIN_SETS, muscle_group="Chest")
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[MIN_SETS]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[MIN_SETS]):
         with patch("progression.compute_feedback_adjustment", return_value=-1):
             with patch("progression.is_finisher", return_value=False):
                 result = adjust_sets_based_on_feedback(mock_db, we)
@@ -238,17 +245,19 @@ def test_acceptance_never_below_volume_window():
     print("  PASS: Low history + negative feedback -> stays at Chest minimum (4)")
 
 
-def test_acceptance_secondary_receives_thirty_percent():
-    """ACCEPTANCE: Secondary work receives roughly 30% of feedback-driven volume."""
+def test_acceptance_finisher_anchors_on_own_history_not_a_split():
+    """ACCEPTANCE: A finisher's target comes from its own last actual sets, not a
+    70/30 split of the muscle group's total (that pooling was removed so each
+    movement tracks independently)."""
     we = make_mock_we(target_sets=3, exercise_name="Single-arm Chest Fly")
     mock_db = MagicMock()
 
-    with patch("progression.get_last_n_muscle_group_set_counts", return_value=[10]):
+    with patch("progression.get_last_n_session_set_counts", return_value=[2]):
         with patch("progression.compute_feedback_adjustment", return_value=0):
-            with patch("progression._muscle_secondary_count", return_value=1):
+            with patch("progression.is_finisher", return_value=True):
                 result = adjust_sets_based_on_feedback(mock_db, we)
-                assert result == 3, f"Expected 3, got {result}"
-    print("  PASS: 10 total sets -> 3 secondary sets")
+                assert result == 2, f"Expected 2, got {result}"
+    print("  PASS: Finisher's own last actual sets (2) carry forward unchanged")
 
 
 # ---- Run all tests ----
@@ -271,6 +280,6 @@ if __name__ == "__main__":
     test_acceptance_latest_session_with_adjustment()
     test_acceptance_positive_feedback_has_no_upper_cap()
     test_acceptance_never_below_volume_window()
-    test_acceptance_secondary_receives_thirty_percent()
+    test_acceptance_finisher_anchors_on_own_history_not_a_split()
 
     print("\nOK: All tests passed!")

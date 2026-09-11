@@ -11,7 +11,6 @@ sys.path.insert(0, str(ROOT_DIR))
 
 from db import Base, Exercise, Feedback, Program, Session, Set, Workout, WorkoutExercise
 from progression import (
-    _allocate_muscle_sets_to_exercise,
     adjust_sets_based_on_feedback,
     compute_feedback_adjustment,
     get_recent_muscle_group_feedback,
@@ -90,7 +89,9 @@ class MevProgressionTests(unittest.TestCase):
         self.db.flush()
 
     def test_incomplete_soreness_only_feedback_is_ignored(self):
+        chest_press = self.add_we("Incline DB Bench Press", "Chest")
         completed = self.add_session(1, completed=1)
+        self.add_sets(completed, chest_press, count=4)
         current = self.add_session(2, completed=0)
         self.add_feedback(completed, "Chest", soreness=2, pump=3, workload=3)
         self.db.add(
@@ -108,16 +109,16 @@ class MevProgressionTests(unittest.TestCase):
 
         self.assertEqual(len(feedback), 1)
         self.assertEqual(feedback[0].session_id, completed.id)
-        self.assertEqual(compute_feedback_adjustment(self.db, "Chest"), 0)
+        self.assertEqual(compute_feedback_adjustment(self.db, chest_press, "Chest"), 0)
 
     def test_biceps_sets_follow_recent_volume_without_cap(self):
-        """High recent volume is preserved instead of clamped to a fixed ceiling."""
+        """Each exercise's own recent volume is preserved instead of a fixed ceiling
+        or a 70/30 split of a shared muscle-group total."""
         cable_curl = self.add_we("Cable Curl", "Biceps", target_sets=8, target_reps=15)
         incline_curl = self.add_we("Incline DB Curl", "Biceps", target_sets=1, target_reps=14)
 
-        for session_number, total_sets in enumerate((9, 11, 11, 9, 8), start=1):
+        for session_number, main_sets in enumerate((8, 10, 10, 8, 7), start=1):
             session = self.add_session(session_number)
-            main_sets = total_sets - 1
             self.add_sets(session, cable_curl, count=main_sets)
             self.add_sets(session, incline_curl, count=1, weight=15.0)
             self.add_feedback(session, "Biceps", soreness=2, pump=4, workload=3)
@@ -126,35 +127,35 @@ class MevProgressionTests(unittest.TestCase):
         main_recommendations = recommend_weights_and_reps(self.db, cable_curl, "Biceps")
         secondary_recommendations = recommend_weights_and_reps(self.db, incline_curl, "Biceps")
 
-        # The latest total is 8 and is split approximately 70/30.
-        self.assertEqual(len(main_recommendations), 6)
-        self.assertEqual(len(secondary_recommendations), 2)
+        # Each exercise anchors on its own last actual sets performed (7 and 1).
+        self.assertEqual(len(main_recommendations), 7)
+        self.assertEqual(len(secondary_recommendations), 1)
 
-    def test_two_exercise_volume_uses_seventy_thirty_split(self):
-        main = self.add_we("Cable Curl", "Biceps")
-        secondary = self.add_we("Incline DB Curl", "Biceps", target_sets=1)
+    def test_hamstring_movements_track_independently(self):
+        """Feedback/history logged for one hamstring movement must not leak into
+        the other's target - this is the movement-specific tracking fix."""
+        leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=4)
+        rdl = self.add_we("Romanian Deadlift", "Hamstrings", target_sets=4)
 
-        expected_splits = {
-            4: (3, 1),
-            5: (4, 1),
-            6: (4, 2),
-            7: (5, 2),
-            10: (7, 3),
-        }
-        for total_sets, expected in expected_splits.items():
-            with self.subTest(total_sets=total_sets):
-                self.assertEqual(
-                    _allocate_muscle_sets_to_exercise(
-                        self.db, main, "Biceps", total_sets
-                    ),
-                    expected[0],
-                )
-                self.assertEqual(
-                    _allocate_muscle_sets_to_exercise(
-                        self.db, secondary, "Biceps", total_sets
-                    ),
-                    expected[1],
-                )
+        s1 = self.add_session(1)
+        self.add_sets(s1, leg_curl, count=7)
+        self.add_feedback(s1, "Hamstrings", soreness=2, pump=3, workload=3)
+
+        # A different day/movement for the same muscle logs a soreness spike.
+        s2 = self.add_session(2)
+        self.add_sets(s2, rdl, count=4)
+        self.add_feedback(s2, "Hamstrings", soreness=5, pump=2, workload=4)
+
+        s3 = self.add_session(3)
+        self.add_sets(s3, leg_curl, count=7)
+        self.add_feedback(s3, "Hamstrings", soreness=2, pump=3, workload=3)
+        self.db.commit()
+
+        # Leg Curl's own neutral history/feedback holds it at 7, unaffected by
+        # the RDL soreness spike logged in between.
+        self.assertEqual(adjust_sets_based_on_feedback(self.db, leg_curl), 7)
+        # RDL's own high-soreness feedback drops it by 1 from its own last total.
+        self.assertEqual(adjust_sets_based_on_feedback(self.db, rdl), 3)
 
     def test_hamstring_target_preserves_high_neutral_volume(self):
         leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=7)

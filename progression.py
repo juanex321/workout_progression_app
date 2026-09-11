@@ -1,10 +1,9 @@
 # progression.py
 
 from typing import List, Tuple
-from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
 
-from db import Set, Session, Feedback, WorkoutExercise, Exercise
+from db import Set, Session, Feedback, WorkoutExercise
 
 # ------- constants / config -------
 
@@ -28,7 +27,6 @@ MUSCLE_VOLUME_MINIMUMS = {
     "Glutes": 3,
     "Shoulders": 3,
 }
-MAIN_EXERCISE_SET_SHARE = 0.70
 
 MIN_TARGET_REPS = 8
 MAX_TARGET_REPS = 15
@@ -39,7 +37,7 @@ MAX_TARGET_REPS = 15
 FATIGUE_REP_DROP_PER_SET = 1
 MIN_REPS_FLOOR = 5  # Never recommend fewer than this many reps
 
-# Secondary movements that receive the smaller share in a 70/30 split.
+# Secondary/finisher movements exempt from the muscle-group volume floor.
 FINISHER_NAMES = {
     "Single-arm Chest Fly",
     "Sissy Squat",
@@ -131,72 +129,38 @@ def get_muscle_volume_minimum(muscle_group: str | None) -> int:
     return MUSCLE_VOLUME_MINIMUMS.get(muscle_group, DEFAULT_VOLUME_MINIMUM)
 
 
-def _muscle_secondary_count(db: OrmSession, we: WorkoutExercise, muscle_group: str | None) -> int:
-    """Count designated secondary exercises for this muscle in the workout."""
-    if not muscle_group or not getattr(we, "workout_id", None):
-        return 0
-
-    rows = (
-        db.query(Exercise.name)
-        .join(WorkoutExercise, WorkoutExercise.exercise_id == Exercise.id)
-        .filter(WorkoutExercise.workout_id == we.workout_id)
-        .filter(Exercise.muscle_group == muscle_group)
-        .all()
-    )
-    return sum(1 for (name,) in rows if (name or "").strip() in FINISHER_NAMES)
-
-
 def get_exercise_set_bounds(db: OrmSession, we: WorkoutExercise) -> tuple[int, int | None]:
     """Every exercise has a one-set floor and no upper ceiling."""
     return MIN_SETS, None
 
 
-def _allocate_muscle_sets_to_exercise(
-    db: OrmSession, we: WorkoutExercise, muscle_group: str | None, total_sets: int
-) -> int:
-    """Allocate a muscle total approximately 70/30 between main and secondary work."""
-    secondary_count = _muscle_secondary_count(db, we, muscle_group)
-    if secondary_count == 0:
-        return max(MIN_SETS, int(total_sets))
-
-    total_sets = max(int(total_sets), secondary_count + 1)
-    main_sets = int((total_sets * MAIN_EXERCISE_SET_SHARE) + 0.5)
-    main_sets = max(MIN_SETS, min(main_sets, total_sets - secondary_count))
-    secondary_sets = total_sets - main_sets
-
-    if is_finisher(we):
-        return max(MIN_SETS, int(round(secondary_sets / secondary_count)))
-    return main_sets
-
-
-def get_last_n_muscle_group_set_counts(
-    db: OrmSession, muscle_group: str, n: int = 2
-) -> List[int]:
+def get_recent_exercise_feedback(
+    db: OrmSession, we: WorkoutExercise, muscle_group: str, limit: int = 3
+) -> List[Feedback]:
     """
-    Return total direct sets for a muscle group in the last N completed exposures.
+    Feedback from sessions where THIS exercise was actually trained.
 
-    Counts all exercises for that muscle in the same completed session so main
-    lifts and secondary exercises are combined into one muscle-level dose.
+    Movement-specific: two exercises sharing a muscle group (e.g. Romanian
+    Deadlift on push days vs. Leg Curl on pull days for Hamstrings) each pull
+    their own feedback history instead of sharing one pooled muscle-group trend.
     """
-    if not muscle_group:
-        return []
-
-    cache = _session_cache(db, "progression.muscle_set_counts")
-    key = (muscle_group, n)
+    cache = _session_cache(db, "progression.recent_exercise_feedback")
+    key = (we.id, muscle_group, limit)
     if key not in cache:
-        rows = (
-            db.query(Session.id, func.count(Set.id), Session.session_number)
-            .join(Set, Session.id == Set.session_id)
-            .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
-            .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
-            .filter(Exercise.muscle_group == muscle_group)
-            .filter(Session.completed == 1)
-            .group_by(Session.id, Session.session_number)
-            .order_by(Session.session_number.desc())
-            .limit(n)
-            .all()
-        )
-        cache[key] = [int(row[1]) for row in rows]
+        session_ids = list(_completed_sets_by_session(db, we.id).keys())
+        if not session_ids:
+            cache[key] = []
+        else:
+            cache[key] = (
+                db.query(Feedback)
+                .filter(Feedback.muscle_group == muscle_group)
+                .filter(Feedback.session_id.in_(session_ids))
+                .filter(Feedback.pump.isnot(None))
+                .filter(Feedback.workload.isnot(None))
+                .order_by(Feedback.created_at.desc())
+                .limit(limit)
+                .all()
+            )
     return cache[key]
 
 
@@ -266,16 +230,16 @@ def is_finisher(we: WorkoutExercise) -> bool:
     return name in FINISHER_NAMES
 
 
-def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
+def compute_feedback_adjustment(db: OrmSession, we: WorkoutExercise, muscle_group: str) -> int:
     """
-    Compute a set adjustment direction from recent muscle group feedback.
+    Compute a set adjustment direction from recent feedback for THIS exercise.
 
     Returns:
         +1 if under-stimulated (all feedback low)
         -1 if overtrained (soreness or workload high)
          0 if no change needed
     """
-    fb_list = get_recent_muscle_group_feedback(db, muscle_group, limit=3)
+    fb_list = get_recent_exercise_feedback(db, we, muscle_group, limit=3)
     if not fb_list:
         return 0
 
@@ -317,17 +281,20 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
     Determine target sets using session-to-session bounded progression.
 
     Rules:
-    A) Base sets come from the last session's ACTUAL sets performed (not stored target).
-       If no history exists, use the exercise's stored starting prescription.
+    A) Base sets come from THIS EXERCISE's own last session's ACTUAL sets performed
+       (not the stored target, and not pooled with other exercises that share the
+       same muscle group). If no history exists, use the exercise's stored
+       starting prescription.
     B) Sets can only change by ±1 per session (hard limiter).
-    C) Feedback alone drives direction (+1/-1/0) from that most recent total.
-
+    C) Feedback from sessions where this exercise was trained drives direction
+       (+1/-1/0) from that most recent total — feedback logged for a different
+       movement on the same muscle never influences this exercise.
     """
     muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
-    total_min = get_muscle_volume_minimum(muscle_group)
+    total_min = MIN_SETS if is_finisher(we) else get_muscle_volume_minimum(muscle_group)
 
-    # Rule A: Anchor to last session's actual sets performed
-    history = get_last_n_muscle_group_set_counts(db, muscle_group, n=1) if muscle_group else []
+    # Rule A: Anchor to this exercise's own last actual sets performed
+    history = get_last_n_session_set_counts(db, we.id, n=1)
 
     if not history:
         min_sets, _ = get_exercise_set_bounds(db, we)
@@ -337,14 +304,13 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
             db.add(we)
         return int(s_reco)
 
-    total_anchor = history[0]
+    anchor = history[0]
 
-    # Rule C: Compute the user-feedback adjustment direction.
-    adj = compute_feedback_adjustment(db, muscle_group) if muscle_group else 0
+    # Rule C: Compute the user-feedback adjustment direction from this exercise's own history.
+    adj = compute_feedback_adjustment(db, we, muscle_group) if muscle_group else 0
 
     # Rule B: Apply the ±1 feedback adjustment with a minimum but no ceiling.
-    target_total = max(total_min, total_anchor + adj)
-    s_reco = _allocate_muscle_sets_to_exercise(db, we, muscle_group, target_total)
+    s_reco = max(total_min, anchor + adj)
 
     if s_reco != we.target_sets:
         we.target_sets = int(s_reco)
