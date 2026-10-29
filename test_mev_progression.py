@@ -1,5 +1,6 @@
 import sys
 import unittest
+from datetime import date, datetime
 from pathlib import Path
 
 from sqlalchemy import create_engine
@@ -14,6 +15,8 @@ from progression import (
     _allocate_muscle_sets_to_exercise,
     adjust_sets_based_on_feedback,
     compute_feedback_adjustment,
+    derive_recovery_days,
+    get_days_since_last_trained,
     get_recent_muscle_group_feedback,
     recommend_weights_and_reps,
 )
@@ -186,6 +189,67 @@ class MevProgressionTests(unittest.TestCase):
             ),
             10,
         )
+
+    def test_still_sore_today_drops_todays_sets(self):
+        """Soreness answered in the current session changes that session's plan."""
+        leg_extension = self.add_we("Leg Extension", "Quads", target_sets=4)
+        previous = self.add_session(1)
+        self.add_sets(previous, leg_extension, count=6)
+        self.add_feedback(previous, "Quads", soreness=1, pump=4, workload=3)
+        current = self.add_session(2, completed=0)
+        self.db.add(Feedback(session_id=current.id, muscle_group="Quads", soreness=4, recovery_days=3))
+        self.db.commit()
+
+        with_soreness = recommend_weights_and_reps(
+            self.db, leg_extension, "Quads", ["Leg Extension"], session_id=current.id
+        )
+
+        self.assertEqual(len(with_soreness), 5)
+
+    def test_fast_recovery_after_long_gap_adds_a_set(self):
+        """Healed after 1 day, two exposures in a row, despite a week between them."""
+        leg_extension = self.add_we("Leg Extension", "Quads", target_sets=4)
+        previous = self.add_session(1)
+        self.add_sets(previous, leg_extension, count=6)
+        self.db.add(
+            Feedback(
+                session_id=previous.id, muscle_group="Quads",
+                soreness=2, pump=4, workload=3, recovery_days=1,
+            )
+        )
+        current = self.add_session(2, completed=0)
+        self.db.add(Feedback(session_id=current.id, muscle_group="Quads", soreness=2, recovery_days=1))
+        self.db.commit()
+
+        recommendations = recommend_weights_and_reps(
+            self.db, leg_extension, "Quads", ["Leg Extension"], session_id=current.id
+        )
+
+        self.assertEqual(len(recommendations), 7)
+
+    def test_days_since_last_trained_uses_set_timestamps(self):
+        leg_extension = self.add_we("Leg Extension", "Quads")
+        previous = self.add_session(1)
+        self.db.add(
+            Set(
+                session_id=previous.id, workout_exercise_id=leg_extension.id,
+                set_number=1, weight=150.0, reps=12, logged_at=datetime(2026, 10, 21, 18, 30),
+            )
+        )
+        self.add_session(2, completed=0)
+        self.db.commit()
+
+        self.assertEqual(get_days_since_last_trained(self.db, "Quads", date(2026, 10, 29)), 8)
+        self.assertIsNone(get_days_since_last_trained(self.db, "Glutes", date(2026, 10, 29)))
+
+    def test_recovery_days_follow_the_soreness_answer(self):
+        self.assertEqual(derive_recovery_days(1, 8), 0)
+        self.assertEqual(derive_recovery_days(2, 8, 2), 2)
+        self.assertEqual(derive_recovery_days(2, 3, 5), 2)  # clamped inside the gap
+        self.assertEqual(derive_recovery_days(2, 2), 1)  # no question asked
+        self.assertIsNone(derive_recovery_days(2, 8))  # long gap, days not given
+        self.assertEqual(derive_recovery_days(3, 7), 7)
+        self.assertEqual(derive_recovery_days(4, 3), 3)
 
     def test_hamstring_target_preserves_high_neutral_volume(self):
         leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=7)

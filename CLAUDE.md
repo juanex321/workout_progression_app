@@ -39,5 +39,9 @@ Every set is trained to failure - there is no RIR phase system and no automatic
 deload. Key points:
 
 - Sets adjust by recent feedback with a bounded plus/minus 1 change per session
+- Soreness is answered at the start of a session and applies to that session's sets.
+  It is converted to `recovery_days` (days until the last exposure stopped being sore,
+  using the gap since that muscle was last trained); "Healed a while ago" asks for the
+  days. Still sore or 3+ days → -1; 1 day or less on two exposures in a row → +1
 - Rep target formula: `target_reps = last_reps + 1`, clamped to `[MIN_TARGET_REPS, MAX_TARGET_REPS]`
 - Weight is carried forward unchanged; the user decides when to add weight

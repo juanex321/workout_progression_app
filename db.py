@@ -136,6 +136,8 @@ class Feedback(Base):
     soreness: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     pump: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     workload: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Days until soreness from the previous exposure cleared (0 = never sore).
+    recovery_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")

@@ -62,6 +62,8 @@ export interface MuscleGroupData {
     workload: number;
   } | null;
   soreness_value: number | null;
+  recovery_days: number | null;
+  days_since_last_trained: number | null;
 }
 
 export interface SessionResponse {
@@ -103,6 +105,7 @@ export interface SorenessRequest {
   session_id: number;
   muscle_group: string;
   soreness: number;
+  recovery_days?: number;
 }
 
 export interface SaveDraftRequest {

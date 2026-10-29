@@ -18,6 +18,7 @@ from routes import sessions, exercises, feedback
 from db import (
     _hosted_runtime_detected,
     get_database_runtime_info,
+    ensure_schema_columns,
     init_db,
     seed_default_data,
     switch_to_sqlite_fallback,
@@ -53,6 +54,8 @@ def startup():
     # Opt in only after running `python -m api.bootstrap` against this database.
     # Existing deployments and local development retain automatic initialization.
     if os.environ.get("SKIP_DB_INIT", "").strip().lower() in {"1", "true", "yes"}:
+        # Still add new nullable columns: the ORM selects them on every query.
+        ensure_schema_columns()
         return
     try:
         init_db()

@@ -68,10 +68,15 @@ export function MuscleGroupCard({
   const effectiveSoreness = localSoreness ?? data.soreness_value;
 
   const handleSorenessChange = useCallback(
-    (v: number) => {
+    (v: number, recoveryDays?: number) => {
       setLocalSoreness(v);
       saveDraftSoreness(sessionId, muscleGroup, v);
-      saveSoreness.mutate({ session_id: sessionId, muscle_group: muscleGroup, soreness: v });
+      saveSoreness.mutate({
+        session_id: sessionId,
+        muscle_group: muscleGroup,
+        soreness: v,
+        recovery_days: recoveryDays,
+      });
     },
     [sessionId, muscleGroup, saveSoreness]
   );
@@ -156,6 +161,8 @@ export function MuscleGroupCard({
                 <SorenessSelector
                   muscleGroup={muscleGroup}
                   value={effectiveSoreness}
+                  recoveryDays={data.recovery_days}
+                  daysSinceLastTrained={data.days_since_last_trained}
                   onChange={handleSorenessChange}
                   disabled={sessionCompleted}
                   highlight={sorenessNudge && sorenessLocked}
