@@ -1,12 +1,6 @@
 "use client";
 import { useState } from "react";
-
-const SORENESS_LABELS = [
-  "Never got sore",
-  "Healed a while ago",
-  "Healed right on time",
-  "I'm still sore",
-];
+import { SORENESS_LABELS } from "@/lib/feedbackLabels";
 
 interface SorenessSelectorProps {
   muscleGroup: string;
