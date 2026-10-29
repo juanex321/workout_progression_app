@@ -166,7 +166,12 @@ export function ExerciseSets({
       0,
       ...exercise.existing_sets.map((setRow) => setRow.set_number)
     );
-    const effectivePlannedCount = Math.max(cachedPlannedCount, highestLoggedSet);
+    // Until a set is logged, follow the current recommendation; a draft saved
+    // under an older plan should not cap or pad the set count.
+    const followRecommendation = highestLoggedSet === 0 && exercise.recommendations.length > 0;
+    const effectivePlannedCount = followRecommendation
+      ? exercise.recommendations.length
+      : Math.max(cachedPlannedCount, highestLoggedSet);
     const plannedBaseSets = baseSets.filter(
       (setRow) => setRow.logged || setRow.set_number <= effectivePlannedCount
     );
@@ -199,7 +204,9 @@ export function ExerciseSets({
     });
 
     const existingNumbers = new Set(mergedWithDraft.map((setRow) => setRow.set_number));
-    const extraDraftSets = cached.filter((setRow) => !existingNumbers.has(setRow.set_number));
+    const extraDraftSets = followRecommendation
+      ? []
+      : cached.filter((setRow) => !existingNumbers.has(setRow.set_number));
 
     return [...mergedWithDraft, ...extraDraftSets].sort(
       (a, b) => a.set_number - b.set_number
