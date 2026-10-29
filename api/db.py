@@ -81,6 +81,9 @@ def _normalize_database_url(url: str) -> str:
         and "+" not in normalized.split("://")[0]
     ):
         normalized = normalized.replace("postgresql://", "postgresql+pg8000://", 1)
+    elif normalized.startswith("postgresql://"):
+        # SQLAlchemy 2.1 defaults to psycopg (v3); psycopg2 is what's installed.
+        normalized = normalized.replace("postgresql://", "postgresql+psycopg2://", 1)
 
     # pg8000 does not support channel_binding; strip if present.
     if normalized.startswith("postgresql+pg8000://") and "channel_binding" in normalized:
