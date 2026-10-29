@@ -238,7 +238,7 @@ def get_workout_data(
         ]
 
         # Get recommendations
-        recs_raw = recommend_weights_and_reps(db, we, muscle_group)
+        recs_raw = recommend_weights_and_reps(db, we, muscle_group, exercise_names)
         recommendations = [
             RecommendedSet(
                 set_number=r["set_number"],
