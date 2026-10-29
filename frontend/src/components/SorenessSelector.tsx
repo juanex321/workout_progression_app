@@ -13,6 +13,7 @@ interface SorenessSelectorProps {
   value: number | null;
   onChange: (v: number) => void;
   disabled: boolean;
+  highlight?: boolean;
 }
 
 export function SorenessSelector({
@@ -20,6 +21,7 @@ export function SorenessSelector({
   value,
   onChange,
   disabled,
+  highlight,
 }: SorenessSelectorProps) {
   const [internalValue, setInternalValue] = useState(value ?? 2);
   const [isSelected, setIsSelected] = useState(value !== null);
@@ -56,7 +58,13 @@ export function SorenessSelector({
   }
 
   return (
-    <div className="mb-3 rounded-2xl border border-white/8 bg-black/20 p-3">
+    <div
+      className={`mb-3 rounded-2xl border p-3 transition-colors ${
+        highlight
+          ? "border-red-500/70 bg-red-500/10 ring-2 ring-red-500/40"
+          : "border-white/8 bg-black/20"
+      }`}
+    >
       <div className="mb-2 flex items-center justify-between gap-3">
         <p className="text-sm font-medium text-zinc-200">
           How did {muscleGroup} recover?
@@ -89,8 +97,8 @@ export function SorenessSelector({
       </div>
 
       {!isSelected && (
-        <p className="mt-2 text-center text-[10px] uppercase tracking-[0.16em] text-zinc-600">
-          choose recovery to begin logging sets
+        <p className="mt-2 text-center text-xs font-medium text-zinc-400">
+          Pick one to start logging sets
         </p>
       )}
     </div>
