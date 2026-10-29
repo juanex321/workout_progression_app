@@ -156,6 +156,37 @@ class MevProgressionTests(unittest.TestCase):
                     expected[1],
                 )
 
+    def test_removed_quad_finisher_does_not_shrink_leg_extension(self):
+        """A Sissy Squat row left over from the old rotation must not take a share."""
+        leg_extension = self.add_we("Leg Extension", "Quads", target_sets=4)
+        self.add_we("Sissy Squat", "Quads", target_sets=1, order_index=1)
+        session = self.add_session(1)
+        self.add_sets(session, leg_extension, count=7, weight=160.0, first_reps=13)
+        self.add_feedback(session, "Quads", soreness=1, pump=4, workload=3)
+        self.db.commit()
+
+        recommendations = recommend_weights_and_reps(
+            self.db, leg_extension, "Quads", ["Leg Extension"]
+        )
+
+        self.assertEqual(len(recommendations), 7)
+
+    def test_secondary_outside_session_does_not_take_a_share(self):
+        """Only secondaries in the current session split the muscle's sets."""
+        lat_pulldown = self.add_we("Lat Pulldown", "Lats", target_sets=4)
+        self.add_we("Straight-arm Pulldown", "Lats", target_sets=1, order_index=1)
+
+        self.assertEqual(
+            _allocate_muscle_sets_to_exercise(self.db, lat_pulldown, "Lats", 10),
+            7,
+        )
+        self.assertEqual(
+            _allocate_muscle_sets_to_exercise(
+                self.db, lat_pulldown, "Lats", 10, ["Lat Pulldown"]
+            ),
+            10,
+        )
+
     def test_hamstring_target_preserves_high_neutral_volume(self):
         leg_curl = self.add_we("Leg Curl", "Hamstrings", target_sets=7)
         for session_number in (1, 2):

@@ -42,7 +42,6 @@ MIN_REPS_FLOOR = 5  # Never recommend fewer than this many reps
 # Secondary movements that receive the smaller share in a 70/30 split.
 FINISHER_NAMES = {
     "Single-arm Chest Fly",
-    "Sissy Squat",
     "Straight-arm Pulldown",
     "Incline DB Curl",
     "Overhead Cable Extension",
@@ -144,18 +143,31 @@ def get_muscle_volume_minimum(muscle_group: str | None) -> int:
     return MUSCLE_VOLUME_MINIMUMS.get(muscle_group, DEFAULT_VOLUME_MINIMUM)
 
 
-def _muscle_secondary_count(db: OrmSession, we: WorkoutExercise, muscle_group: str | None) -> int:
-    """Count designated secondary exercises for this muscle in the workout."""
+def _muscle_secondary_count(
+    db: OrmSession,
+    we: WorkoutExercise,
+    muscle_group: str | None,
+    session_exercise_names: list[str] | None = None,
+) -> int:
+    """
+    Count designated secondary exercises for this muscle.
+
+    When session_exercise_names is given, only exercises in that session count.
+    Workout rows outlive rotation changes, so a removed secondary would otherwise
+    keep claiming a share of the muscle's sets.
+    """
     if not muscle_group or not getattr(we, "workout_id", None):
         return 0
 
-    rows = (
+    query = (
         db.query(Exercise.name)
         .join(WorkoutExercise, WorkoutExercise.exercise_id == Exercise.id)
         .filter(WorkoutExercise.workout_id == we.workout_id)
         .filter(Exercise.muscle_group == muscle_group)
-        .all()
     )
+    if session_exercise_names is not None:
+        query = query.filter(Exercise.name.in_(session_exercise_names))
+    rows = query.all()
     return sum(1 for (name,) in rows if (name or "").strip() in FINISHER_NAMES)
 
 
@@ -165,10 +177,14 @@ def get_exercise_set_bounds(db: OrmSession, we: WorkoutExercise) -> tuple[int, i
 
 
 def _allocate_muscle_sets_to_exercise(
-    db: OrmSession, we: WorkoutExercise, muscle_group: str | None, total_sets: int
+    db: OrmSession,
+    we: WorkoutExercise,
+    muscle_group: str | None,
+    total_sets: int,
+    session_exercise_names: list[str] | None = None,
 ) -> int:
     """Allocate a muscle total approximately 70/30 between main and secondary work."""
-    secondary_count = _muscle_secondary_count(db, we, muscle_group)
+    secondary_count = _muscle_secondary_count(db, we, muscle_group, session_exercise_names)
     if secondary_count == 0:
         return max(MIN_SETS, int(total_sets))
 
@@ -325,7 +341,9 @@ def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
     return 0
 
 
-def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
+def adjust_sets_based_on_feedback(
+    db: OrmSession, we: WorkoutExercise, session_exercise_names: list[str] | None = None
+) -> int:
     """
     Determine target sets using session-to-session bounded progression.
 
@@ -357,7 +375,9 @@ def adjust_sets_based_on_feedback(db: OrmSession, we: WorkoutExercise) -> int:
 
     # Rule B: Apply the ±1 feedback adjustment with a minimum but no ceiling.
     target_total = max(total_min, total_anchor + adj)
-    s_reco = _allocate_muscle_sets_to_exercise(db, we, muscle_group, target_total)
+    s_reco = _allocate_muscle_sets_to_exercise(
+        db, we, muscle_group, target_total, session_exercise_names
+    )
 
     if s_reco != we.target_sets:
         we.target_sets = int(s_reco)
@@ -401,7 +421,10 @@ def calculate_target_reps(we: WorkoutExercise, last_sets: List[Set] | None) -> i
 # ------- main API -------
 
 def recommend_weights_and_reps(
-    db: OrmSession, we: WorkoutExercise, muscle_group: str = None
+    db: OrmSession,
+    we: WorkoutExercise,
+    muscle_group: str = None,
+    session_exercise_names: list[str] | None = None,
 ) -> list[dict]:
     """
     Main entry used by the API recommendation flow.
@@ -419,7 +442,7 @@ def recommend_weights_and_reps(
         muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
 
     # 1) volume adjustment (primary progression)
-    target_sets = adjust_sets_based_on_feedback(db, we)
+    target_sets = adjust_sets_based_on_feedback(db, we, session_exercise_names)
 
     # 2) get last session data
     _, last_sets = get_last_session_sets(db, we.id)
