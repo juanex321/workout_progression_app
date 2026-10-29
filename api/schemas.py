@@ -22,6 +22,8 @@ class SorenessRequest(BaseModel):
     session_id: int
     muscle_group: str
     soreness: int
+    # Only used with "Healed a while ago": days until the soreness cleared.
+    recovery_days: Optional[int] = None
 
 
 class DraftSetRow(BaseModel):
@@ -94,6 +96,8 @@ class MuscleGroupData(BaseModel):
     feedback_exists: bool
     feedback_values: Optional[dict] = None
     soreness_value: Optional[int] = None
+    recovery_days: Optional[int] = None
+    days_since_last_trained: Optional[int] = None
 
 
 class SessionResponse(BaseModel):

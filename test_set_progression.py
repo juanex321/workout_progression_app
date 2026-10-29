@@ -3,8 +3,8 @@ Acceptance tests for bounded set progression (±1 per session).
 
 Tests verify:
 1. If last session was 5 sets, today must be 4, 5, or 6 — never 1 or 10.
-2. High soreness/fatigue -> 5 -> 4 (not 5 -> 1).
-3. Low soreness/fatigue -> 5 -> 6 (not 5 -> 10).
+2. Slow recovery/high fatigue -> 5 -> 4 (not 5 -> 1).
+3. Fast recovery/low fatigue -> 5 -> 6 (not 5 -> 10).
 4. First session uses its stored starting prescription.
 5. The latest completed session is the direct volume anchor.
 6. Secondary exercises receive roughly 30% of muscle-group volume.
@@ -30,11 +30,13 @@ from plan import DEFAULT_TARGET_SETS
 
 # ---- Helpers to build mock objects ----
 
-def make_mock_feedback(soreness, pump, workload):
+def make_mock_feedback(soreness, pump, workload, recovery_days=None, session_id=1):
     fb = MagicMock()
     fb.soreness = soreness
     fb.pump = pump
     fb.workload = workload
+    fb.recovery_days = recovery_days
+    fb.session_id = session_id
     fb.created_at = datetime.now()
     return fb
 
@@ -51,82 +53,120 @@ def make_mock_we(target_sets=4, exercise_name="Bench Press", muscle_group="Chest
 
 
 # ---- Tests for compute_feedback_adjustment ----
+# Today's soreness answer (session 99) describes how the last exposure recovered.
 
-def test_feedback_low_returns_plus_1():
-    """Under-stimulated (all low) should return +1."""
+TODAY = 99
+
+
+def adjustment(today, history):
     mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
-        mock_fb.return_value = [
-            make_mock_feedback(1, 1, 1),
-            make_mock_feedback(2, 2, 2),
-            make_mock_feedback(1, 2, 1),
-        ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
-        assert adj == +1, f"Expected +1 for low feedback, got {adj}"
-    print("  PASS: Low feedback -> +1")
+    with patch("progression.get_session_soreness_feedback", return_value=today):
+        with patch("progression.get_recent_muscle_group_feedback", return_value=history):
+            return compute_feedback_adjustment(mock_db, "Chest", TODAY)
 
 
-def test_feedback_never_sore_manageable_returns_plus_1():
-    """Never sore + manageable workload should add a set even with a good pump."""
-    mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
-        mock_fb.return_value = [
-            make_mock_feedback(1, 4, 3),
-            make_mock_feedback(1, 3, 3),
-        ]
-        adj = compute_feedback_adjustment(mock_db, "Glutes")
-        assert adj == +1, f"Expected +1 for recovered manageable sessions, got {adj}"
-    print("  PASS: Never sore + manageable workload -> +1")
+def test_still_sore_today_returns_minus_1():
+    """Still sore today drops a set today, even after easy history."""
+    adj = adjustment(
+        make_mock_feedback(4, None, None, recovery_days=2, session_id=TODAY),
+        [make_mock_feedback(1, 3, 2, recovery_days=0)],
+    )
+    assert adj == -1, f"Expected -1 when still sore, got {adj}"
+    print("  PASS: Still sore today -> -1")
 
 
-def test_feedback_high_soreness_returns_minus_1():
-    """High soreness should return -1."""
-    mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
-        mock_fb.return_value = [
-            make_mock_feedback(4, 3, 3),
-            make_mock_feedback(5, 3, 3),
-            make_mock_feedback(4, 3, 3),
-        ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
-        assert adj == -1, f"Expected -1 for high soreness, got {adj}"
-    print("  PASS: High soreness -> -1")
+def test_slow_recovery_today_returns_minus_1():
+    """Soreness lasting 3+ days drops a set today."""
+    adj = adjustment(
+        make_mock_feedback(2, None, None, recovery_days=3, session_id=TODAY),
+        [make_mock_feedback(1, 3, 2, recovery_days=0)],
+    )
+    assert adj == -1, f"Expected -1 for a 3-day recovery, got {adj}"
+    print("  PASS: 3-day recovery -> -1")
 
 
-def test_feedback_high_workload_returns_minus_1():
-    """High workload should return -1."""
-    mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
-        mock_fb.return_value = [
-            make_mock_feedback(2, 3, 5),
-            make_mock_feedback(2, 3, 4),
-            make_mock_feedback(3, 3, 4),
-        ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
-        assert adj == -1, f"Expected -1 for high workload, got {adj}"
+def test_long_gap_on_time_is_slow():
+    """'Healed right on time' after a week means a week of soreness."""
+    adj = adjustment(
+        make_mock_feedback(3, None, None, recovery_days=7, session_id=TODAY),
+        [make_mock_feedback(1, 3, 3, recovery_days=0)],
+    )
+    assert adj == -1, f"Expected -1 for a 7-day recovery, got {adj}"
+    print("  PASS: Healed on time after 7 days -> -1")
+
+
+def test_two_fast_recoveries_return_plus_1():
+    """Fast recovery today and last exposure, manageable workload -> +1."""
+    adj = adjustment(
+        make_mock_feedback(2, None, None, recovery_days=1, session_id=TODAY),
+        [
+            make_mock_feedback(1, 4, 3, recovery_days=0),
+            make_mock_feedback(2, 3, 3, recovery_days=1),
+        ],
+    )
+    assert adj == +1, f"Expected +1 for two fast recoveries, got {adj}"
+    print("  PASS: Two fast recoveries -> +1")
+
+
+def test_long_gap_healed_early_one_day_returns_plus_1():
+    """A long gap no longer hides a 1-day recovery."""
+    adj = adjustment(
+        make_mock_feedback(2, None, None, recovery_days=1, session_id=TODAY),
+        [make_mock_feedback(2, 4, 3, recovery_days=1)],
+    )
+    assert adj == +1, f"Expected +1, got {adj}"
+    print("  PASS: Healed after 1 day, 8 days ago -> +1")
+
+
+def test_two_day_recovery_holds():
+    """A 2-day recovery is the normal dose -> keep sets."""
+    adj = adjustment(
+        make_mock_feedback(2, None, None, recovery_days=2, session_id=TODAY),
+        [make_mock_feedback(1, 3, 3, recovery_days=0)],
+    )
+    assert adj == 0, f"Expected 0 for a 2-day recovery, got {adj}"
+    print("  PASS: 2-day recovery -> 0")
+
+
+def test_single_fast_recovery_holds():
+    """One fast recovery after an unknown legacy answer is not enough to add."""
+    adj = adjustment(
+        make_mock_feedback(1, None, None, recovery_days=0, session_id=TODAY),
+        [make_mock_feedback(2, 4, 3, recovery_days=None)],
+    )
+    assert adj == 0, f"Expected 0, got {adj}"
+    print("  PASS: One fast recovery -> 0")
+
+
+def test_high_workload_returns_minus_1():
+    """Workload 4+ on the last two exposures drops a set."""
+    adj = adjustment(
+        make_mock_feedback(1, None, None, recovery_days=0, session_id=TODAY),
+        [
+            make_mock_feedback(1, 3, 5, recovery_days=0),
+            make_mock_feedback(1, 3, 4, recovery_days=0),
+        ],
+    )
+    assert adj == -1, f"Expected -1 for high workload, got {adj}"
     print("  PASS: High workload -> -1")
 
 
-def test_feedback_moderate_returns_0():
-    """Moderate feedback should return 0 (no change)."""
-    mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
-        mock_fb.return_value = [
-            make_mock_feedback(3, 3, 3),
-            make_mock_feedback(3, 3, 3),
-        ]
-        adj = compute_feedback_adjustment(mock_db, "Chest")
-        assert adj == 0, f"Expected 0 for moderate feedback, got {adj}"
-    print("  PASS: Moderate feedback -> 0")
+def test_no_soreness_today_cannot_add():
+    """Before today's soreness is answered, only cuts can apply."""
+    adj = adjustment(
+        None,
+        [
+            make_mock_feedback(1, 3, 2, recovery_days=0),
+            make_mock_feedback(1, 3, 2, recovery_days=0),
+        ],
+    )
+    assert adj == 0, f"Expected 0 without today's soreness, got {adj}"
+    print("  PASS: No soreness today -> 0")
 
 
 def test_no_feedback_returns_0():
     """No feedback should return 0."""
-    mock_db = MagicMock()
-    with patch("progression.get_recent_muscle_group_feedback") as mock_fb:
-        mock_fb.return_value = []
-        adj = compute_feedback_adjustment(mock_db, "Chest")
-        assert adj == 0, f"Expected 0 for no feedback, got {adj}"
+    assert adjustment(None, []) == 0
     print("  PASS: No feedback -> 0")
 
 
@@ -255,11 +295,15 @@ def test_acceptance_secondary_receives_thirty_percent():
 
 if __name__ == "__main__":
     print("\n=== Feedback Adjustment Tests ===")
-    test_feedback_low_returns_plus_1()
-    test_feedback_never_sore_manageable_returns_plus_1()
-    test_feedback_high_soreness_returns_minus_1()
-    test_feedback_high_workload_returns_minus_1()
-    test_feedback_moderate_returns_0()
+    test_still_sore_today_returns_minus_1()
+    test_slow_recovery_today_returns_minus_1()
+    test_long_gap_on_time_is_slow()
+    test_two_fast_recoveries_return_plus_1()
+    test_long_gap_healed_early_one_day_returns_plus_1()
+    test_two_day_recovery_holds()
+    test_single_fast_recovery_holds()
+    test_high_workload_returns_minus_1()
+    test_no_soreness_today_cannot_add()
     test_no_feedback_returns_0()
 
     print("\n=== Acceptance Tests: Bounded Set Progression ===")

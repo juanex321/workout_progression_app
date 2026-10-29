@@ -1,5 +1,6 @@
 # progression.py
 
+from datetime import date
 from typing import List, Tuple
 from sqlalchemy import func
 from sqlalchemy.orm import Session as OrmSession
@@ -47,11 +48,17 @@ FINISHER_NAMES = {
     "Overhead Cable Extension",
 }
 
-# thresholds for interpreting feedback
-# 1-2: fully recovered → +1 set
-# 3: recovered just in time → keep sets
-# 4-5: not fully recovered → -1 set (5 is almost certain)
-SORENESS_HIGH = 4      # ≥4 triggers set reduction
+# Soreness answers, recorded at the start of a session about the previous exposure.
+SORENESS_NEVER = 1         # "Never got sore"
+SORENESS_HEALED_EARLY = 2  # "Healed a while ago" - follow-up asks how many days
+SORENESS_ON_TIME = 3       # "Healed right on time" - healed as the gap ended
+SORENESS_STILL_SORE = 4    # "I'm still sore"
+
+# Recovery days (until soreness cleared) drive today's set adjustment.
+RECOVERY_FAST_DAYS = 1     # ≤1 day on two exposures in a row → room to add a set
+RECOVERY_SLOW_DAYS = 3     # ≥3 days, or still sore → drop a set today
+
+SORENESS_HIGH = 4      # summary text threshold
 WORKLOAD_HIGH = 4      # ≥4 indicates too much volume
 
 # thresholds for the human-readable feedback summary text only (get_feedback_summary)
@@ -255,6 +262,94 @@ def get_recent_muscle_group_feedback(
     return cache[key]
 
 
+def get_days_since_last_trained(
+    db: OrmSession, muscle_group: str | None, today: date | None = None
+) -> int | None:
+    """Days between the muscle's last completed exposure and today (None if never trained)."""
+    if not muscle_group:
+        return None
+
+    cache = _session_cache(db, "progression.days_since_last_trained")
+    if muscle_group not in cache:
+        cache[muscle_group] = (
+            db.query(func.max(Set.logged_at))
+            .join(Session, Set.session_id == Session.id)
+            .join(WorkoutExercise, Set.workout_exercise_id == WorkoutExercise.id)
+            .join(Exercise, WorkoutExercise.exercise_id == Exercise.id)
+            .filter(Exercise.muscle_group == muscle_group)
+            .filter(Session.completed == 1)
+            .scalar()
+        )
+    last_logged = cache[muscle_group]
+    if last_logged is None:
+        return None
+    return max(0, ((today or date.today()) - last_logged.date()).days)
+
+
+def derive_recovery_days(
+    soreness: int | None, days_since_last_trained: int | None, reported_days: int | None = None
+) -> int | None:
+    """
+    Turn a soreness answer into days-until-recovered.
+
+    Only "Healed a while ago" is ambiguous once gaps get long, so it is the one
+    answer that takes reported_days; it is clamped to fit inside the gap.
+    """
+    if soreness == SORENESS_NEVER:
+        return 0
+    if soreness == SORENESS_HEALED_EARLY:
+        if days_since_last_trained is None:
+            return reported_days
+        latest = max(1, days_since_last_trained - 1)
+        if reported_days is None:
+            return 1 if latest == 1 else None
+        return max(1, min(int(reported_days), latest))
+    if soreness in (SORENESS_ON_TIME, SORENESS_STILL_SORE):
+        # Sore for (at least) the whole gap.
+        return days_since_last_trained
+    return None
+
+
+def _feedback_recovery_days(fb: Feedback) -> int | None:
+    if fb.recovery_days is not None:
+        return fb.recovery_days
+    # Rows saved before recovery_days existed: only "never sore" is unambiguous.
+    return 0 if fb.soreness == SORENESS_NEVER else None
+
+
+def _recovered_fast(fb: Feedback | None) -> bool:
+    if fb is None or fb.soreness == SORENESS_STILL_SORE:
+        return False
+    days = _feedback_recovery_days(fb)
+    return days is not None and days <= RECOVERY_FAST_DAYS
+
+
+def _recovered_slow(fb: Feedback | None) -> bool:
+    if fb is None:
+        return False
+    if fb.soreness == SORENESS_STILL_SORE:
+        return True
+    days = _feedback_recovery_days(fb)
+    return days is not None and days >= RECOVERY_SLOW_DAYS
+
+
+def get_session_soreness_feedback(
+    db: OrmSession, muscle_group: str, session_id: int
+) -> Feedback | None:
+    """The soreness answer given for this muscle in this session, if any."""
+    cache = _session_cache(db, "progression.session_soreness")
+    key = (muscle_group, session_id)
+    if key not in cache:
+        cache[key] = (
+            db.query(Feedback)
+            .filter(Feedback.session_id == session_id)
+            .filter(Feedback.muscle_group == muscle_group)
+            .filter(Feedback.soreness.isnot(None))
+            .first()
+        )
+    return cache[key]
+
+
 def get_feedback_summary(db: OrmSession, muscle_group: str) -> str:
     """Human-readable summary of recent soreness/pump/workload for UI display."""
     if not muscle_group:
@@ -295,54 +390,52 @@ def is_finisher(we: WorkoutExercise) -> bool:
     return name in FINISHER_NAMES
 
 
-def compute_feedback_adjustment(db: OrmSession, muscle_group: str) -> int:
+def compute_feedback_adjustment(
+    db: OrmSession, muscle_group: str, session_id: int | None = None
+) -> int:
     """
-    Compute a set adjustment direction from recent muscle group feedback.
+    Compute a set adjustment direction for this muscle's session.
 
-    Returns:
-        +1 if under-stimulated (all feedback low)
-        -1 if overtrained (soreness or workload high)
-         0 if no change needed
+    Today's soreness answer (how the last exposure recovered) applies to today:
+        -1 if still sore or recovery took RECOVERY_SLOW_DAYS or more
+        -1 if workload was high on the last two exposures (or on average)
+        +1 if recovery took RECOVERY_FAST_DAYS or less today and on the
+           previous exposure, with manageable workload
+         0 otherwise
     """
-    fb_list = get_recent_muscle_group_feedback(db, muscle_group, limit=3)
-    if not fb_list:
-        return 0
-
+    today = get_session_soreness_feedback(db, muscle_group, session_id) if session_id else None
+    fb_list = [
+        fb for fb in get_recent_muscle_group_feedback(db, muscle_group, limit=3)
+        if session_id is None or fb.session_id != session_id
+    ]
     recent_two = fb_list[:2]
-    avg_s = sum(f.soreness or 0 for f in fb_list) / len(fb_list)
-    avg_p = sum(f.pump or 0 for f in fb_list) / len(fb_list)
-    avg_w = sum(f.workload or 0 for f in fb_list) / len(fb_list)
 
-    # High soreness is a direct recovery warning.
-    if any((f.soreness or 0) >= SORENESS_HIGH for f in recent_two):
+    if _recovered_slow(today):
         return -1
 
     # Repeated workload 4+ means the current dose is already costly enough.
     if len(recent_two) >= 2 and all((f.workload or 0) >= WORKLOAD_HIGH for f in recent_two):
         return -1
-
-    # "Under-stimulated" → +1
-    if len(recent_two) >= 2:
-        easy_and_recovered = all(
-            (f.soreness or 0) <= 2 and (f.workload or 0) <= 2
-            for f in recent_two
-        )
-        never_sore_and_manageable = all(
-            (f.soreness or 0) <= 1 and (f.workload or 0) <= 3
-            for f in recent_two
-        )
-        if easy_and_recovered or never_sore_and_manageable:
-            return +1
-
-    # "Beaten up / too much" → -1
-    if avg_s >= SORENESS_HIGH or avg_w >= WORKLOAD_HIGH:
+    if fb_list and sum(f.workload or 0 for f in fb_list) / len(fb_list) >= WORKLOAD_HIGH:
         return -1
+
+    # Two fast recoveries in a row with manageable workload → room to grow.
+    if (
+        _recovered_fast(today)
+        and recent_two
+        and _recovered_fast(recent_two[0])
+        and all((f.workload or 0) <= 3 for f in recent_two)
+    ):
+        return +1
 
     return 0
 
 
 def adjust_sets_based_on_feedback(
-    db: OrmSession, we: WorkoutExercise, session_exercise_names: list[str] | None = None
+    db: OrmSession,
+    we: WorkoutExercise,
+    session_exercise_names: list[str] | None = None,
+    session_id: int | None = None,
 ) -> int:
     """
     Determine target sets using session-to-session bounded progression.
@@ -351,7 +444,8 @@ def adjust_sets_based_on_feedback(
     A) Base sets come from the last session's ACTUAL sets performed (not stored target).
        If no history exists, use the exercise's stored starting prescription.
     B) Sets can only change by ±1 per session (hard limiter).
-    C) Feedback alone drives direction (+1/-1/0) from that most recent total.
+    C) Feedback alone drives direction (+1/-1/0) from that most recent total,
+       including today's soreness answer when session_id is given.
 
     """
     muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
@@ -371,7 +465,7 @@ def adjust_sets_based_on_feedback(
     total_anchor = history[0]
 
     # Rule C: Compute the user-feedback adjustment direction.
-    adj = compute_feedback_adjustment(db, muscle_group) if muscle_group else 0
+    adj = compute_feedback_adjustment(db, muscle_group, session_id) if muscle_group else 0
 
     # Rule B: Apply the ±1 feedback adjustment with a minimum but no ceiling.
     target_total = max(total_min, total_anchor + adj)
@@ -425,6 +519,7 @@ def recommend_weights_and_reps(
     we: WorkoutExercise,
     muscle_group: str = None,
     session_exercise_names: list[str] | None = None,
+    session_id: int | None = None,
 ) -> list[dict]:
     """
     Main entry used by the API recommendation flow.
@@ -442,7 +537,7 @@ def recommend_weights_and_reps(
         muscle_group = we.exercise.muscle_group if we.exercise and we.exercise.muscle_group else None
 
     # 1) volume adjustment (primary progression)
-    target_sets = adjust_sets_based_on_feedback(db, we, session_exercise_names)
+    target_sets = adjust_sets_based_on_feedback(db, we, session_exercise_names, session_id)
 
     # 2) get last session data
     _, last_sets = get_last_session_sets(db, we.id)

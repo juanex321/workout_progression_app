@@ -21,5 +21,5 @@ def submit_muscle_group_feedback(req: FeedbackRequest, db: OrmSession = Depends(
 @router.post("/soreness")
 def submit_soreness(req: SorenessRequest, db: OrmSession = Depends(get_db)):
     """Save or update soreness only for a muscle group (pre-session, before sets are logged)."""
-    save_soreness_only(db, req.session_id, req.muscle_group, req.soreness)
+    save_soreness_only(db, req.session_id, req.muscle_group, req.soreness, req.recovery_days)
     return {"status": "ok"}

@@ -16,6 +16,7 @@ from db import (
     SetDraft,
     Feedback,
 )
+from progression import SORENESS_HEALED_EARLY, derive_recovery_days, get_days_since_last_trained
 from plan import DEFAULT_TARGET_SETS, DEFAULT_TARGET_REPS, EXERCISE_DEFAULT_SETS, EXERCISE_DEFAULT_REPS, EXERCISE_MUSCLE_GROUPS
 
 
@@ -543,17 +544,28 @@ def get_soreness_value(db, session_id: int, muscle_group: str):
     return feedback.soreness if feedback else None
 
 
-def save_soreness_only(db, session_id: int, muscle_group: str, soreness: int) -> None:
+def save_soreness_only(
+    db, session_id: int, muscle_group: str, soreness: int, reported_recovery_days: int | None = None
+) -> None:
     """
-    Save or update soreness for a muscle group, leaving pump/workload untouched.
+    Save or update soreness (and the recovery days it implies) for a muscle group,
+    leaving pump/workload untouched.
     Uses an atomic upsert to prevent duplicate rows under concurrent requests.
     """
+    recovery_days = derive_recovery_days(
+        soreness, get_days_since_last_trained(db, muscle_group), reported_recovery_days
+    )
     stmt = (
         pg_insert(Feedback)
-        .values(session_id=session_id, muscle_group=muscle_group, soreness=soreness)
+        .values(
+            session_id=session_id,
+            muscle_group=muscle_group,
+            soreness=soreness,
+            recovery_days=recovery_days,
+        )
         .on_conflict_do_update(
             constraint="uq_feedback_session_muscle",
-            set_={"soreness": soreness},
+            set_={"soreness": soreness, "recovery_days": recovery_days},
         )
     )
     db.execute(stmt)
@@ -592,6 +604,11 @@ def save_muscle_group_feedback(
     Save full feedback for a muscle group.
     Uses an atomic upsert to prevent duplicate rows under concurrent requests.
     """
+    recovery_days = derive_recovery_days(soreness, get_days_since_last_trained(db, muscle_group))
+    update = {"soreness": soreness, "pump": pump, "workload": workload}
+    if soreness != SORENESS_HEALED_EARLY:
+        # "Healed a while ago" keeps the days reported with the soreness answer.
+        update["recovery_days"] = recovery_days
     stmt = (
         pg_insert(Feedback)
         .values(
@@ -600,10 +617,11 @@ def save_muscle_group_feedback(
             soreness=soreness,
             pump=pump,
             workload=workload,
+            recovery_days=recovery_days,
         )
         .on_conflict_do_update(
             constraint="uq_feedback_session_muscle",
-            set_={"soreness": soreness, "pump": pump, "workload": workload},
+            set_=update,
         )
     )
     db.execute(stmt)

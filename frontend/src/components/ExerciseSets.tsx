@@ -352,6 +352,26 @@ export function ExerciseSets({
     [sets, sessionId, exercise.we_id, logSet]
   );
 
+  // Today's soreness answer can change the recommended set count after the
+  // plan is on screen; follow it until the first set is logged.
+  const recommendedCount = exercise.recommendations.length;
+  const [seenRecommendedCount, setSeenRecommendedCount] = useState(recommendedCount);
+  if (seenRecommendedCount !== recommendedCount) {
+    setSeenRecommendedCount(recommendedCount);
+    if (recommendedCount > 0 && !sets.some((setRow) => setRow.logged)) {
+      const added = exercise.recommendations
+        .filter((recommendation) => recommendation.set_number > sets.length)
+        .map((recommendation) => ({
+          set_number: recommendation.set_number,
+          weight: sets[sets.length - 1]?.weight ?? recommendation.weight,
+          reps: recommendation.reps,
+          logged: false,
+        }));
+      setSets([...sets.slice(0, recommendedCount), ...added]);
+      setPlannedCount(recommendedCount);
+    }
+  }
+
   const handleSetCountChange = useCallback((newCount: number) => {
     const loggedCount = sets.filter((setRow) => setRow.logged).length;
     const requestedCount = Math.max(newCount, MIN_USER_SETS);

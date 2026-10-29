@@ -18,6 +18,7 @@ from sqlalchemy import (
     UniqueConstraint,
     create_engine,
     func,
+    inspect,
     text,
 )
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, sessionmaker
@@ -277,6 +278,8 @@ class Feedback(Base):
     soreness: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     pump: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     workload: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    # Days until soreness from the previous exposure cleared (0 = never sore).
+    recovery_days: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=func.now())
 
     session = relationship("Session", back_populates="feedbacks")
@@ -332,7 +335,19 @@ def get_session():
 def init_db():
     """Initialize database tables."""
     Base.metadata.create_all(engine)
+    ensure_schema_columns()
     ensure_performance_indexes()
+
+
+def ensure_schema_columns() -> None:
+    """Add nullable columns that create_all cannot add to existing tables."""
+    inspector = inspect(engine)
+    if "feedback" not in inspector.get_table_names():
+        return
+    columns = {column["name"] for column in inspector.get_columns("feedback")}
+    if "recovery_days" not in columns:
+        with engine.begin() as conn:
+            conn.execute(text("ALTER TABLE feedback ADD COLUMN recovery_days INTEGER"))
 
 
 def ensure_performance_indexes() -> None:

@@ -34,6 +34,7 @@ from plan import (
 from progression import (
     recommend_weights_and_reps,
     is_finisher,
+    get_days_since_last_trained,
     get_exercise_set_bounds,
     get_feedback_summary,
 )
@@ -206,6 +207,8 @@ def get_workout_data(
             fb_exists = muscle_groups[muscle_group].feedback_exists
             fb_values = muscle_groups[muscle_group].feedback_values
             soreness_val = muscle_groups[muscle_group].soreness_value
+            recovery_days_val = muscle_groups[muscle_group].recovery_days
+            days_since_val = muscle_groups[muscle_group].days_since_last_trained
         else:
             fb_summary = get_feedback_summary(db, muscle_group)
             feedback = feedback_by_muscle_group.get(muscle_group)
@@ -224,6 +227,11 @@ def get_workout_data(
                 else None
             )
             soreness_val = feedback.soreness if feedback else None
+            recovery_days_val = feedback.recovery_days if feedback else None
+            # Only meaningful for the session being trained now.
+            days_since_val = (
+                None if sess.completed else get_days_since_last_trained(db, muscle_group)
+            )
 
         # Get existing logged sets
         existing = existing_sets_by_we.get(we.id, [])
@@ -238,7 +246,9 @@ def get_workout_data(
         ]
 
         # Get recommendations
-        recs_raw = recommend_weights_and_reps(db, we, muscle_group, exercise_names)
+        recs_raw = recommend_weights_and_reps(
+            db, we, muscle_group, exercise_names, session_id=sess.id
+        )
         recommendations = [
             RecommendedSet(
                 set_number=r["set_number"],
@@ -281,6 +291,8 @@ def get_workout_data(
                 feedback_exists=fb_exists,
                 feedback_values=fb_values,
                 soreness_value=soreness_val,
+                recovery_days=recovery_days_val,
+                days_since_last_trained=days_since_val,
             )
         else:
             muscle_groups[muscle_group].exercises.append(exercise_data)
