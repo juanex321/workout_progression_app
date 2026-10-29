@@ -85,7 +85,7 @@ function Stepper({
           }}
           disabled={disabled}
           aria-label={muted ? `${suffix} from last session` : suffix}
-          className={`h-full w-full min-w-0 bg-transparent px-0.5 text-center text-base font-bold focus:outline-none focus:ring-2 focus:ring-inset focus:ring-red-500 disabled:opacity-50 sm:px-2 sm:text-lg ${muted ? "text-zinc-400" : "text-zinc-50"}`}
+          className={`h-full w-full min-w-0 bg-transparent px-0.5 text-center text-base font-bold focus:outline-none focus:ring-2 focus:ring-inset focus:ring-blue-500 disabled:opacity-50 sm:px-2 sm:text-lg ${muted ? "text-zinc-400" : "text-zinc-50"}`}
         />
       </div>
       <button
@@ -149,8 +149,8 @@ export function SetRow({
   } else {
     buttonLabel = pending ? "Saving..." : "Log set";
     buttonClass = locked
-      ? "bg-red-600/35 text-white/70"
-      : "bg-red-600 text-white active:bg-red-500 disabled:opacity-30";
+      ? "bg-blue-600/35 text-white/70"
+      : "bg-blue-600 text-white active:bg-blue-500 disabled:opacity-30";
     handleClick = locked ? () => onLockedLogAttempt?.() : onLog;
   }
 
@@ -161,7 +161,7 @@ export function SetRow({
     <div
       className={`grid grid-cols-2 gap-1.5 rounded-2xl p-1.5 sm:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem] sm:items-center sm:gap-2 ${
         highlight
-          ? "border-2 border-red-500/45 bg-red-500/8 shadow-[0_10px_24px_rgba(0,0,0,0.32)]"
+          ? "border-2 border-blue-500/45 bg-blue-500/8 shadow-[0_10px_24px_rgba(0,0,0,0.32)]"
           : logged
             ? "border border-emerald-400/10 bg-emerald-500/5"
             : "border border-white/5 bg-black/10"
@@ -203,7 +203,7 @@ export function SetRow({
         <span
           className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold sm:order-1 sm:h-7 sm:w-7 sm:justify-self-center ${
             highlight
-              ? "bg-red-600 text-white"
+              ? "bg-blue-600 text-white"
               : logged
                 ? "bg-emerald-500/15 text-emerald-200"
                 : "bg-white/5 text-zinc-400"

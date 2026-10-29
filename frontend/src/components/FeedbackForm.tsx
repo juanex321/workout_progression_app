@@ -42,7 +42,7 @@ function ChipSelect({
               aria-pressed={selected}
               className={`min-h-12 rounded-xl px-2 py-2 text-sm font-semibold transition-colors ${
                 selected
-                  ? "bg-red-600 text-white shadow-[0_0_0_2px_rgba(220,38,38,0.25)]"
+                  ? "bg-blue-600 text-white shadow-[0_0_0_2px_rgba(37,99,235,0.25)]"
                   : "border border-white/10 bg-zinc-700 text-zinc-200 active:bg-zinc-600"
               }`}
             >
@@ -89,7 +89,7 @@ export function FeedbackForm({
   return (
     <div className="space-y-5 rounded-2xl border border-white/10 bg-zinc-900/95 p-4 shadow-[0_16px_35px_rgba(0,0,0,0.3)]">
       <div>
-        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-400">Session feedback</p>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-blue-400">Session feedback</p>
         <h4 className="mt-1 text-lg font-bold text-zinc-50">{muscleGroup}</h4>
       </div>
       {showSoreness && (
@@ -121,7 +121,7 @@ export function FeedbackForm({
           type="button"
           onClick={handleSubmit}
           disabled={feedback.isPending}
-          className="h-12 flex-[2] rounded-xl bg-red-600 text-base font-bold text-white active:bg-red-500 disabled:opacity-50"
+          className="h-12 flex-[2] rounded-xl bg-blue-600 text-base font-bold text-white active:bg-blue-500 disabled:opacity-50"
         >
           {feedback.isPending ? "Saving..." : initialValues ? "Save Changes" : "Submit Feedback"}
         </button>
