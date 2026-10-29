@@ -1,9 +1,10 @@
 import sys
 import unittest
+from unittest.mock import patch
 from pathlib import Path
 from types import SimpleNamespace
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event
 from sqlalchemy.orm import sessionmaker
 
 
@@ -16,6 +17,7 @@ sys.path.insert(1, str(ROOT_DIR))
 import db as api_db
 import services as api_services
 from routes import exercises as exercise_routes
+import progression
 
 
 def make_set(session_id, set_number, weight, reps):
@@ -262,6 +264,71 @@ class ExerciseHistorySummaryTests(unittest.TestCase):
             api_services.WEIGHT_RECOMMENDATION_STANDARD,
         )
         self.assertIsNone(leg_extension_payload.weight_recommendation.context_note)
+
+    def test_bounded_history_preserves_full_workout_and_loads_fewer_rows(self):
+        workout = self.seed_workout()
+        exercise = api_services.get_or_create_workout_exercise(
+            self.db, workout, "Leg Extension", 0
+        )
+        for number in range(1, 61):
+            session = self.add_session(workout.id, number, completed=1)
+            self.add_sets(session.id, exercise.id, [15, 12, 10], weight=100 + number)
+        # The latest completed session without this exercise must be skipped.
+        self.add_session(workout.id, 61, completed=1)
+        current = self.add_session(workout.id, 62, completed=0)
+        self.db.commit()
+        current_id = current.id
+        exercise_id = exercise.id
+
+        def all_completed_sets(db, we_id, limit=1):
+            rows = (db.query(api_db.Set)
+                    .join(api_db.Session, api_db.Set.session_id == api_db.Session.id)
+                    .filter(api_db.Set.workout_exercise_id == we_id,
+                            api_db.Session.completed == 1)
+                    .order_by(api_db.Session.session_number.desc(), api_db.Set.set_number.asc())
+                    .all())
+            grouped = {}
+            for row in rows:
+                grouped.setdefault(row.session_id, []).append(row)
+            return grouped
+
+        def all_previous_sets(db, workout_exercise_id, before_session_number):
+            rows = (db.query(api_db.Set)
+                    .join(api_db.Session, api_db.Set.session_id == api_db.Session.id)
+                    .filter(api_db.Set.workout_exercise_id == workout_exercise_id,
+                            api_db.Session.completed == 1,
+                            api_db.Session.session_number < before_session_number)
+                    .order_by(api_db.Session.session_number.desc(), api_db.Set.set_number.asc())
+                    .all())
+            return [row for row in rows if row.session_id == rows[0].session_id] if rows else []
+
+        loaded = []
+        def track_load(db, instance):
+            if isinstance(instance, api_db.Set):
+                loaded.append(instance.id)
+
+        def payload():
+            self.db.expunge_all()
+            self.db.info.clear()
+            loaded.clear()
+            result = exercise_routes.get_workout_data(session_id=current_id, db=self.db)
+            return result.model_dump(), len(loaded)
+
+        event.listen(self.db, "loaded_as_persistent", track_load)
+        try:
+            with patch.object(progression, "_completed_sets_by_session", all_completed_sets), \
+                 patch.object(api_services, "get_previous_completed_exercise_sets", all_previous_sets):
+                expected, baseline_rows = payload()
+            actual, optimized_rows = payload()
+        finally:
+            event.remove(self.db, "loaded_as_persistent", track_load)
+        self.assertEqual(actual, expected)
+        self.assertLess(optimized_rows, baseline_rows)
+        self.assertEqual(progression.get_last_n_session_set_counts(self.db, exercise_id, 3), [3, 3, 3])
+        # Viewing older sessions must still exclude later performance from history summaries.
+        previous = api_services.get_previous_completed_exercise_sets(self.db, exercise_id, 30)
+        self.assertEqual([row.weight for row in previous], [129, 129, 129])
+        print(f"History ORM rows loaded: {baseline_rows} -> {optimized_rows}; full payload identical")
 
 
 if __name__ == "__main__":

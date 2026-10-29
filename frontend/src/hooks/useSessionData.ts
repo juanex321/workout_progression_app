@@ -1,5 +1,5 @@
 "use client";
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { api } from "@/lib/api";
 
 export function useSessionData(sessionId: number | null) {
@@ -8,15 +8,21 @@ export function useSessionData(sessionId: number | null) {
     queryFn: () => api.getWorkoutData(sessionId!),
     enabled: !!sessionId,
     staleTime: Infinity, // Load once and hold locally during a session
-    refetchOnMount: "always",
+    // The bootstrap request already populates this cache. Do not fetch it twice.
+    refetchOnMount: true,
     gcTime: 10 * 60 * 1000,
   });
 }
 
 export function useCurrentSession() {
+  const queryClient = useQueryClient();
   return useQuery({
     queryKey: ["current-session"],
-    queryFn: () => api.getCurrentSession(),
+    queryFn: async () => {
+      const workout = await api.getCurrentWorkout();
+      queryClient.setQueryData(["workout-data-v2", workout.session_id], workout);
+      return workout;
+    },
     staleTime: 30_000,
   });
 }

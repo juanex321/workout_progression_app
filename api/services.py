@@ -173,27 +173,29 @@ def get_previous_completed_exercise_sets(
     Return the logged sets for the most recent completed session strictly before
     the reference session number for this exact workout exercise.
     """
-    sets = (
-        db.query(Set)
-        .join(DbSession, Set.session_id == DbSession.id)
+    previous_session_id = (
+        db.query(DbSession.id)
         .filter(
-            Set.workout_exercise_id == workout_exercise_id,
             DbSession.completed == 1,
             DbSession.session_number < before_session_number,
+            db.query(Set.id).filter(
+                Set.session_id == DbSession.id,
+                Set.workout_exercise_id == workout_exercise_id,
+            ).exists(),
         )
-        .order_by(DbSession.session_number.desc(), Set.set_number.asc())
+        .order_by(DbSession.session_number.desc())
+        .limit(1)
+        .scalar_subquery()
+    )
+    return (
+        db.query(Set)
+        .filter(
+            Set.workout_exercise_id == workout_exercise_id,
+            Set.session_id == previous_session_id,
+        )
+        .order_by(Set.set_number.asc())
         .all()
     )
-    if not sets:
-        return []
-
-    # Group into sessions (ordered most-recent first) and return the newest.
-    sessions: dict[int, list[Set]] = {}
-    for s in sets:
-        sessions.setdefault(s.session_id, []).append(s)
-
-    first_id = next(iter(sessions))
-    return sessions[first_id]
 
 
 def get_recent_first_set_reps(

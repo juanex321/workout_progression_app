@@ -71,22 +71,35 @@ def _session_cache(db: OrmSession, namespace: str) -> dict:
     return info.setdefault(namespace, {})
 
 
-def _completed_sets_by_session(db: OrmSession, workout_exercise_id: int) -> dict[int, list[Set]]:
+def _completed_sets_by_session(db: OrmSession, workout_exercise_id: int, limit: int = 1) -> dict[int, list[Set]]:
     cache = _session_cache(db, "progression.completed_sets_by_session")
-    if workout_exercise_id not in cache:
+    key = (workout_exercise_id, limit)
+    if key not in cache:
+        recent_session_ids = (
+            db.query(Session.id)
+            .filter(
+                Session.completed == 1,
+                db.query(Set.id).filter(
+                    Set.session_id == Session.id,
+                    Set.workout_exercise_id == workout_exercise_id,
+                ).exists(),
+            )
+            .order_by(Session.session_number.desc())
+            .limit(max(0, limit))
+        )
         sets = (
             db.query(Set)
             .join(Session, Set.session_id == Session.id)
             .filter(Set.workout_exercise_id == workout_exercise_id)
-            .filter(Session.completed == 1)
+            .filter(Set.session_id.in_(recent_session_ids))
             .order_by(Session.session_number.desc(), Set.set_number.asc())
             .all()
         )
         sessions: dict[int, list[Set]] = {}
         for s in sets:
             sessions.setdefault(s.session_id, []).append(s)
-        cache[workout_exercise_id] = sessions
-    return cache[workout_exercise_id]
+        cache[key] = sessions
+    return cache[key]
 
 
 def get_last_session_sets(
@@ -112,7 +125,7 @@ def get_last_n_session_set_counts(
     Returns a list ordered most-recent-first: [S_last, S_prev, ...]
     Empty list if no history.
     """
-    sessions = _completed_sets_by_session(db, workout_exercise_id)
+    sessions = _completed_sets_by_session(db, workout_exercise_id, limit=n)
     if not sessions:
         return []
 

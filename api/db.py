@@ -1,5 +1,6 @@
 ﻿import os
 import time
+import ssl
 from contextlib import contextmanager
 from datetime import date, datetime
 from pathlib import Path
@@ -21,6 +22,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship, sessionmaker
 from sqlalchemy.pool import NullPool
+from sqlalchemy.engine import make_url
 
 
 def _is_truthy_env(value: str) -> bool:
@@ -127,6 +129,26 @@ def get_database_url():
 DATABASE_URL, DATABASE_SOURCE = get_database_url()
 DATABASE_BOOT_ERROR: Optional[str] = None
 
+
+def _postgres_connection_options(url: str):
+    """Translate libpq TLS options for pg8000 without weakening required TLS."""
+    parsed = make_url(url)
+    if parsed.drivername != "postgresql+pg8000":
+        return parsed, {}
+    query = dict(parsed.query)
+    mode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+    connect_args = {}
+    if mode in {"require", "verify-ca", "verify-full"}:
+        # Neon certificates are publicly trusted. Verify identity even for require.
+        connect_args["ssl_context"] = ssl.create_default_context()
+    elif mode == "disable":
+        connect_args["ssl_context"] = False
+    elif mode not in {None, "prefer"}:
+        raise ValueError("Unsupported pg8000 sslmode; use require, verify-full, prefer or disable")
+    return parsed.set(query=query), connect_args
+
+
 try:
     if DATABASE_URL.startswith("postgresql"):
         if os.environ.get("VERCEL"):
@@ -139,7 +161,8 @@ try:
                 "pool_size": int(os.environ.get("DB_POOL_SIZE", "5")),
                 "max_overflow": int(os.environ.get("DB_MAX_OVERFLOW", "2")),
             }
-        engine = create_engine(DATABASE_URL, **pool_kwargs)
+        engine_url, connect_args = _postgres_connection_options(DATABASE_URL)
+        engine = create_engine(engine_url, connect_args=connect_args, **pool_kwargs)
     else:
         engine = create_engine(
             DATABASE_URL,
