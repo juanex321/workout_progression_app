@@ -50,6 +50,10 @@ app.include_router(feedback.router, prefix="/api/feedback", tags=["feedback"])
 def startup():
     # Create tables and seed baseline data for fresh deployments.
     global STARTUP_ERROR
+    # Opt in only after running `python -m api.bootstrap` against this database.
+    # Existing deployments and local development retain automatic initialization.
+    if os.environ.get("SKIP_DB_INIT", "").strip().lower() in {"1", "true", "yes"}:
+        return
     try:
         init_db()
         seed_default_data()

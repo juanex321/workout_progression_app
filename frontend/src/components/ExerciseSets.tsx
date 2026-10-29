@@ -65,6 +65,7 @@ interface ExerciseSetsProps {
   sessionId: number;
   disabled: boolean;
   sorenessLocked?: boolean;
+  onLockedLogAttempt?: () => void;
   feedbackSummary?: string;
   onAllLogged?: (allLogged: boolean) => void;
 }
@@ -74,6 +75,7 @@ export function ExerciseSets({
   sessionId,
   disabled,
   sorenessLocked,
+  onLockedLogAttempt,
   feedbackSummary,
   onAllLogged,
 }: ExerciseSetsProps) {
@@ -403,7 +405,7 @@ export function ExerciseSets({
     : null;
 
   return (
-    <section className="rounded-2xl border border-white/12 bg-zinc-900/70 p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
+    <section className="rounded-2xl border border-white/12 bg-zinc-900/70 p-2.5 sm:p-3 shadow-[0_12px_30px_rgba(0,0,0,0.2)]">
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-[minmax(0,1fr)_auto_auto] sm:items-center">
         <div className="min-w-0 flex items-center self-center">
           <div className="flex min-w-0 items-center gap-2">
@@ -484,12 +486,21 @@ export function ExerciseSets({
       })()}
 
       {setsExpanded && (
-        <div className="mt-3 space-y-1 rounded-2xl border border-white/8 bg-black/15 p-2">
-          <div className="grid grid-cols-[1.75rem_minmax(0,1.15fr)_minmax(0,0.85fr)_2.75rem] items-center gap-1.5 px-1.5 pb-0.5 text-center text-[9px] font-semibold uppercase tracking-[0.12em] text-zinc-500 sm:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem] sm:gap-2 sm:text-[10px]">
-            <span>Set</span>
-            <span>Weight</span>
+        <div className="mt-3 space-y-1.5 rounded-2xl border border-white/8 bg-black/15 p-1 sm:space-y-1 sm:p-2">
+          {sorenessLocked && !disabled && (
+            <button
+              type="button"
+              onClick={onLockedLogAttempt}
+              className="w-full rounded-xl border border-red-400/25 bg-red-500/10 px-3 py-2 text-xs font-medium text-red-200"
+            >
+              Pick recovery above to start logging
+            </button>
+          )}
+          <div className="grid grid-cols-2 items-center gap-1.5 px-1.5 pb-0.5 text-center text-[10px] font-semibold uppercase tracking-[0.12em] text-zinc-500 sm:grid-cols-[2.5rem_minmax(0,1fr)_minmax(0,1fr)_6rem] sm:gap-2">
+            <span className="hidden sm:inline">Set</span>
+            <span>Weight (lb)</span>
             <span>Reps</span>
-            <span>Log</span>
+            <span className="hidden sm:inline">Log</span>
           </div>
           {sets.map((setRow) => (
             <SetRow
@@ -502,6 +513,7 @@ export function ExerciseSets({
               saveError={!!setRow.saveError}
               disabled={disabled}
               sorenessLocked={sorenessLocked}
+              onLockedLogAttempt={onLockedLogAttempt}
               highlight={!setRow.logged && setRow.set_number === activeSet?.set_number}
               repsFromLastSession={
                 !setRow.logged && !!setRow.repsCarriedFromLastSession

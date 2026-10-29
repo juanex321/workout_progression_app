@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect, useRef } from "react";
 import type { MuscleGroupData } from "@/lib/types";
 import { ExerciseSets } from "./ExerciseSets";
 import { FeedbackForm } from "./FeedbackForm";
@@ -9,6 +9,10 @@ import { useSoreness } from "@/hooks/useSoreness";
 import { getDraft, saveDraftSoreness } from "@/lib/draft";
 
 type FeedbackValues = { soreness: number; pump: number; workload: number };
+
+export function muscleGroupAnchorId(muscleGroup: string): string {
+  return `mg-${muscleGroup.toLowerCase().replace(/[^a-z0-9]+/g, "-")}`;
+}
 
 interface MuscleGroupCardProps {
   muscleGroup: string;
@@ -44,6 +48,22 @@ export function MuscleGroupCard({
   const [feedbackComplete, setFeedbackComplete] = useState(data.feedback_exists);
   const [collapsed, setCollapsed] = useState(sessionCompleted || data.feedback_exists);
   const saveSoreness = useSoreness(sessionId);
+  const sorenessRef = useRef<HTMLDivElement>(null);
+  const [sorenessNudge, setSorenessNudge] = useState(false);
+  const nudgeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(() => () => {
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+  }, []);
+
+  // Log is blocked until recovery is picked; point the user at the question
+  // instead of leaving them tapping a dead button.
+  const handleLockedLogAttempt = useCallback(() => {
+    sorenessRef.current?.scrollIntoView({ behavior: "smooth", block: "center" });
+    setSorenessNudge(true);
+    if (nudgeTimer.current) clearTimeout(nudgeTimer.current);
+    nudgeTimer.current = setTimeout(() => setSorenessNudge(false), 1600);
+  }, []);
 
   const effectiveSoreness = localSoreness ?? data.soreness_value;
 
@@ -74,7 +94,9 @@ export function MuscleGroupCard({
   const loggedExerciseCount = Object.values(loggedMap).filter(Boolean).length;
 
   return (
-    <section className="mb-5 overflow-hidden rounded-[28px] border border-zinc-700 bg-zinc-950/90 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur transition-all">
+    <section
+      id={muscleGroupAnchorId(muscleGroup)}
+      className="mb-5 scroll-mt-4 overflow-hidden rounded-[28px] border border-zinc-700 bg-zinc-950/90 shadow-[0_18px_50px_rgba(0,0,0,0.38)] backdrop-blur transition-all">
       <button
         type="button"
         onClick={() => canCollapse && setCollapsed((prev) => !prev)}
@@ -121,14 +143,15 @@ export function MuscleGroupCard({
 
       {!collapsed && (
         <>
-          <div className="space-y-5 border-t border-white/8 px-4 py-5">
+          <div className="space-y-5 border-t border-white/8 px-2.5 py-4 sm:px-4 sm:py-5">
             {!feedbackComplete && (
-              <div>
+              <div ref={sorenessRef} className="scroll-mt-4">
                 <SorenessSelector
                   muscleGroup={muscleGroup}
                   value={effectiveSoreness}
                   onChange={handleSorenessChange}
                   disabled={sessionCompleted}
+                  highlight={sorenessNudge && sorenessLocked}
                 />
                 {saveSoreness.isError && (
                   <p className="mt-1 text-xs text-red-300">Soreness save failed — tap again to retry</p>
@@ -143,6 +166,7 @@ export function MuscleGroupCard({
                 sessionId={sessionId}
                 disabled={sessionCompleted}
                 sorenessLocked={sorenessLocked}
+                onLockedLogAttempt={handleLockedLogAttempt}
                 feedbackSummary={data.feedback_summary}
                 onAllLogged={(allLogged) => handleAllLogged(exercise.we_id, allLogged)}
               />

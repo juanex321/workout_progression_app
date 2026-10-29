@@ -19,6 +19,10 @@ async function fetchJSON<T>(url: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
+  getCurrentWorkout(): Promise<WorkoutDataResponse> {
+    return fetchJSON(`${BASE}/workout-data`);
+  },
+
   getCurrentSession(): Promise<SessionResponse> {
     return fetchJSON(`${BASE}/sessions/current`);
   },

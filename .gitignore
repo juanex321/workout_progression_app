@@ -39,3 +39,9 @@ node_modules/
 frontend/.next/
 frontend/out/
 frontend/next-env.d.ts
+frontend/tsconfig.tsbuildinfo
+.test-artifacts/
+.vercel-api-candidate/
+.vercel/
+.env.local
+.env.*.local
