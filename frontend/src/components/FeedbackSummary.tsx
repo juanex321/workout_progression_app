@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { FeedbackForm } from "./FeedbackForm";
+import { PUMP_LABELS, SORENESS_LABELS, WORKLOAD_LABELS } from "@/lib/feedbackLabels";
 
 type FeedbackValues = { soreness: number; pump: number; workload: number };
 
@@ -11,10 +12,6 @@ interface FeedbackSummaryProps {
   disabled?: boolean;
   onSaved?: (values: FeedbackValues) => void;
 }
-
-const SORENESS_LABELS = ["Never sore", "Healed early", "Healed on time", "Still sore"];
-const PUMP_LABELS = ["None", "Slight", "Good", "Great", "Extreme"];
-const WORKLOAD_LABELS = ["Easy", "Light", "Just right", "Hard", "Too much"];
 
 export function FeedbackSummary({
   muscleGroup,
@@ -43,54 +40,36 @@ export function FeedbackSummary({
     );
   }
 
+  const items = [
+    { label: "Recovery", value: SORENESS_LABELS[currentValues.soreness - 1] },
+    { label: "Pump", value: PUMP_LABELS[currentValues.pump - 1] },
+    { label: "Workload", value: WORKLOAD_LABELS[currentValues.workload - 1] },
+  ];
+
   return (
     <div className="rounded-2xl border border-emerald-400/25 bg-emerald-500/10 p-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
-            Feedback logged
-          </p>
-          <p className="mt-1 text-sm text-zinc-200">
-            Pump and workload can be changed at any time.
-          </p>
-        </div>
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-emerald-300">
+          Feedback saved
+        </p>
         <button
           type="button"
           onClick={() => setEditing(true)}
-          className="min-h-11 shrink-0 rounded-xl border border-red-400/50 bg-red-600 px-4 text-sm font-extrabold text-white shadow-lg shadow-red-600/20 active:bg-red-500"
+          aria-label={`Edit ${muscleGroup} feedback`}
+          className="min-h-11 shrink-0 rounded-xl border border-white/15 bg-zinc-800 px-4 text-sm font-semibold text-zinc-200 active:bg-zinc-700"
         >
-          Edit feedback
+          Edit
         </button>
       </div>
 
-      <button
-        type="button"
-        onClick={() => setEditing(true)}
-        className="mt-3 grid w-full gap-2 text-left sm:grid-cols-3"
-        aria-label={`Edit ${muscleGroup} feedback`}
-      >
-        <span className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-          <span className="block text-[10px] uppercase tracking-[0.16em] text-zinc-500">Soreness</span>
-          <span className="mt-1 block text-sm font-semibold text-zinc-100">
-            {currentValues.soreness}/4 · {SORENESS_LABELS[currentValues.soreness - 1]}
-          </span>
-        </span>
-        <span className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-          <span className="block text-[10px] uppercase tracking-[0.16em] text-zinc-500">Pump</span>
-          <span className="mt-1 block text-sm font-semibold text-zinc-100">
-            {currentValues.pump}/5 · {PUMP_LABELS[currentValues.pump - 1]}
-          </span>
-        </span>
-        <span className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
-          <span className="block text-[10px] uppercase tracking-[0.16em] text-zinc-500">Workload</span>
-          <span className="mt-1 block text-sm font-semibold text-zinc-100">
-            {currentValues.workload}/5 · {WORKLOAD_LABELS[currentValues.workload - 1]}
-          </span>
-        </span>
-      </button>
-      <p className="mt-2 text-center text-xs font-medium text-red-300">
-        Tap Edit feedback or any saved value to change it
-      </p>
+      <dl className="mt-3 grid gap-2 sm:grid-cols-3">
+        {items.map((item) => (
+          <div key={item.label} className="rounded-xl border border-white/10 bg-black/30 px-3 py-3">
+            <dt className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">{item.label}</dt>
+            <dd className="mt-1 text-sm font-semibold text-zinc-100">{item.value}</dd>
+          </div>
+        ))}
+      </dl>
     </div>
   );
 }

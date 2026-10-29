@@ -91,6 +91,8 @@ export function MuscleGroupCard({
   const showFeedback = allSetsLogged || feedbackComplete || sessionCompleted;
   const sorenessLocked = effectiveSoreness === null && !sessionCompleted && !feedbackComplete;
   const canCollapse = feedbackComplete || sessionCompleted;
+  const hasRecentFeedback =
+    !!data.feedback_summary && data.feedback_summary !== "No recent feedback";
   const loggedExerciseCount = Object.values(loggedMap).filter(Boolean).length;
 
   return (
@@ -144,6 +146,11 @@ export function MuscleGroupCard({
       {!collapsed && (
         <>
           <div className="space-y-5 border-t border-white/8 px-2.5 py-4 sm:px-4 sm:py-5">
+            {hasRecentFeedback && (
+              <p className="rounded-xl border border-white/8 bg-black/20 px-3 py-2 text-xs text-zinc-300">
+                <span className="text-zinc-500">Last feedback:</span> {data.feedback_summary}
+              </p>
+            )}
             {!feedbackComplete && (
               <div ref={sorenessRef} className="scroll-mt-4">
                 <SorenessSelector
@@ -167,7 +174,6 @@ export function MuscleGroupCard({
                 disabled={sessionCompleted}
                 sorenessLocked={sorenessLocked}
                 onLockedLogAttempt={handleLockedLogAttempt}
-                feedbackSummary={data.feedback_summary}
                 onAllLogged={(allLogged) => handleAllLogged(exercise.we_id, allLogged)}
               />
             ))}

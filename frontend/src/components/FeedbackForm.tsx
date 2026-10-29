@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useFeedback } from "@/hooks/useFeedback";
+import { PUMP_LABELS, SORENESS_LABELS, WORKLOAD_LABELS } from "@/lib/feedbackLabels";
 
 type FeedbackValues = { soreness: number; pump: number; workload: number };
 
@@ -13,60 +14,23 @@ interface FeedbackFormProps {
   onCancel?: () => void;
 }
 
-const LABELS: Record<string, string[]> = {
-  soreness: ["Never got sore", "Healed a while ago", "Healed right on time", "I'm still sore"],
-  pump: ["None", "Slight", "Good", "Great", "Extreme"],
-  workload: ["Easy", "Light", "Just Right", "Hard", "Too Much"],
-};
-
-function Slider({
-  label,
-  value,
-  onChange,
-  max = 5,
-}: {
-  label: string;
-  value: number;
-  onChange: (v: number) => void;
-  max?: number;
-}) {
-  const key = label.toLowerCase();
-  const descriptions = LABELS[key] ?? [];
-
-  return (
-    <div>
-      <div className="mb-2 flex items-center justify-between gap-3">
-        <label className="text-sm font-medium text-zinc-200">{label}</label>
-        <span className="text-sm text-zinc-400">{descriptions[value - 1] ?? value}</span>
-      </div>
-      <input
-        type="range"
-        min={1}
-        max={max}
-        step={1}
-        value={value}
-        onChange={(e) => onChange(parseInt(e.target.value))}
-        className="h-3 w-full appearance-none rounded-lg bg-zinc-700 accent-red-500"
-      />
-    </div>
-  );
-}
-
 function ChipSelect({
   label,
   options,
   value,
   onChange,
+  columns = "sm:grid-cols-5",
 }: {
   label: string;
   options: string[];
   value: number;
   onChange: (v: number) => void;
+  columns?: string;
 }) {
   return (
     <div>
       <p className="mb-2 text-sm font-medium text-zinc-200">{label}</p>
-      <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
+      <div className={`grid grid-cols-2 gap-2 ${columns}`}>
         {options.map((opt, i) => {
           const v = i + 1;
           const selected = value === v;
@@ -75,6 +39,7 @@ function ChipSelect({
               key={opt}
               type="button"
               onClick={() => onChange(v)}
+              aria-pressed={selected}
               className={`min-h-12 rounded-xl px-2 py-2 text-sm font-semibold transition-colors ${
                 selected
                   ? "bg-red-600 text-white shadow-[0_0_0_2px_rgba(220,38,38,0.25)]"
@@ -105,6 +70,10 @@ export function FeedbackForm({
   const [workload, setWorkload] = useState(initialValues?.workload ?? 3);
   const feedback = useFeedback(sessionId);
 
+  // Recovery is already answered at the top of the card before logging, so
+  // only ask again when editing saved feedback (where that picker is hidden).
+  const showSoreness = !!initialValues || initialSoreness === undefined;
+
   const handleSubmit = () => {
     const values = { soreness, pump, workload };
     feedback.mutate(
@@ -123,9 +92,17 @@ export function FeedbackForm({
         <p className="text-xs font-semibold uppercase tracking-[0.18em] text-red-400">Session feedback</p>
         <h4 className="mt-1 text-lg font-bold text-zinc-50">{muscleGroup}</h4>
       </div>
-      <Slider label="Soreness" value={soreness} onChange={setSoreness} max={4} />
-      <ChipSelect label="Pump" options={LABELS.pump} value={pump} onChange={setPump} />
-      <ChipSelect label="Workload" options={LABELS.workload} value={workload} onChange={setWorkload} />
+      {showSoreness && (
+        <ChipSelect
+          label="Recovery"
+          options={SORENESS_LABELS}
+          value={soreness}
+          onChange={setSoreness}
+          columns="sm:grid-cols-4"
+        />
+      )}
+      <ChipSelect label="Pump" options={PUMP_LABELS} value={pump} onChange={setPump} />
+      <ChipSelect label="Workload" options={WORKLOAD_LABELS} value={workload} onChange={setWorkload} />
       {feedback.isError && (
         <p className="text-sm text-red-300">Save failed. Review the selections and try again.</p>
       )}

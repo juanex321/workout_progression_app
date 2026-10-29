@@ -13,6 +13,7 @@ interface SetRowProps {
   onLockedLogAttempt?: () => void;
   highlight?: boolean;
   repsFromLastSession?: boolean;
+  lastReps?: number;
   onWeightChange: (value: number) => void;
   onRepsChange: (value: number) => void;
   onLog: () => void;
@@ -112,6 +113,7 @@ export function SetRow({
   onLockedLogAttempt,
   highlight,
   repsFromLastSession,
+  lastReps,
   onWeightChange,
   onRepsChange,
   onLog,
@@ -190,6 +192,11 @@ export function SetRow({
           suffix="reps"
           muted={repsFromLastSession}
         />
+        {lastReps !== undefined && (
+          <p className="mt-0.5 text-center text-[11px] text-zinc-500">
+            last: {lastReps}
+          </p>
+        )}
       </div>
 
       <div className="order-3 col-span-2 flex items-center gap-2 sm:contents">

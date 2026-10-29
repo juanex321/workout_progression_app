@@ -66,7 +66,6 @@ interface ExerciseSetsProps {
   disabled: boolean;
   sorenessLocked?: boolean;
   onLockedLogAttempt?: () => void;
-  feedbackSummary?: string;
   onAllLogged?: (allLogged: boolean) => void;
 }
 
@@ -76,7 +75,6 @@ export function ExerciseSets({
   disabled,
   sorenessLocked,
   onLockedLogAttempt,
-  feedbackSummary,
   onAllLogged,
 }: ExerciseSetsProps) {
   const formatWeight = (value: number): string =>
@@ -391,17 +389,19 @@ export function ExerciseSets({
   const canAdjustSetCount =
     !disabled &&
     (exercise.max_sets == null || exercise.max_sets > MIN_USER_SETS);
-  const hasRecentFeedback = !!feedbackSummary && feedbackSummary !== "No recent feedback";
+  const showSetCounter = setsExpanded && canAdjustSetCount;
+  const lastRepsBySet = new Map(
+    (exercise.last_session_summary?.sets ?? []).map((setRow) => [setRow.set_number, setRow.reps])
+  );
   const lastSessionLabel = exercise.last_session_summary
     ? [
-        `Last ${formatWeight(exercise.last_session_summary.last_weight)} lb`,
-        `${exercise.last_session_summary.first_set_reps ?? exercise.last_session_summary.avg_reps} reps on set 1`,
+        `${formatWeight(exercise.last_session_summary.last_weight)} lb`,
         typeof exercise.last_session_summary.set_count === "number"
           ? `${exercise.last_session_summary.set_count} sets`
           : null,
       ]
         .filter(Boolean)
-        .join(", ")
+        .join(" · ")
     : null;
 
   return (
@@ -434,35 +434,18 @@ export function ExerciseSets({
             </button>
           )}
 
-          <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">
-            {plannedCount} sets
-          </span>
+          {!showSetCounter && (
+            <span className="shrink-0 rounded-full border border-white/10 bg-black/20 px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.16em] text-zinc-300">
+              {plannedCount} sets
+            </span>
+          )}
         </div>
       </div>
 
-      {(hasRecentFeedback || lastSessionLabel) && (
-        <div className="mt-2 grid gap-2 [grid-template-columns:repeat(auto-fit,minmax(220px,1fr))]">
-          {hasRecentFeedback && (
-            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                Recent feedback
-              </p>
-              <p className="mt-1 text-[11px] text-zinc-200">
-                {feedbackSummary}
-              </p>
-            </div>
-          )}
-          {lastSessionLabel && (
-            <div className="rounded-xl border border-white/8 bg-black/20 px-3 py-2">
-              <p className="text-[10px] uppercase tracking-[0.16em] text-zinc-500">
-                Last session
-              </p>
-              <p className="mt-1 text-[11px] text-zinc-200">
-                {lastSessionLabel}
-              </p>
-            </div>
-          )}
-        </div>
+      {lastSessionLabel && (
+        <p className="mt-1 text-xs text-zinc-400">
+          <span className="text-zinc-500">Last session:</span> {lastSessionLabel}
+        </p>
       )}
 
       {logSet.isError && (
@@ -518,12 +501,13 @@ export function ExerciseSets({
               repsFromLastSession={
                 !setRow.logged && !!setRow.repsCarriedFromLastSession
               }
+              lastReps={setRow.logged ? undefined : lastRepsBySet.get(setRow.set_number)}
               onWeightChange={(value) => updateSet(setRow.set_number, "weight", value)}
               onRepsChange={(value) => updateSet(setRow.set_number, "reps", value)}
               onLog={() => handleLog(setRow.set_number)}
             />
           ))}
-          {canAdjustSetCount && (
+          {showSetCounter && (
             <div className="border-t border-white/8 px-1.5 pt-2">
               <SetCounter
                 count={plannedCount}
