@@ -18,15 +18,17 @@ interface SorenessSelectorProps {
 }
 
 function recoveryDayOptions(daysSinceLastTrained: number | null | undefined): number[] {
-  if (daysSinceLastTrained == null) return [];
+  // Unknown gap: ask with the full range.
+  if (daysSinceLastTrained == null) return Array.from({ length: MAX_DAY_OPTION }, (_, index) => index + 1);
   const latest = Math.min(daysSinceLastTrained - 1, MAX_DAY_OPTION);
   // With a 1-2 day gap there is only one possible answer, so skip the question.
   if (latest < 2) return [];
   return Array.from({ length: latest }, (_, index) => index + 1);
 }
 
-function dayLabel(days: number, isLast: boolean, daysSinceLastTrained: number): string {
-  const openEnded = isLast && days === MAX_DAY_OPTION && daysSinceLastTrained - 1 > MAX_DAY_OPTION;
+function dayLabel(days: number, isLast: boolean, daysSinceLastTrained: number | null | undefined): string {
+  const openEnded =
+    isLast && days === MAX_DAY_OPTION && (daysSinceLastTrained == null || daysSinceLastTrained - 1 > MAX_DAY_OPTION);
   return `${days}${openEnded ? "+" : ""} ${days === 1 && !openEnded ? "day" : "days"}`;
 }
 
@@ -79,7 +81,7 @@ export function SorenessSelector({
           {showDays && (
             <span className="text-zinc-400">
               {" "}· cleared in{" "}
-              {dayLabel(days, days === dayOptions[dayOptions.length - 1], daysSinceLastTrained!)}
+              {dayLabel(days, days === dayOptions[dayOptions.length - 1], daysSinceLastTrained)}
             </span>
           )}
         </span>
@@ -164,7 +166,7 @@ export function SorenessSelector({
                     : "border-white/20 bg-zinc-800 text-zinc-200 hover:border-white/30 hover:bg-zinc-700"
                 }`}
               >
-                {dayLabel(d, index === dayOptions.length - 1, daysSinceLastTrained!)}
+                {dayLabel(d, index === dayOptions.length - 1, daysSinceLastTrained)}
               </button>
             ))}
           </div>
