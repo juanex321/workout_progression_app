@@ -18,10 +18,11 @@ interface SorenessSelectorProps {
 }
 
 function recoveryDayOptions(daysSinceLastTrained: number | null | undefined): number[] {
-  const latest =
-    daysSinceLastTrained == null
-      ? MAX_DAY_OPTION
-      : Math.max(1, Math.min(daysSinceLastTrained - 1, MAX_DAY_OPTION));
+  // Unknown gap: ask with the full range.
+  if (daysSinceLastTrained == null) return Array.from({ length: MAX_DAY_OPTION }, (_, index) => index + 1);
+  const latest = Math.min(daysSinceLastTrained - 1, MAX_DAY_OPTION);
+  // With a 1-2 day gap there is only one possible answer, so skip the question.
+  if (latest < 2) return [];
   return Array.from({ length: latest }, (_, index) => index + 1);
 }
 
@@ -50,7 +51,7 @@ export function SorenessSelector({
 
   const handleSelect = (v: number) => {
     setInternalValue(v);
-    if (v === HEALED_EARLY) {
+    if (v === HEALED_EARLY && dayOptions.length > 0) {
       setAwaitingDays(true);
       return;
     }
@@ -71,7 +72,7 @@ export function SorenessSelector({
 
   if (!expanded && isSelected) {
     const label = SORENESS_LABELS[internalValue - 1] ?? "";
-    const showDays = internalValue === HEALED_EARLY && days !== null;
+    const showDays = internalValue === HEALED_EARLY && days !== null && dayOptions.length > 0;
     return (
       <div className="mb-3 flex items-center gap-2 rounded-2xl border border-white/8 bg-black/20 px-3 py-2.5 text-xs">
         <span className="text-zinc-500">Recovery:</span>
