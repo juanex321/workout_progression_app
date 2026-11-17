@@ -45,12 +45,15 @@ Otherwise the live frontend runs against an older API.
    `plan.py`, `progression.py`, requirements, FastAPI entrypoint, `iad1` Fluid
    config) with no databases or secrets. The script refuses to run if the
    folder already exists; delete the old folder first.
-2. Deploy that folder to the `workout-progression-api-candidate` project:
+2. Deploy that folder to the `workout-progression-api-candidate` project
+   (run `npx vercel login` first if the CLI isn't signed in):
    ```bash
    cd .vercel-api-candidate
-   npx vercel link --yes --project workout-progression-api-candidate
-   npx vercel deploy --prod
+   npx vercel link --yes --project workout-progression-api-candidate --scope juanex321s-projects
+   npx vercel deploy --prod --yes --scope juanex321s-projects
    ```
+   `link` writes a `.env.local` with a short-lived OIDC token into the folder.
+   The CLI doesn't upload it, but delete the folder after deploying.
 3. Verify with read-only checks: `/api/health` (liveness only, no DB) and a
    full `GET /api/workout-data`, which reads the database. Optionally run
    `node scripts/check_production_readonly.cjs https://workout-progression-app.vercel.app`
