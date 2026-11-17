@@ -147,6 +147,11 @@ as documented above, not on production.
 
 ### Rollback and source continuity
 
+> **2026-11-17:** Render has been retired, so the Render rollback below no
+> longer works. To roll back the API, promote an earlier production
+> deployment of the API project. Current hosting and deploy steps are in
+> `HOSTING_MIGRATION.md`. This section is kept as a historical record.
+
 Render remains available. Promote frontend deployment
 `dpl_6N6BbuKntnPgkRJWgsTuJVG4rR6N` to restore its compiled Render rewrite immediately.
 That rollback does not require changing database contents. To keep subsequent

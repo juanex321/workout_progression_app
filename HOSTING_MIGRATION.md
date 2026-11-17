@@ -1,104 +1,105 @@
-# Hosting Migration: Railway → Free Stack (Neon + Render + Vercel)
+# Hosting
 
-## Overview
+Current stack (since 2026-10-16):
 
-| Service       | Old (Railway)     | New (Free)                  |
-|---------------|-------------------|-----------------------------|
-| Database      | Railway Postgres  | Neon Postgres (free tier)   |
-| API Backend   | Railway           | Render (free tier)          |
-| Frontend      | Local / manual    | Vercel (free tier)          |
+| Piece    | Host   | Project / service                          | Deploys                         |
+|----------|--------|--------------------------------------------|---------------------------------|
+| Frontend | Vercel | `workout-progression-app` (root `frontend`) | Automatically from Git `main`   |
+| API      | Vercel | `workout-progression-api-candidate`        | By hand, from a packaged folder |
+| Database | Neon   | Production Postgres (plus a test branch)    | n/a                             |
 
-Total cost: **$0/month**
+- Live app: https://workout-progression-app.vercel.app
+- Live API: https://workout-progression-api-candidate.vercel.app (the project
+  kept its original "candidate" name; renaming it would change this alias)
+
+History: Railway → Neon + Render + Vercel, then the API moved from Render to
+Vercel on 2026-10-16 to remove Render free-tier cold starts (~30 s+). The
+measurements and rollout record are in `PERFORMANCE_ROLLOUT.md`. Render has
+been retired.
 
 ---
 
-## Step 1: Set Up Neon Database
+## Frontend (Vercel, Git-connected)
 
-1. Go to [neon.tech](https://neon.tech) and sign up (GitHub login works)
-2. Create a new project (any name, e.g., "workout-progression")
-3. Pick the **region closest to you**
-4. Copy the **connection string** — it looks like:
+- Root directory: `frontend`, framework preset Next.js.
+- `frontend/next.config.js` rewrites `/api/**` to `BACKEND_URL`. Rewrites are
+  compiled at build time, so changing `BACKEND_URL` needs a rebuild.
+- `BACKEND_URL`:
+  - Production: `https://workout-progression-api-candidate.vercel.app`
+  - Preview / Development: still the old Render URL. Point it somewhere
+    else before relying on frontend previews.
+- Every push to `main` deploys the frontend. API changes are **not**
+  deployed by that push; see below.
+
+## API (Vercel, deployed by hand)
+
+The API project is not connected to Git. When a PR changes `api/`,
+`progression.py` or `plan.py`, repackage and deploy it separately.
+Otherwise the live frontend runs against an older API.
+
+1. From an up-to-date `main`:
+   ```bash
+   python scripts/package_vercel_api.py
    ```
-   postgresql://username:password@ep-cool-name-123456.us-east-2.aws.neon.tech/neondb?sslmode=require
+   This builds `.vercel-api-candidate/`, an allowlisted folder (API source,
+   `plan.py`, `progression.py`, requirements, FastAPI entrypoint, `iad1` Fluid
+   config) with no databases or secrets. The script refuses to run if the
+   folder already exists; delete the old folder first.
+2. Deploy that folder to the `workout-progression-api-candidate` project:
+   ```bash
+   cd .vercel-api-candidate
+   npx vercel link --yes --project workout-progression-api-candidate
+   npx vercel deploy --prod
    ```
-5. Save this — you'll need it for Render
+3. Verify with read-only checks: `/api/health` (liveness only, no DB) and a
+   full `GET /api/workout-data`, which reads the database. Optionally run
+   `node scripts/check_production_readonly.cjs https://workout-progression-app.vercel.app`
+   with `PLAYWRIGHT_MODULE` pointing at a Playwright install.
+4. Rollback: promote the previous production deployment of the API project
+   in the Vercel dashboard.
 
-### Migrate Existing Data (Optional)
+### API environment variables
 
-If you have workout data in Railway's Postgres you want to keep:
+| Key            | Production                         | Preview                  |
+|----------------|------------------------------------|--------------------------|
+| `DATABASE_URL` | Neon production (sensitive)        | **not set**              |
+| `SKIP_DB_INIT` | `true`                             | `true`                   |
 
-```bash
-# Export from Railway (run while Railway is still active)
-pg_dump "YOUR_RAILWAY_DATABASE_URL" --no-owner --no-acl > backup.sql
+Preview has no `DATABASE_URL`. Before testing a preview build, add the Neon
+**test-branch** connection string as a Preview secret. Never point a preview
+at production data.
 
-# Import to Neon
-psql "YOUR_NEON_CONNECTION_STRING" < backup.sql
-```
+### Schema changes
 
-If Railway is already down, the app will auto-seed default exercise data on first
-boot — you'll just lose past session history.
+- `SKIP_DB_INIT=true` skips `create_all`, index creation and seeding on
+  startup. `ensure_schema_columns()` (in `api/db.py`) still runs and adds any
+  new nullable columns the ORM expects, e.g. `feedback.recovery_days`.
+- Anything beyond adding a nullable column needs an Alembic migration
+  (`alembic/versions/`), run against the target database before the API
+  deploy that depends on it.
+- `python -m api.bootstrap` initializes a fresh database (tables, indexes,
+  seed data). Run it before enabling `SKIP_DB_INIT` on a new database.
 
----
+## Database (Neon)
 
-## Step 2: Deploy API to Render
-
-1. Go to [render.com](https://render.com) and sign up (GitHub login works)
-2. Click **New → Web Service**
-3. Connect your GitHub repo
-4. Configure:
-   - **Name**: `workout-progression-api`
-   - **Root Directory**: leave empty (uses repo root)
-   - **Runtime**: Python
-   - **Build Command**: `pip install --upgrade pip && pip install -r api/requirements.txt`
-   - **Start Command**: `python -m uvicorn api.index:app --host 0.0.0.0 --port $PORT`
-   - **Instance Type**: **Free**
-5. Add environment variable:
-   - `DATABASE_URL` = your Neon connection string from Step 1
-6. Click **Deploy**
-7. Note your Render URL (e.g., `https://workout-progression-api.onrender.com`)
-8. Verify: visit `https://YOUR-RENDER-URL/api/health`
-
-### Note on Cold Starts
-
-Render free tier spins down after 15 min of inactivity. First request after idle
-takes ~30-60 seconds. The API and frontend both have retry logic to handle this
-gracefully — no data loss will occur.
-
----
-
-## Step 3: Deploy Frontend to Vercel
-
-1. Go to [vercel.com](https://vercel.com) and sign up (GitHub login works)
-2. Click **Add New → Project**
-3. Import your GitHub repo
-4. Configure:
-   - **Framework Preset**: Next.js (auto-detected)
-   - **Root Directory**: `frontend`
-5. Add environment variable:
-   - `BACKEND_URL` = your Render API URL from Step 2 (e.g., `https://workout-progression-api.onrender.com`)
-6. Click **Deploy**
-7. Your app is now live at the Vercel URL!
-
----
-
-## Step 4: Clean Up Railway
-
-Once everything works on the new stack:
-
-1. Go to your Railway dashboard
-2. Delete the project to stop any billing
+- Production and a test branch live in the same Neon project. Write tests go
+  to the test branch only.
+- The API forces the `pg8000` driver on Vercel and translates `sslmode` into
+  a verified TLS context (`api/db.py`).
 
 ---
 
 ## Troubleshooting
 
-**App shows loading spinner for a long time on first visit**
-Normal — Render free tier is waking up (~30-60s). Subsequent requests are fast.
+**"Failed to load current session"**
+Check the API project's Production `DATABASE_URL` and the frontend's
+Production `BACKEND_URL` (no trailing slash). Then check the API's runtime
+logs in Vercel.
 
-**"Failed to load current session" error**
-Check that `BACKEND_URL` is set correctly in Vercel (no trailing slash).
-Check that `DATABASE_URL` is set correctly in Render.
+**A feature works locally but not in production**
+The API was probably not redeployed after the PR merged. Compare the API
+project's latest production deployment date with the merge date.
 
-**Data is empty after migration**
-If you didn't export/import data, the app auto-seeds exercises on first boot.
-Create a new session to start fresh.
+**Slow first request**
+An idle Neon compute plus a cold Vercel function takes about 1–3 s. Later
+requests take about 0.3–0.5 s.
