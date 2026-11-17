@@ -43,5 +43,6 @@ frontend/tsconfig.tsbuildinfo
 .test-artifacts/
 .vercel-api-candidate/
 .vercel/
+.env
 .env.local
 .env.*.local
